@@ -40,10 +40,11 @@ Matrices de confusión `[TN, FP; FN, TP]`: +1 `[[227,15],[7,171]]`, +2
 
 MLflow exclusivo: `http://localhost:5500`, experimento
 `cicytex-external-validation`. Parent run:
-`c9d4bc73f3f34d73ae412a80f07cfc5d`; children +1
-`2e449e9efa5d45afa858765797482065`, +2
-`069f5637679644ebaccf85b1efcbc7f7`, +3
-`4dd9612932c245ab8d603412d05f39d5`. Una ejecución completa anterior también
+`d70d1468c70c4c269bc4888ab83bc8aa`; children +1
+`41ce10f969134823b1a9896aae77c665`, +2
+`7ee4a8cc664648948438beed03b71409`, +3
+`5c814afbcad1497d87aa6c9b9a31887d`. El parent registra el commit ejecutado
+`80853b16b9ccc0ec5172630f094222c073575349`. Una ejecución completa anterior también
 persistió tras reiniciar PostgreSQL, MinIO y MLflow; las cuatro corridas siguieron
 `FINISHED` y sus artefactos permanecieron listables. Hubo una corrida inicial fallida por codificación CP1252 de la salida
 de MLflow; se corrigió sin alterar datos ni metodología y se repitió completa.

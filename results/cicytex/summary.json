@@ -50,7 +50,7 @@
         "persistence_mae": 0.004929972902380953,
         "persistence_rmse": 0.007589461641712461
       },
-      "mlflow_run_id": "2e449e9efa5d45afa858765797482065"
+      "mlflow_run_id": "41ce10f969134823b1a9896aae77c665"
     },
     "2": {
       "horizon_days": 2,
@@ -91,7 +91,7 @@
         "persistence_mae": 0.007691798734285714,
         "persistence_rmse": 0.011544680737212038
       },
-      "mlflow_run_id": "069f5637679644ebaccf85b1efcbc7f7"
+      "mlflow_run_id": "7ee4a8cc664648948438beed03b71409"
     },
     "3": {
       "horizon_days": 3,
@@ -132,8 +132,8 @@
         "persistence_mae": 0.009539538869285715,
         "persistence_rmse": 0.014254337139732438
       },
-      "mlflow_run_id": "4dd9612932c245ab8d603412d05f39d5"
+      "mlflow_run_id": "5c814afbcad1497d87aa6c9b9a31887d"
     }
   },
-  "mlflow_parent_run_id": "c9d4bc73f3f34d73ae412a80f07cfc5d"
+  "mlflow_parent_run_id": "d70d1468c70c4c269bc4888ab83bc8aa"
 }
