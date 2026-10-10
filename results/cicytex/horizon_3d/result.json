@@ -1,0 +1,40 @@
+{
+  "horizon_days": 3,
+  "threshold_train_p20": 0.2094729167,
+  "selected_family": "random_forest",
+  "split": {
+    "train_end": "2023-06-07",
+    "calibration_end": "2023-06-21",
+    "validation_end": "2023-07-05",
+    "evaluation_end": "2023-07-25"
+  },
+  "partition_rows": {
+    "train": 1008,
+    "calibration": 294,
+    "validation": 294,
+    "evaluation": 420
+  },
+  "metrics": {
+    "n": 420,
+    "positive_rate": 0.4166666666666667,
+    "mcc": 0.7377855468343891,
+    "precision": 0.8306010928961749,
+    "recall": 0.8685714285714285,
+    "f1": 0.8491620111731844,
+    "roc_auc": 0.9401516034985423,
+    "pr_auc": 0.8809656738287766,
+    "brier": 0.09804828880439279,
+    "confusion_matrix": [
+      [
+        214,
+        31
+      ],
+      [
+        23,
+        152
+      ]
+    ],
+    "persistence_mae": 0.009539538869285715,
+    "persistence_rmse": 0.014254337139732438
+  }
+}
