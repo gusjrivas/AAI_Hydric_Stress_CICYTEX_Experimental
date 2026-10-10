@@ -15,4 +15,3 @@ SHA-256 `3B86919E95558217EE106855234B75D745A3B60F997E441ED39E1B9E3ABF67A5`.
 
 No usar `down -v`, `docker system prune` ni comandos globales de limpieza: los volúmenes
 nombrados conservan PostgreSQL y MinIO para reproducibilidad.
-

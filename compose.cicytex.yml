@@ -70,4 +70,3 @@ networks:
 volumes:
   cicytex-postgres: {name: aai-cicytex-experiment-postgres}
   cicytex-minio: {name: aai-cicytex-experiment-minio}
-

@@ -58,4 +58,3 @@ campaña externa separada. Los resultados evidencian capacidad temporal para
 anticipar el proxy dentro de esta campaña; no demuestran estrés fisiológico,
 generalización agronómica ni validación externa multi-sitio/multi-campaña. La
 degradación monotónica con el horizonte es coherente con mayor incertidumbre.
-
