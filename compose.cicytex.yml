@@ -1,0 +1,102 @@
+name: aai-cicytex-experiment
+
+services:
+  postgres-cicytex:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cicytex_mlflow
+      POSTGRES_PASSWORD: ${CICYTEX_POSTGRES_PASSWORD:-cicytex-local-only}
+      POSTGRES_DB: cicytex_mlflow
+    ports: ["55432:5432"]
+    volumes: ["cicytex-postgres:/var/lib/postgresql/data"]
+    networks: [cicytex]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cicytex_mlflow -d cicytex_mlflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-cicytex:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${CICYTEX_MINIO_USER:-cicytexadmin}
+      MINIO_ROOT_PASSWORD: ${CICYTEX_MINIO_PASSWORD:-cicytex-local-only-password}
+    ports: ["59000:9000", "59001:9001"]
+    volumes: ["cicytex-minio:/data"]
+    networks: [cicytex]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init-cicytex:
+    image: minio/mc:latest
+    depends_on:
+      minio-cicytex: {condition: service_healthy}
+    networks: [cicytex]
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio-cicytex:9000
+      ${CICYTEX_MINIO_USER:-cicytexadmin}
+      ${CICYTEX_MINIO_PASSWORD:-cicytex-local-only-password} &&
+      (mc mb local/cicytex-mlflow || true) && exit 0
+      "
+
+  mlflow-cicytex:
+    build: {context: ., dockerfile: docker/mlflow/Dockerfile}
+    depends_on:
+      postgres-cicytex: {condition: service_healthy}
+      minio-init-cicytex: {condition: service_completed_successfully}
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio-cicytex:9000
+      AWS_ACCESS_KEY_ID: ${CICYTEX_MINIO_USER:-cicytexadmin}
+      AWS_SECRET_ACCESS_KEY: ${CICYTEX_MINIO_PASSWORD:-cicytex-local-only-password}
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=postgresql://cicytex_mlflow:${CICYTEX_POSTGRES_PASSWORD:-cicytex-local-only}@postgres-cicytex:5432/cicytex_mlflow
+      - --artifacts-destination=s3://cicytex-mlflow
+      - --serve-artifacts
+    ports: ["5500:5000"]
+    networks: [cicytex]
+
+  backend:
+    build: {context: ., dockerfile: docker/cicytex/backend.Dockerfile}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      CICYTEX_REPLAY_DIR: /workspace/results/cicytex/causal_replay
+      CICYTEX_REPLAY_FEEDBACK_DIR: /workspace/cicytex-feedback
+    ports: ["127.0.0.1:55800:8000"]
+    networks: [cicytex]
+    volumes: ["cicytex-feedback:/workspace/cicytex-feedback"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v2/cicytex/replay/catalog', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      retries: 20
+    restart: unless-stopped
+
+  frontend-cicytex:
+    build: {context: ., dockerfile: docker/producer-preview/frontend.Dockerfile}
+    depends_on:
+      backend: {condition: service_healthy}
+    ports: ["127.0.0.1:55180:80"]
+    networks: [cicytex]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/index.html"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+networks:
+  cicytex: {name: aai-cicytex-experiment-network}
+
+volumes:
+  cicytex-postgres: {name: aai-cicytex-experiment-postgres}
+  cicytex-minio: {name: aai-cicytex-experiment-minio}
+  cicytex-feedback: {name: aai-cicytex-experiment-feedback}

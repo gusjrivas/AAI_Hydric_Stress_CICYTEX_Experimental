@@ -1,0 +1,22 @@
+{
+  "dataset": "CICYTEX digital twin processing tomato",
+  "doi": "10.5281/zenodo.17583691",
+  "license": "CC-BY-4.0",
+  "site": "Talavera la Real, Badajoz, Extremadura, Spain",
+  "crop": "processing tomato",
+  "campaign_used": 2023,
+  "sensors": 21,
+  "sensor_model": "Teros 10",
+  "soil_depth_cm": 20,
+  "variable": "volumetric soil moisture",
+  "unit": "m3/m3",
+  "source_zip": "C:\\Users\\gusta\\Downloads\\AAI_Hydric_Stress_External_Datasets.zip",
+  "source_zip_bytes": 26834421,
+  "source_zip_sha256": "3B86919E95558217EE106855234B75D745A3B60F997E441ED39E1B9E3ABF67A5",
+  "primary_source_file": "originales/cicytex/DTPT_Figure_8.csv",
+  "primary_source_sha256": "06D662BCE07D51C880A781A32B5779345ED3062D1BB559ABC031B5F84F296482",
+  "rows_normalized": 2205,
+  "dates": ["2023-04-12", "2023-07-25"],
+  "raw_data_versioned": false,
+  "notes": "The external bundle also contains unrelated datasets; they were excluded from this experiment."
+}

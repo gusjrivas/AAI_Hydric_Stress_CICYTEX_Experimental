@@ -57,6 +57,14 @@ replay_feedback/
 .demo-defense-data/
 frontend/.npm-cache/
 
+# Dataset externo CICYTEX: copia de trabajo local y artefactos pesados.
+# Solo se versionan manifiestos, resultados agregados y documentación.
+/data/cicytex/raw/
+/data/cicytex/work/
+/data/cicytex/*.zip
+/data/cicytex/**/*.parquet
+/results/cicytex/causal_replay/models/
+
 # Estado efímero de arranque local (PIDs/logs) de
 # scripts/start_defense_demo.ps1 — nunca se versiona.
 .defense-demo-run/

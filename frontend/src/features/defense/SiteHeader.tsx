@@ -1,4 +1,4 @@
-export type DefenseSite = "pergamino" | "melchor";
+export type DefenseSite = "pergamino" | "melchor" | "cicytex";
 
 const SITES: Record<DefenseSite, { route: string; name: string; chips: { label: string; className: string }[]; period: string }> = {
   pergamino: {
@@ -15,6 +15,15 @@ const SITES: Record<DefenseSite, { route: string; name: string; chips: { label: 
     name: "Melchor Romero",
     chips: [{ label: "Histórico", className: "site-chip--historical" }],
     period: "Melchor Romero · emisiones persistidas del 20 al 24 de octubre de 2024.",
+  },
+  cicytex: {
+    route: "defensa-cicytex",
+    name: "CICYTEX",
+    chips: [
+      { label: "Datos externos", className: "site-chip--external" },
+      { label: "Replay causal", className: "site-chip--historical" },
+    ],
+    period: "Talavera la Real · tomate de industria · emisiones legítimas desde el 6 de julio de 2023.",
   },
 };
 
@@ -38,6 +47,7 @@ export function SiteHeader({ site }: { site: DefenseSite }) {
         <nav className="site-switch" aria-label="Localidad">
           <a href="#defensa-pergamino" aria-current={site === "pergamino" ? "page" : undefined}>Pergamino</a>
           <a href="#defensa-melchor-romero" aria-current={site === "melchor" ? "page" : undefined}>Melchor Romero</a>
+          <a href="#defensa-cicytex" aria-current={site === "cicytex" ? "page" : undefined}>CICYTEX</a>
         </nav>
       </div>
       <p className="site-period">{info.period}</p>

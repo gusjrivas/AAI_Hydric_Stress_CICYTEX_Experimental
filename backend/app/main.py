@@ -20,6 +20,7 @@ from data_ingestion.history import HistoryError
 from human_feedback.operational_repository import OperationalRepositoryError
 
 from .routers import (
+    cicytex_replay,
     feedback,
     forecast,
     lineage,
@@ -151,3 +152,4 @@ app.include_router(models.router)
 app.include_router(lineage.router)
 app.include_router(producer_v2.router)
 app.include_router(replay.router)
+app.include_router(cicytex_replay.router)

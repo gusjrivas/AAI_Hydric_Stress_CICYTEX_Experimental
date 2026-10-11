@@ -1,0 +1,139 @@
+{
+  "dataset": {
+    "rows": 2205,
+    "sensors": 21,
+    "start": "2023-04-12",
+    "end": "2023-07-25",
+    "missing_soil_moisture": 0,
+    "duplicate_sensor_dates": 0,
+    "rows_per_sensor_min": 105,
+    "rows_per_sensor_max": 105,
+    "partial_days": 112
+  },
+  "horizons": {
+    "1": {
+      "horizon_days": 1,
+      "threshold_train_p20": 0.21035505318,
+      "selected_family": "logistic_regression",
+      "split": {
+        "train_end": "2023-06-06",
+        "calibration_end": "2023-06-20",
+        "validation_end": "2023-07-05",
+        "evaluation_end": "2023-07-25"
+      },
+      "partition_rows": {
+        "train": 1029,
+        "calibration": 294,
+        "validation": 315,
+        "evaluation": 420
+      },
+      "metrics": {
+        "n": 420,
+        "positive_rate": 0.4238095238095238,
+        "mcc": 0.8940535338953907,
+        "precision": 0.9193548387096774,
+        "recall": 0.9606741573033708,
+        "f1": 0.9395604395604396,
+        "roc_auc": 0.9907140867304299,
+        "pr_auc": 0.9884078862672224,
+        "brier": 0.041921682933015736,
+        "confusion_matrix": [
+          [
+            227,
+            15
+          ],
+          [
+            7,
+            171
+          ]
+        ],
+        "persistence_mae": 0.004929972902380953,
+        "persistence_rmse": 0.007589461641712461
+      },
+      "mlflow_run_id": "41ce10f969134823b1a9896aae77c665"
+    },
+    "2": {
+      "horizon_days": 2,
+      "threshold_train_p20": 0.21047708332,
+      "selected_family": "random_forest",
+      "split": {
+        "train_end": "2023-06-06",
+        "calibration_end": "2023-06-21",
+        "validation_end": "2023-07-05",
+        "evaluation_end": "2023-07-25"
+      },
+      "partition_rows": {
+        "train": 1008,
+        "calibration": 315,
+        "validation": 294,
+        "evaluation": 420
+      },
+      "metrics": {
+        "n": 420,
+        "positive_rate": 0.4261904761904762,
+        "mcc": 0.7837655923302895,
+        "precision": 0.8526315789473684,
+        "recall": 0.9050279329608939,
+        "f1": 0.8780487804878049,
+        "roc_auc": 0.964092816245161,
+        "pr_auc": 0.9304637763198716,
+        "brier": 0.0805251046257474,
+        "confusion_matrix": [
+          [
+            213,
+            28
+          ],
+          [
+            17,
+            162
+          ]
+        ],
+        "persistence_mae": 0.007691798734285714,
+        "persistence_rmse": 0.011544680737212038
+      },
+      "mlflow_run_id": "7ee4a8cc664648948438beed03b71409"
+    },
+    "3": {
+      "horizon_days": 3,
+      "threshold_train_p20": 0.2094729167,
+      "selected_family": "random_forest",
+      "split": {
+        "train_end": "2023-06-07",
+        "calibration_end": "2023-06-21",
+        "validation_end": "2023-07-05",
+        "evaluation_end": "2023-07-25"
+      },
+      "partition_rows": {
+        "train": 1008,
+        "calibration": 294,
+        "validation": 294,
+        "evaluation": 420
+      },
+      "metrics": {
+        "n": 420,
+        "positive_rate": 0.4166666666666667,
+        "mcc": 0.7377855468343891,
+        "precision": 0.8306010928961749,
+        "recall": 0.8685714285714285,
+        "f1": 0.8491620111731844,
+        "roc_auc": 0.9401516034985423,
+        "pr_auc": 0.8809656738287766,
+        "brier": 0.09804828880439279,
+        "confusion_matrix": [
+          [
+            214,
+            31
+          ],
+          [
+            23,
+            152
+          ]
+        ],
+        "persistence_mae": 0.009539538869285715,
+        "persistence_rmse": 0.014254337139732438
+      },
+      "mlflow_run_id": "5c814afbcad1497d87aa6c9b9a31887d"
+    }
+  },
+  "mlflow_parent_run_id": "d70d1468c70c4c269bc4888ab83bc8aa"
+}
