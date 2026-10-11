@@ -87,10 +87,12 @@ def temporal_split(dates: pd.Series) -> TemporalSplit:
     unique = pd.Series(sorted(pd.to_datetime(dates).dropna().unique()))
     if len(unique) < 60:
         raise ValueError("Se requieren al menos 60 fechas para cuatro particiones temporales")
+
     # 50% fit, 15% calibración, 15% validación, 20% evaluación final.
     def at(fraction: float) -> pd.Timestamp:
         position = min(len(unique) - 1, int(len(unique) * fraction) - 1)
         return pd.Timestamp(unique.iloc[position])
+
     return TemporalSplit(at(0.50), at(0.65), at(0.80), pd.Timestamp(unique.iloc[-1]))
 
 

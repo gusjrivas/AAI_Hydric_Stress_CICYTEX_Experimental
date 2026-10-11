@@ -150,15 +150,17 @@ def run_causal_ensemble(
     observations.to_csv(output_dir / "observations.csv", index=False)
     with mlflow.start_run(run_name="cicytex-causal-ensemble-parent") as parent:
         report["mlflow_parent_run_id"] = parent.info.run_id
-        mlflow.log_params({
-            "dataset_sha256": dataset_sha256,
-            "zip_sha256": zip_sha256,
-            "git_commit": git_commit,
-            "seed": SEED,
-            "proxy_percentile": 20,
-            "ensemble_weights": "1/3,1/3,1/3",
-            "decision_threshold": DECISION_THRESHOLD,
-        })
+        mlflow.log_params(
+            {
+                "dataset_sha256": dataset_sha256,
+                "zip_sha256": zip_sha256,
+                "git_commit": git_commit,
+                "seed": SEED,
+                "proxy_percentile": 20,
+                "ensemble_weights": "1/3,1/3,1/3",
+                "decision_threshold": DECISION_THRESHOLD,
+            }
+        )
         for horizon in (1, 2, 3):
             featured = build_features(data, horizon).dropna(
                 subset=[*FEATURES, "future_soil_moisture"]
@@ -177,7 +179,9 @@ def run_causal_ensemble(
             component_scores: dict[str, np.ndarray] = {}
             component_runs: dict[str, str] = {}
             for family, params in FAMILY_PARAMS.items():
-                model = fit_estimator(family, params, train[list(FEATURES)], train["observed_label"])
+                model = fit_estimator(
+                    family, params, train[list(FEATURES)], train["observed_label"]
+                )
                 calibrator = CalibratedClassifierCV(FrozenEstimator(model), method="sigmoid")
                 calibrator.fit(calibration[list(FEATURES)], calibration["observed_label"])
                 score = calibrator.predict_proba(evaluation[list(FEATURES)])[:, 1]
@@ -186,22 +190,35 @@ def run_causal_ensemble(
                 joblib.dump(calibrator, artifact)
                 with mlflow.start_run(run_name=f"{family}-h{horizon}", nested=True) as child:
                     component_runs[family] = child.info.run_id
-                    mlflow.log_params({
-                        "family": family,
-                        "horizon_days": horizon,
-                        "trained_through": split.train_end.date().isoformat(),
-                        "calibrated_through": split.calibration_end.date().isoformat(),
-                        "selected_through": split.validation_end.date().isoformat(),
-                        "threshold_train_p20": threshold,
-                        **params,
-                    })
+                    mlflow.log_params(
+                        {
+                            "family": family,
+                            "horizon_days": horizon,
+                            "trained_through": split.train_end.date().isoformat(),
+                            "calibrated_through": split.calibration_end.date().isoformat(),
+                            "selected_through": split.validation_end.date().isoformat(),
+                            "threshold_train_p20": threshold,
+                            **params,
+                        }
+                    )
                     mlflow.log_artifact(str(artifact), artifact_path="model")
 
-            base = evaluation[[
-                "sensor_id", "timestamp", "target_timestamp", "soil_moisture",
-                "future_soil_moisture", "observed_label",
-            ]].copy()
-            base = base.rename(columns={"timestamp": "emission_date", "future_soil_moisture": "observed_soil_moisture"})
+            base = evaluation[
+                [
+                    "sensor_id",
+                    "timestamp",
+                    "target_timestamp",
+                    "soil_moisture",
+                    "future_soil_moisture",
+                    "observed_label",
+                ]
+            ].copy()
+            base = base.rename(
+                columns={
+                    "timestamp": "emission_date",
+                    "future_soil_moisture": "observed_soil_moisture",
+                }
+            )
             legitimate = base["emission_date"] > split.validation_end
             base = base.loc[legitimate].reset_index(drop=True)
             base["event_threshold"] = threshold
@@ -212,7 +229,9 @@ def run_causal_ensemble(
                 part["alert"] = part["score"] >= DECISION_THRESHOLD
                 all_predictions.append(part)
             ensemble_score = np.mean(
-                np.column_stack([values[legitimate.to_numpy()] for values in component_scores.values()]),
+                np.column_stack(
+                    [values[legitimate.to_numpy()] for values in component_scores.values()]
+                ),
                 axis=1,
             )
             ensemble = base.copy()
@@ -220,15 +239,20 @@ def run_causal_ensemble(
             ensemble["score"] = ensemble_score
             ensemble["alert"] = ensemble_score >= DECISION_THRESHOLD
             ensemble["majority_alert"] = (
-                np.column_stack([
+                np.column_stack(
+                    [
+                        values[legitimate.to_numpy()] >= DECISION_THRESHOLD
+                        for values in component_scores.values()
+                    ]
+                ).sum(axis=1)
+                >= 2
+            )
+            ensemble["vote_fraction"] = np.column_stack(
+                [
                     values[legitimate.to_numpy()] >= DECISION_THRESHOLD
                     for values in component_scores.values()
-                ]).sum(axis=1) >= 2
-            )
-            ensemble["vote_fraction"] = np.column_stack([
-                values[legitimate.to_numpy()] >= DECISION_THRESHOLD
-                for values in component_scores.values()
-            ]).mean(axis=1)
+                ]
+            ).mean(axis=1)
             all_predictions.append(ensemble)
             persistence = base.copy()
             persistence["method"] = "persistence"
@@ -239,10 +263,14 @@ def run_causal_ensemble(
             report["horizons"][str(horizon)] = {
                 "threshold_train_p20": threshold,
                 "split": {key: value.date().isoformat() for key, value in split.__dict__.items()},
-                "first_legitimate_emission": (split.validation_end + pd.Timedelta(days=1)).date().isoformat(),
+                "first_legitimate_emission": (split.validation_end + pd.Timedelta(days=1))
+                .date()
+                .isoformat(),
                 "partition_rows": {
-                    "train": len(train), "calibration": len(calibration),
-                    "validation": len(validation), "evaluation": len(base),
+                    "train": len(train),
+                    "calibration": len(calibration),
+                    "validation": len(validation),
+                    "evaluation": len(base),
                 },
                 "component_mlflow_runs": component_runs,
             }
@@ -261,13 +289,17 @@ def run_causal_ensemble(
             values = _metrics(rows)
             episodes = _episode_metrics(rows)
             metric_rows.append({"horizon_days": horizon, "method": method, **values, **episodes})
-        for horizon, rows in predictions.loc[predictions["method"] == "ensemble"].groupby("horizon_days"):
+        for horizon, rows in predictions.loc[predictions["method"] == "ensemble"].groupby(
+            "horizon_days"
+        ):
             majority = rows.copy()
             majority["score"] = majority["vote_fraction"]
             majority["alert"] = majority["majority_alert"]
             values = _metrics(majority)
             episodes = _episode_metrics(majority)
-            metric_rows.append({"horizon_days": horizon, "method": "majority_vote_secondary", **values, **episodes})
+            metric_rows.append(
+                {"horizon_days": horizon, "method": "majority_vote_secondary", **values, **episodes}
+            )
         metrics = pd.DataFrame(metric_rows).sort_values(["horizon_days", "method"])
         metrics.to_csv(output_dir / "metrics.csv", index=False)
         report["metrics"] = metric_rows
@@ -279,5 +311,11 @@ def run_causal_ensemble(
         mlflow.log_artifacts(str(output_dir), artifact_path="causal_replay")
         for row in metric_rows:
             prefix = f"h{row['horizon_days']}_{row['method']}"
-            mlflow.log_metrics({f"{prefix}_{key}": value for key, value in _finite(row).items() if key != "horizon_days"})
+            mlflow.log_metrics(
+                {
+                    f"{prefix}_{key}": value
+                    for key, value in _finite(row).items()
+                    if key != "horizon_days"
+                }
+            )
     return report
