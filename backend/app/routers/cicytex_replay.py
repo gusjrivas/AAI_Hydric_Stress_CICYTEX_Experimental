@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import json
+import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -16,8 +16,11 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/v2/cicytex/replay", tags=["cicytex-replay"])
 METHOD_ORDER = [
-    "logistic_regression", "random_forest", "hist_gradient_boosting_classifier",
-    "ensemble", "persistence",
+    "logistic_regression",
+    "random_forest",
+    "hist_gradient_boosting_classifier",
+    "ensemble",
+    "persistence",
 ]
 
 
@@ -48,13 +51,19 @@ _lock = Lock()
 
 def _root() -> Path:
     configured = os.getenv("CICYTEX_REPLAY_DIR")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3] / "results" / "cicytex" / "causal_replay"
+    return (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[3] / "results" / "cicytex" / "causal_replay"
+    )
 
 
 def _load() -> tuple[pd.DataFrame, pd.DataFrame]:
     root = _root()
     try:
-        predictions = pd.read_csv(root / "predictions.csv", parse_dates=["emission_date", "target_timestamp"])
+        predictions = pd.read_csv(
+            root / "predictions.csv", parse_dates=["emission_date", "target_timestamp"]
+        )
         observations = pd.read_csv(root / "observations.csv", parse_dates=["timestamp"])
     except (OSError, ValueError) as error:
         raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
@@ -91,19 +100,41 @@ def _iso(value: object) -> str:
 
 def _metric(rows: pd.DataFrame) -> dict:
     if rows.empty:
-        return {"n": 0, "tp": 0, "tn": 0, "fp": 0, "fn": 0, "mcc": None, "precision": None, "recall": None, "f1": None, "coverage": 0.0}
+        return {
+            "n": 0,
+            "tp": 0,
+            "tn": 0,
+            "fp": 0,
+            "fn": 0,
+            "mcc": None,
+            "precision": None,
+            "recall": None,
+            "f1": None,
+            "coverage": 0.0,
+        }
     y = rows["observed_label"].astype(int)
     p = rows["alert"].astype(str).str.lower().isin(["true", "1"]).astype(int)
-    tp = int(((y == 1) & (p == 1)).sum()); tn = int(((y == 0) & (p == 0)).sum())
-    fp = int(((y == 0) & (p == 1)).sum()); fn = int(((y == 1) & (p == 0)).sum())
+    tp = int(((y == 1) & (p == 1)).sum())
+    tn = int(((y == 0) & (p == 0)).sum())
+    fp = int(((y == 0) & (p == 1)).sum())
+    fn = int(((y == 1) & (p == 0)).sum())
     denominator = ((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)) ** 0.5
     precision = tp / (tp + fp) if tp + fp else None
     recall = tp / (tp + fn) if tp + fn else None
     return {
-        "n": int(len(rows)), "tp": tp, "tn": tn, "fp": fp, "fn": fn,
+        "n": int(len(rows)),
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
         "mcc": (tp * tn - fp * fn) / denominator if denominator else None,
-        "precision": precision, "recall": recall,
-        "f1": 2 * precision * recall / (precision + recall) if precision is not None and recall is not None and precision + recall else None,
+        "precision": precision,
+        "recall": recall,
+        "f1": (
+            2 * precision * recall / (precision + recall)
+            if precision is not None and recall is not None and precision + recall
+            else None
+        ),
         "coverage": 1.0,
     }
 
@@ -119,23 +150,34 @@ def _render(session_id: str, session: Session) -> dict:
         raise HTTPException(404, "No existe esa emision CICYTEX")
     reveal = pd.Timestamp(session.revealed_through)
     known = observations.loc[
-        (observations["sensor_id"] == session.sensor_id)
-        & (observations["timestamp"] <= reveal)
+        (observations["sensor_id"] == session.sensor_id) & (observations["timestamp"] <= reveal)
     ].sort_values("timestamp")
     predictions_view = []
-    for _, row in selected.sort_values("method", key=lambda column: column.map({m: i for i, m in enumerate(METHOD_ORDER)})).iterrows():
+    for _, row in selected.sort_values(
+        "method", key=lambda column: column.map({m: i for i, m in enumerate(METHOD_ORDER)})
+    ).iterrows():
         target_revealed = pd.Timestamp(row["target_timestamp"]) <= reveal
-        predictions_view.append({
-            "method": row["method"], "score": float(row["score"]),
-            "alert": str(row["alert"]).lower() in {"true", "1"},
-            "target_date": _iso(row["target_timestamp"]),
-            "observed_soil_moisture": float(row["observed_soil_moisture"]) if target_revealed else None,
-            "observed_label": int(row["observed_label"]) if target_revealed else None,
-            "outcome": (
-                ("VP" if int(row["observed_label"]) else "FP") if str(row["alert"]).lower() in {"true", "1"}
-                else ("FN" if int(row["observed_label"]) else "VN")
-            ) if target_revealed else None,
-        })
+        predictions_view.append(
+            {
+                "method": row["method"],
+                "score": float(row["score"]),
+                "alert": str(row["alert"]).lower() in {"true", "1"},
+                "target_date": _iso(row["target_timestamp"]),
+                "observed_soil_moisture": (
+                    float(row["observed_soil_moisture"]) if target_revealed else None
+                ),
+                "observed_label": int(row["observed_label"]) if target_revealed else None,
+                "outcome": (
+                    (
+                        ("VP" if int(row["observed_label"]) else "FP")
+                        if str(row["alert"]).lower() in {"true", "1"}
+                        else ("FN" if int(row["observed_label"]) else "VN")
+                    )
+                    if target_revealed
+                    else None
+                ),
+            }
+        )
     accumulated = sensor_predictions.loc[
         (sensor_predictions["emission_date"].dt.date >= session.start_date)
         & (sensor_predictions["emission_date"] <= reveal)
@@ -144,13 +186,18 @@ def _render(session_id: str, session: Session) -> dict:
     ]
     metrics = {method: _metric(rows) for method, rows in accumulated.groupby("method")}
     return {
-        "session_id": session_id, "sensor_id": session.sensor_id,
-        "emission_date": session.emission_date.isoformat(), "horizon_days": session.horizon_days,
+        "session_id": session_id,
+        "sensor_id": session.sensor_id,
+        "emission_date": session.emission_date.isoformat(),
+        "horizon_days": session.horizon_days,
         "revealed_through": session.revealed_through.isoformat(),
         "threshold": float(selected.iloc[0]["event_threshold"]),
         "proxy_notice": "P20 estimado solo con entrenamiento; no es estres fisiologico observado.",
         "predictions": predictions_view,
-        "readings": [{"date": _iso(row.timestamp), "soil_moisture": float(row.soil_moisture)} for row in known.itertuples()],
+        "readings": [
+            {"date": _iso(row.timestamp), "soil_moisture": float(row.soil_moisture)}
+            for row in known.itertuples()
+        ],
         "metrics": metrics,
         "feedback": _read_feedback().get(_feedback_key(session)),
         "can_advance": session.revealed_through < date(2023, 7, 25),
@@ -185,7 +232,13 @@ def create_session(request: SessionRequest) -> dict:
     if valid.empty:
         raise HTTPException(422, "Seleccion fuera del paquete causal")
     session_id = uuid4().hex
-    session = Session(request.sensor_id, request.emission_date, request.emission_date, request.horizon_days, request.emission_date)
+    session = Session(
+        request.sensor_id,
+        request.emission_date,
+        request.emission_date,
+        request.horizon_days,
+        request.emission_date,
+    )
     with _lock:
         _sessions[session_id] = session
     return _render(session_id, session)
@@ -206,7 +259,9 @@ def advance(session_id: str) -> dict:
         session = _sessions.get(session_id)
         if session is None:
             raise HTTPException(404, "Sesion inexistente")
-        session.revealed_through = min(session.revealed_through + timedelta(days=1), date(2023, 7, 25))
+        session.revealed_through = min(
+            session.revealed_through + timedelta(days=1), date(2023, 7, 25)
+        )
     return _render(session_id, session)
 
 
