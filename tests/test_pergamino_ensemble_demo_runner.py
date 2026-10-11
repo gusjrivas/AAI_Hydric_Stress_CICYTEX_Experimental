@@ -177,6 +177,7 @@ def test_run_manifest_records_fallido_on_a_partial_run_without_deleting_prior_pr
     manifest = json.loads((output_dir / RUN_MANIFEST_FILENAME).read_text())
     assert manifest["status"] == "fallido"
     assert "error" in manifest
+    assert manifest["physical_threshold"] > 0
     assert "1" in manifest["horizons"]  # horizon 1's progress was preserved
     assert (output_dir / SENSOR_ID / "horizon_1" / "ensemble_manifest.json").exists()
 

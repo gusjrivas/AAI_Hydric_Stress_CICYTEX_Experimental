@@ -14,6 +14,9 @@ from experiment_runner.pergamino_ensemble_demo_runner import PERGAMINO_DEMO_PLAN
 class _SerializableArtifact:
     """Minimal fitted-object stand-in accepted by the production bundle writer."""
 
+    def __init__(self, n_features: int):
+        self.n_features_in_ = n_features
+
 
 def _daily_frame() -> pd.DataFrame:
     dates = pd.date_range(date(2019, 1, 1), date(2023, 12, 31), freq="D")
@@ -36,7 +39,7 @@ def test_shared_engine_preserves_family_order_and_returns_manifest_ready_results
         fit_calls.append((family, len(X_train), len(X_calib)))
         assert len(X_train) == len(y_train)
         assert len(X_calib) == len(y_calib)
-        return _SerializableArtifact(), _SerializableArtifact()
+        return _SerializableArtifact(X_train.shape[1]), _SerializableArtifact(X_train.shape[1])
 
     result = run_ensemble_demo_training(
         _daily_frame(),

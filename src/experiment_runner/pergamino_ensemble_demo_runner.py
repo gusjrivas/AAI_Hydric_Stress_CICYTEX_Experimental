@@ -97,23 +97,26 @@ from experiment_runner.controlled_daily_v4.provenance import (
     compute_sha256,
     validate_pergamino_provenance,
 )
-from experiment_runner.ensemble_demo_training import EnsembleDemoPlan
-from predictive_modeling.bundle_export import write_component_bundle, write_ensemble_manifest
-from predictive_modeling.bundle_packaging import attach_feature_names
+from experiment_runner.ensemble_demo_training import (
+    EmptyTrainingPartitionError,
+    EnsembleDemoPlan,
+    HorizonDemoTrainingResult,
+    run_ensemble_demo_training,
+)
 from predictive_modeling.labeling import fit_stress_threshold
 from predictive_modeling.operational_contract import (
     OPERATIONAL_CONTRACT_VERSION,
     VariableMetadata,
 )
 from predictive_modeling.operational_preparation import (
-    TARGET_LABEL_COLUMN,
+    TARGET_LABEL_COLUMN as TARGET_LABEL_COLUMN,
+)
+from predictive_modeling.operational_preparation import (
     DateRange,
     TemporalCutPlan,
-    add_multihorizon_targets,
-    partition_labeled_horizon,
     validate_utc_calendar,
 )
-from predictive_modeling.operational_run import build_feature_frame
+from predictive_modeling.operational_run import build_feature_frame as build_feature_frame
 from predictive_modeling.operational_run_artifacts import capture_code_identity, capture_environment
 
 # HorizonContract/ArtifactIdentity validate contract_version against this
@@ -411,92 +414,29 @@ def run_demo_from_frame(
     )
     _write_run_manifest(output_dir, manifest)
 
-    try:
-        threshold = resolve_training_threshold(daily_frame)
+    def record_threshold(threshold: float) -> None:
         manifest["physical_threshold"] = threshold
-        feature_frame, feature_names_tuple = build_feature_frame(
-            daily_frame, list(FEATURE_COLUMNS), lags=list(LAGS), windows=list(ROLLING_WINDOWS)
-        )
-        feature_names = list(feature_names_tuple)
-        cuts = build_cut_plan()
 
-        labeled_by_horizon = add_multihorizon_targets(
-            feature_frame,
-            column=EVENT_VARIABLE,
-            thresholds={h: threshold for h in (1, 2, 3)},
-        )
+    def record_horizon(result: HorizonDemoTrainingResult) -> None:
+        manifest["horizons"][str(result.horizon)] = result.manifest_report()
+        _write_run_manifest(output_dir, manifest)
 
-        event = {
-            "variable": EVENT_VARIABLE,
-            "threshold": threshold,
-            "unit": EVENT_UNIT,
-            "comparison": "lt",
-        }
-
-        written: dict[int, dict[str, Path]] = {}
-        for horizon in horizons:
-            prepared = partition_labeled_horizon(
-                labeled_by_horizon[horizon], cuts=cuts, required_inference_columns=feature_names
+    try:
+        try:
+            result = run_ensemble_demo_training(
+                daily_frame,
+                dataset_sha256=dataset_sha256,
+                output_dir=output_dir,
+                sensor_id=sensor_id,
+                horizons=horizons,
+                plan=PERGAMINO_DEMO_PLAN,
+                resolve_threshold=resolve_training_threshold,
+                fit_component=fit_and_calibrate,
+                on_threshold_resolved=record_threshold,
+                on_horizon_completed=record_horizon,
             )
-            # `partition_labeled_horizon`'s supervised partitions guarantee an
-            # observed target but not fully-populated lag/rolling features near
-            # the start of the ingestion window (first max(lag, window) days) --
-            # documented behavior (Hito 1, tests/test_ensemble_bundle_real_
-            # families.py), not a bug. Dropped here, not upstream.
-            train_rows = prepared.train.dropna(subset=feature_names)
-            calib_rows = prepared.calibration.dropna(subset=feature_names)
-            if train_rows.empty or calib_rows.empty:
-                raise DemoRunnerError(f"horizonte {horizon}: partición vacía tras la purga.")
-
-            X_train = train_rows[feature_names].to_numpy()
-            y_train = train_rows[TARGET_LABEL_COLUMN].astype(int).to_numpy()
-            X_calib = calib_rows[feature_names].to_numpy()
-            y_calib = calib_rows[TARGET_LABEL_COLUMN].astype(int).to_numpy()
-
-            horizon_dir = output_dir / sensor_id / f"horizon_{horizon}"
-            written[horizon] = {}
-            horizon_report: dict[str, Any] = {
-                "train_rows_used": int(len(train_rows)),
-                "train_rows_excluded_by_purge": int(len(prepared.train) - len(train_rows)),
-                "calibration_rows_used": int(len(calib_rows)),
-                "calibration_rows_excluded_by_purge": int(
-                    len(prepared.calibration) - len(calib_rows)
-                ),
-                "components": {},
-            }
-            for family in FAMILY_PARAMS:
-                model, calibrator = fit_and_calibrate(family, X_train, y_train, X_calib, y_calib)
-                attach_feature_names(model, feature_names)
-                attach_feature_names(calibrator, feature_names)
-                component_dir = write_component_bundle(
-                    horizon_dir / "ensemble" / family,
-                    sensor_id=sensor_id,
-                    horizon=horizon,
-                    model=model,
-                    calibrator=calibrator,
-                    feature_columns=list(FEATURE_COLUMNS),
-                    feature_names=feature_names,
-                    lags=list(LAGS),
-                    rolling_windows=list(ROLLING_WINDOWS),
-                    decision_threshold=DECISION_THRESHOLD,
-                    event=event,
-                    variables=VARIABLES,
-                    contract_version=CONTRACT_VERSION,
-                    model_identity_label=f"{family}_pergamino_demo_h{horizon}",
-                    calibrator_identity_label=f"{family}_pergamino_demo_calibrator_h{horizon}",
-                    temporal_cuts=cuts,
-                    trained_through=DEMO_TRAIN.end.isoformat(),
-                    calibrated_through=DEMO_CALIBRATION.end.isoformat(),
-                    data_snapshot_sha256=dataset_sha256,
-                )
-                written[horizon][family] = component_dir
-                bundle_meta = json.loads((component_dir / "bundle.json").read_text())
-                horizon_report["components"][family] = dict(bundle_meta["files"])
-            write_ensemble_manifest(
-                horizon_dir, sensor_id=sensor_id, horizon=horizon, contract_version=CONTRACT_VERSION
-            )
-            manifest["horizons"][str(horizon)] = horizon_report
-            _write_run_manifest(output_dir, manifest)
+        except EmptyTrainingPartitionError as error:
+            raise DemoRunnerError(str(error)) from error
 
         manifest["status"] = "completado"
         _write_run_manifest(output_dir, manifest)
@@ -506,7 +446,7 @@ def run_demo_from_frame(
         _write_run_manifest(output_dir, manifest)
         raise
 
-    return written
+    return result.written
 
 
 def run_demo(
