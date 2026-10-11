@@ -14,6 +14,7 @@ including an HTTP-level check through the real producer route.
 from __future__ import annotations
 
 import hashlib
+import inspect
 from datetime import date, timedelta
 
 import numpy as np
@@ -155,6 +156,45 @@ def test_run_demo_from_frame_rejects_a_non_empty_output_dir(tmp_path, demo_frame
 
     with pytest.raises(DemoRunnerError, match="no está vacío"):
         run_demo_from_frame(frame, dataset_sha256, output_dir, sensor_id=SENSOR_ID)
+
+
+def test_public_facade_and_artifact_tree_are_frozen(demo_output):
+    signature = inspect.signature(run_demo_from_frame)
+    assert tuple(signature.parameters) == (
+        "daily_frame",
+        "dataset_sha256",
+        "output_dir",
+        "sensor_id",
+        "horizons",
+        "input_hashes",
+    )
+    assert signature.parameters["sensor_id"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["horizons"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["horizons"].default == (1, 2, 3)
+    assert signature.parameters["input_hashes"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["input_hashes"].default is None
+
+    expected_files = {RUN_MANIFEST_FILENAME}
+    for horizon in (1, 2, 3):
+        horizon_root = f"{SENSOR_ID}/horizon_{horizon}"
+        expected_files.add(f"{horizon_root}/ensemble_manifest.json")
+        for family in FAMILY_PARAMS:
+            component_root = f"{horizon_root}/ensemble/{family}"
+            expected_files.update(
+                {
+                    f"{component_root}/model.joblib",
+                    f"{component_root}/calibrator.joblib",
+                    f"{component_root}/contract.json",
+                    f"{component_root}/bundle.json",
+                }
+            )
+
+    actual_files = {
+        path.relative_to(demo_output).as_posix()
+        for path in demo_output.rglob("*")
+        if path.is_file()
+    }
+    assert actual_files == expected_files
 
 
 @pytest.fixture(scope="module")
