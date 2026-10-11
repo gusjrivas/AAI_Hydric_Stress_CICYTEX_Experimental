@@ -26,7 +26,12 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from experiment_runner.cicytex.ingestion import quality_summary
+from experiment_runner.cicytex.ingestion import (
+    CicytexDatasetProvenance,
+    assert_cicytex_provenance_slot,
+    quality_summary,
+    write_cicytex_dataset_provenance,
+)
 from experiment_runner.controlled_daily_v4.models import fit_estimator
 
 FEATURES = ("soil_moisture", "lag1", "lag2", "lag3", "roll_mean_3", "roll_mean_7")
@@ -149,27 +154,43 @@ def run_experiment(
     dataset_sha256: str,
     zip_sha256: str,
     tracking_uri: str | None = None,
+    *,
+    dataset_provenance: CicytexDatasetProvenance | None = None,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
+    provenance_payload = None
+    if dataset_provenance is not None:
+        assert_cicytex_provenance_slot(
+            output_dir,
+            dataset_provenance,
+            dataset_sha256=dataset_sha256,
+            zip_sha256=zip_sha256,
+            data=data,
+        )
+        provenance_payload = dataset_provenance.to_dict()
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment("cicytex-external-validation")
     summary: dict[str, Any] = {"dataset": quality_summary(data), "horizons": {}}
+    if provenance_payload is not None:
+        summary["dataset_provenance"] = provenance_payload
+        summary["normalized_dataset_sha256"] = dataset_provenance.snapshot.dataset_sha256
     environment = subprocess.check_output(
         [subprocess.sys.executable, "-m", "pip", "freeze"], text=True
     )
     (output_dir / "dependencies.txt").write_text(environment, encoding="utf-8")
     with mlflow.start_run(run_name="cicytex-parent") as parent:
-        mlflow.log_params(
-            {
-                "dataset_sha256": dataset_sha256,
-                "zip_sha256": zip_sha256,
-                "git_commit": _git_commit(),
-                "seed": 42,
-                "proxy_percentile": 20,
-                "features": ",".join(FEATURES),
-            }
-        )
+        parent_params = {
+            "dataset_sha256": dataset_sha256,
+            "zip_sha256": zip_sha256,
+            "git_commit": _git_commit(),
+            "seed": 42,
+            "proxy_percentile": 20,
+            "features": ",".join(FEATURES),
+        }
+        if dataset_provenance is not None:
+            parent_params["normalized_dataset_sha256"] = dataset_provenance.snapshot.dataset_sha256
+        mlflow.log_params(parent_params)
         for horizon in (1, 2, 3):
             featured = build_features(data, horizon).dropna(
                 subset=[*FEATURES, "future_soil_moisture"]
@@ -269,8 +290,19 @@ def run_experiment(
                 record["mlflow_run_id"] = child.info.run_id
             summary["horizons"][str(horizon)] = record
         summary["mlflow_parent_run_id"] = parent.info.run_id
+        provenance_path = None
+        if dataset_provenance is not None:
+            provenance_path = write_cicytex_dataset_provenance(
+                output_dir,
+                dataset_provenance,
+                dataset_sha256=dataset_sha256,
+                zip_sha256=zip_sha256,
+                data=data,
+            )
         summary_path = output_dir / "summary.json"
         summary_path.write_text(json.dumps(summary, indent=2, allow_nan=False), encoding="utf-8")
         mlflow.log_artifact(str(summary_path))
         mlflow.log_artifact(str(output_dir / "dependencies.txt"))
+        if provenance_path is not None:
+            mlflow.log_artifact(str(provenance_path))
     return summary

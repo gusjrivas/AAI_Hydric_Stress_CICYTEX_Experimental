@@ -12,8 +12,11 @@ sys.path.insert(0, str(ROOT / "src"))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from experiment_runner.cicytex.causal_ensemble import run_causal_ensemble
-from experiment_runner.cicytex.ingestion import load_normalized_cicytex, sha256_file
+from experiment_runner.cicytex.causal_ensemble import run_causal_ensemble  # noqa: E402
+from experiment_runner.cicytex.ingestion import (  # noqa: E402
+    build_cicytex_dataset_provenance,
+    load_normalized_cicytex_snapshot,
+)
 
 
 def main() -> int:
@@ -41,12 +44,15 @@ def main() -> int:
     for path in (args.normalized_dir, args.dataset_file, args.zip):
         if not path.exists():
             parser.error(f"No existe: {path}")
+    snapshot = load_normalized_cicytex_snapshot(args.normalized_dir)
+    provenance = build_cicytex_dataset_provenance(snapshot, args.dataset_file, args.zip)
     summary = run_causal_ensemble(
-        load_normalized_cicytex(args.normalized_dir),
+        snapshot.dataframe,
         args.output_dir,
-        dataset_sha256=sha256_file(args.dataset_file),
-        zip_sha256=sha256_file(args.zip),
+        dataset_sha256=provenance.primary_source.sha256,
+        zip_sha256=provenance.source_archive.sha256,
         tracking_uri=args.tracking_uri,
+        dataset_provenance=provenance,
     )
     print(json.dumps(summary, indent=2, default=str))
     return 0

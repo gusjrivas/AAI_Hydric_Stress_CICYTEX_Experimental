@@ -38,6 +38,11 @@ from experiment_runner.cicytex.experiment import (
     build_features,
     temporal_split,
 )
+from experiment_runner.cicytex.ingestion import (
+    CicytexDatasetProvenance,
+    assert_cicytex_provenance_slot,
+    write_cicytex_dataset_provenance,
+)
 from experiment_runner.controlled_daily_v4.models import fit_estimator
 
 METHODS = (*FAMILY_PARAMS.keys(), "ensemble", "persistence")
@@ -126,10 +131,21 @@ def run_causal_ensemble(
     dataset_sha256: str,
     zip_sha256: str,
     tracking_uri: str | None = None,
+    dataset_provenance: CicytexDatasetProvenance | None = None,
 ) -> dict[str, Any]:
     """Train once, archive every legitimate evaluation-period emission."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    provenance_payload = None
+    if dataset_provenance is not None:
+        assert_cicytex_provenance_slot(
+            output_dir,
+            dataset_provenance,
+            dataset_sha256=dataset_sha256,
+            zip_sha256=zip_sha256,
+            data=data,
+        )
+        provenance_payload = dataset_provenance.to_dict()
     model_dir = output_dir / "models"
     model_dir.mkdir(exist_ok=True)
     if tracking_uri:
@@ -146,21 +162,25 @@ def run_causal_ensemble(
         "ensemble_policy": "equal-weight arithmetic mean; threshold 0.5",
         "horizons": {},
     }
+    if provenance_payload is not None:
+        report["dataset_provenance"] = provenance_payload
+        report["normalized_dataset_sha256"] = dataset_provenance.snapshot.dataset_sha256
     observations = data[["sensor_id", "timestamp", "soil_moisture"]].copy()
     observations.to_csv(output_dir / "observations.csv", index=False)
     with mlflow.start_run(run_name="cicytex-causal-ensemble-parent") as parent:
         report["mlflow_parent_run_id"] = parent.info.run_id
-        mlflow.log_params(
-            {
-                "dataset_sha256": dataset_sha256,
-                "zip_sha256": zip_sha256,
-                "git_commit": git_commit,
-                "seed": SEED,
-                "proxy_percentile": 20,
-                "ensemble_weights": "1/3,1/3,1/3",
-                "decision_threshold": DECISION_THRESHOLD,
-            }
-        )
+        parent_params = {
+            "dataset_sha256": dataset_sha256,
+            "zip_sha256": zip_sha256,
+            "git_commit": git_commit,
+            "seed": SEED,
+            "proxy_percentile": 20,
+            "ensemble_weights": "1/3,1/3,1/3",
+            "decision_threshold": DECISION_THRESHOLD,
+        }
+        if dataset_provenance is not None:
+            parent_params["normalized_dataset_sha256"] = dataset_provenance.snapshot.dataset_sha256
+        mlflow.log_params(parent_params)
         for horizon in (1, 2, 3):
             featured = build_features(data, horizon).dropna(
                 subset=[*FEATURES, "future_soil_moisture"]
@@ -305,6 +325,14 @@ def run_causal_ensemble(
         report["metrics"] = metric_rows
         report["prediction_rows"] = int(len(predictions))
         report["prediction_sha256"] = _sha256(output_dir / "predictions.csv")
+        if dataset_provenance is not None:
+            write_cicytex_dataset_provenance(
+                output_dir,
+                dataset_provenance,
+                dataset_sha256=dataset_sha256,
+                zip_sha256=zip_sha256,
+                data=data,
+            )
         (output_dir / "summary.json").write_text(
             json.dumps(report, indent=2, allow_nan=False, default=str), encoding="utf-8"
         )

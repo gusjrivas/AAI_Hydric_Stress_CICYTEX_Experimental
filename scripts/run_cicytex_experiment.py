@@ -8,7 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from experiment_runner.cicytex.experiment import run_experiment
-from experiment_runner.cicytex.ingestion import load_normalized_cicytex, sha256_file
+from experiment_runner.cicytex.ingestion import (
+    build_cicytex_dataset_provenance,
+    load_normalized_cicytex_snapshot,
+)
 
 
 def main() -> None:
@@ -21,10 +24,16 @@ def main() -> None:
     parser.add_argument("--tracking-uri", default=None)
     args = parser.parse_args()
     normalizados = args.raw_root / "normalizados"
-    data = load_normalized_cicytex(normalizados)
     dataset_source = args.raw_root / "originales" / "cicytex" / "DTPT_Figure_8.csv"
+    snapshot = load_normalized_cicytex_snapshot(normalizados)
+    provenance = build_cicytex_dataset_provenance(snapshot, dataset_source, args.zip)
     result = run_experiment(
-        data, args.output, sha256_file(dataset_source), sha256_file(args.zip), args.tracking_uri
+        snapshot.dataframe,
+        args.output,
+        provenance.primary_source.sha256,
+        provenance.source_archive.sha256,
+        args.tracking_uri,
+        dataset_provenance=provenance,
     )
     print(json.dumps(result, indent=2))
 
