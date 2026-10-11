@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+from dataclasses import FrozenInstanceError
 from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from experiment_runner import pergamino_ensemble_demo_runner as pergamino_runner
 from experiment_runner.pergamino_ensemble_demo_runner import (
     DEMO_CALIBRATION,
     DEMO_TRAIN,
@@ -37,8 +39,39 @@ from predictive_modeling.ensemble_bundle import (
     load_ensemble_bundle,
     predict_ensemble_bundle,
 )
+from predictive_modeling.operational_contract import VariableMetadata
+from predictive_modeling.operational_preparation import TemporalCutPlan
 
 SENSOR_ID = "synthetic-pergamino-demo"
+
+
+def test_pergamino_demo_plan_is_deeply_immutable_and_preserves_scientific_contract():
+    plan = pergamino_runner.PERGAMINO_DEMO_PLAN
+
+    assert isinstance(plan.temporal_cuts, TemporalCutPlan)
+    assert plan.temporal_cuts == pergamino_runner.build_cut_plan()
+    assert plan.horizons == (1, 2, 3)
+    assert plan.variables == tuple(
+        VariableMetadata(item["name"], item["unit"]) for item in pergamino_runner.VARIABLES
+    )
+    assert plan.feature_columns == pergamino_runner.FEATURE_COLUMNS
+    assert plan.lags == pergamino_runner.LAGS
+    assert plan.rolling_windows == pergamino_runner.ROLLING_WINDOWS
+    assert plan.family_names == tuple(pergamino_runner.FAMILY_PARAMS)
+    assert plan.event_variable == pergamino_runner.EVENT_VARIABLE
+    assert plan.event_unit == pergamino_runner.EVENT_UNIT
+    assert plan.event_comparison == "lt"
+    assert plan.decision_threshold == pergamino_runner.DECISION_THRESHOLD
+    assert plan.contract_version == pergamino_runner.CONTRACT_VERSION
+    assert plan.model_identity_template == "{family}_pergamino_demo_h{horizon}"
+    assert plan.calibrator_identity_template == ("{family}_pergamino_demo_calibrator_h{horizon}")
+
+    with pytest.raises(FrozenInstanceError):
+        plan.decision_threshold = 0.7
+    with pytest.raises(TypeError):
+        plan.family_names[0] = "changed"
+    with pytest.raises(FrozenInstanceError):
+        plan.variables[0].unit = "changed"
 
 
 def _synthetic_daily_frame() -> pd.DataFrame:
