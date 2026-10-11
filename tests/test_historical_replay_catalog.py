@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import pandas as pd
-from historical_replay.adapters.cicytex_csv import CsvReplayCatalogSource
 
+from historical_replay.adapters.cicytex_csv import CsvReplayCatalogSource
 from historical_replay.catalog import GetReplayCatalog, ReplayCatalog
 
 

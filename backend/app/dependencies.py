@@ -12,6 +12,8 @@ from fastapi import Depends, HTTPException
 
 from data_ingestion.catalog import CatalogRepository
 from data_ingestion.sensor_naming import validate_sensor_id
+from historical_replay.adapters.cicytex_csv import CsvReplayCatalogSource
+from historical_replay.catalog import GetReplayCatalog
 from historical_replay.feedback import ReplayFeedbackStore
 from historical_replay.package_loader import LoadedReplayPackage, load_package
 from human_feedback.historical_review_store import HistoricalReviewStore
@@ -78,6 +80,16 @@ def require_historical_replay_enabled(
 ) -> None:
     if not enabled:
         raise HTTPException(status_code=404, detail="Not Found")
+
+
+def get_cicytex_replay_catalog() -> GetReplayCatalog:
+    configured = os.getenv("CICYTEX_REPLAY_DIR")
+    root = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[2] / "results" / "cicytex" / "causal_replay"
+    )
+    return GetReplayCatalog(CsvReplayCatalogSource(root))
 
 
 def get_historical_replay_package(
