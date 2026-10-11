@@ -14,10 +14,10 @@ class StubDecisionPolicyEngine:
     ) -> None:
         self.suggestion = suggestion
         self.error = error
-        self.comments: list[str] = []
+        self.requests: list[FeedbackTriageInput] = []
 
-    def classify_feedback(self, comment: str) -> PolicySuggestion:
-        self.comments.append(comment)
+    def classify_feedback(self, request: FeedbackTriageInput) -> PolicySuggestion:
+        self.requests.append(request)
         if self.error is not None:
             raise self.error
         assert self.suggestion is not None
@@ -41,8 +41,11 @@ def test_feedback_triage_is_advisory_and_keeps_human_review_mandatory():
         )
     )
 
-    assert engine.comments == [
-        "La sonda CP1 presenta saltos incompatibles con el resto del perfil."
+    assert engine.requests == [
+        FeedbackTriageInput(
+            site_id="cicytex",
+            comment="La sonda CP1 presenta saltos incompatibles con el resto del perfil.",
+        )
     ]
     assert result.category == "data_quality"
     assert result.confidence == 0.93
