@@ -31,17 +31,17 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from experiment_runner.cicytex.experiment import (
-    FAMILY_PARAMS,
-    FEATURES,
-    _part,
-    build_features,
-    temporal_split,
-)
 from experiment_runner.cicytex.ingestion import (
     CicytexDatasetProvenance,
     assert_cicytex_provenance_slot,
     write_cicytex_dataset_provenance,
+)
+from experiment_runner.cicytex.training_protocol import (
+    FAMILY_PARAMS,
+    FEATURES,
+    build_features,
+    select_partition,
+    temporal_split,
 )
 from experiment_runner.controlled_daily_v4.models import fit_estimator
 
@@ -186,10 +186,10 @@ def run_causal_ensemble(
                 subset=[*FEATURES, "future_soil_moisture"]
             )
             split = temporal_split(featured["target_timestamp"])
-            train = _part(featured, split, "train")
-            calibration = _part(featured, split, "calibration")
-            validation = _part(featured, split, "validation")
-            evaluation = _part(featured, split, "evaluation")
+            train = select_partition(featured, split, "train")
+            calibration = select_partition(featured, split, "calibration")
+            validation = select_partition(featured, split, "validation")
+            evaluation = select_partition(featured, split, "evaluation")
             threshold = float(train["future_soil_moisture"].quantile(0.20))
             for frame in (train, calibration, validation, evaluation):
                 frame["observed_label"] = (frame["future_soil_moisture"] < threshold).astype(int)
