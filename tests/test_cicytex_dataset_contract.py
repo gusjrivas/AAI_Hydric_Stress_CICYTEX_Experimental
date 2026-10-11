@@ -21,9 +21,7 @@ def _write_normalized_fixture(directory: Path) -> dict[Path, str]:
     input_hashes: dict[Path, str] = {}
     for sensor_index, sensor in enumerate(SENSORS):
         moisture = (
-            "not-observed"
-            if sensor_index == 0
-            else float(f"{0.2 + sensor_index / 1000:.3f}")
+            "not-observed" if sensor_index == 0 else float(f"{0.2 + sensor_index / 1000:.3f}")
         )
         frame = pd.DataFrame(
             [
@@ -63,9 +61,7 @@ def test_legacy_loader_preserves_exact_frame_contract_and_input_bytes(tmp_path: 
                 {
                     "timestamp": pd.Timestamp("2023-01-02"),
                     "soil_moisture": (
-                        None
-                        if sensor_index == 0
-                        else float(f"{0.2 + sensor_index / 1000:.3f}")
+                        None if sensor_index == 0 else float(f"{0.2 + sensor_index / 1000:.3f}")
                     ),
                     "sensor_id": sensor,
                     "is_partial_day_soil_moisture": False,
@@ -143,9 +139,7 @@ def test_legacy_loader_preserves_validation_failures(tmp_path: Path, mutate, mes
 
 
 def test_normalized_v1_contract_is_deeply_immutable_and_scientifically_explicit():
-    contract_module = importlib.import_module(
-        "experiment_runner.cicytex.dataset_contract"
-    )
+    contract_module = importlib.import_module("experiment_runner.cicytex.dataset_contract")
     contract = contract_module.CICYTEX_NORMALIZED_V1
 
     assert contract.version == "cicytex-normalized-v1"
@@ -179,9 +173,7 @@ def test_normalized_v1_contract_is_deeply_immutable_and_scientifically_explicit(
     ],
 )
 def test_dataset_contract_rejects_invalid_scientific_configuration(overrides: dict):
-    contract_module = importlib.import_module(
-        "experiment_runner.cicytex.dataset_contract"
-    )
+    contract_module = importlib.import_module("experiment_runner.cicytex.dataset_contract")
     baseline = contract_module.CICYTEX_NORMALIZED_V1
     values = {
         "version": baseline.version,
@@ -203,9 +195,7 @@ def test_dataset_contract_rejects_invalid_scientific_configuration(overrides: di
 
 def test_csv_source_implements_port_and_matches_legacy_frame(tmp_path: Path):
     _write_normalized_fixture(tmp_path)
-    contract_module = importlib.import_module(
-        "experiment_runner.cicytex.dataset_contract"
-    )
+    contract_module = importlib.import_module("experiment_runner.cicytex.dataset_contract")
     ingestion_module = importlib.import_module("experiment_runner.cicytex.ingestion")
 
     source = ingestion_module.CsvCicytexDatasetSource(tmp_path)
