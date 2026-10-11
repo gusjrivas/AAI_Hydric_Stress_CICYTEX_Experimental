@@ -1,6 +1,6 @@
 import pytest
-from human_feedback.adapters.laya_http import LayaDecisionPolicyEngine
 
+from human_feedback.adapters.laya_http import LayaDecisionPolicyEngine
 from human_feedback.decision_policy import (
     DecisionPolicyUnavailable,
     FeedbackTriageInput,
