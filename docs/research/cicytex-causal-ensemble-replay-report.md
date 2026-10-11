@@ -59,7 +59,7 @@ y 0,774 para +1, +2 y +3. Los resultados completos, incluida ROC-AUC, PR-AUC,
 matrices y conteos, están en `results/cicytex/causal_replay/metrics.csv`.
 
 MLflow: experimento `cicytex-causal-ensemble-replay`, corrida padre
-`6dda3d62a448426fb2ce510dea0d097a`; las nueve corridas hijas se registran en
+`4a6b15cbf8834ffc9fd750c7a1167cea`; las nueve corridas hijas se registran en
 `results/cicytex/causal_replay/summary.json`.
 
 La alternativa secundaria por mayoría produjo MCC 0,893, 0,803 y 0,773 para
