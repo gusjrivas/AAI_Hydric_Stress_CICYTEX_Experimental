@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import re
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pandas as pd
@@ -138,3 +140,112 @@ def test_legacy_loader_preserves_validation_failures(tmp_path: Path, mutate, mes
 
     with pytest.raises(ValueError, match=message):
         load_normalized_cicytex(tmp_path)
+
+
+def test_normalized_v1_contract_is_deeply_immutable_and_scientifically_explicit():
+    contract_module = importlib.import_module(
+        "experiment_runner.cicytex.dataset_contract"
+    )
+    contract = contract_module.CICYTEX_NORMALIZED_V1
+
+    assert contract.version == "cicytex-normalized-v1"
+    assert contract.sensor_ids == SENSORS
+    assert contract.required_columns == ("timestamp", "soil_moisture", "sensor_id")
+    assert contract.timestamp_column == "timestamp"
+    assert contract.moisture_column == "soil_moisture"
+    assert contract.sensor_id_column == "sensor_id"
+    assert contract.filename_template == "cicytex__{sensor_id}.csv"
+    assert contract.moisture_unit == "m3/m3"
+    assert contract.moisture_bounds == (0.0, 1.0)
+    assert contract.allow_missing_moisture is True
+    assert contract.file_name_for(SENSORS[0]) == "cicytex__CP1_S1.csv"
+
+    with pytest.raises(FrozenInstanceError):
+        contract.version = "changed"
+    with pytest.raises(TypeError):
+        contract.sensor_ids[0] = "changed"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"version": ""},
+        {"sensor_ids": ("CP1_S1", "CP1_S1")},
+        {"required_columns": ("timestamp", "soil_moisture")},
+        {"filename_template": "cicytex.csv"},
+        {"moisture_unit": ""},
+        {"moisture_bounds": (1.0, 0.0)},
+        {"moisture_bounds": (0.0, float("inf"))},
+    ],
+)
+def test_dataset_contract_rejects_invalid_scientific_configuration(overrides: dict):
+    contract_module = importlib.import_module(
+        "experiment_runner.cicytex.dataset_contract"
+    )
+    baseline = contract_module.CICYTEX_NORMALIZED_V1
+    values = {
+        "version": baseline.version,
+        "sensor_ids": baseline.sensor_ids,
+        "required_columns": baseline.required_columns,
+        "timestamp_column": baseline.timestamp_column,
+        "moisture_column": baseline.moisture_column,
+        "sensor_id_column": baseline.sensor_id_column,
+        "filename_template": baseline.filename_template,
+        "moisture_unit": baseline.moisture_unit,
+        "moisture_bounds": baseline.moisture_bounds,
+        "allow_missing_moisture": baseline.allow_missing_moisture,
+    }
+    values.update(overrides)
+
+    with pytest.raises(ValueError):
+        contract_module.CicytexDatasetContract(**values)
+
+
+def test_csv_source_implements_port_and_matches_legacy_frame(tmp_path: Path):
+    _write_normalized_fixture(tmp_path)
+    contract_module = importlib.import_module(
+        "experiment_runner.cicytex.dataset_contract"
+    )
+    ingestion_module = importlib.import_module("experiment_runner.cicytex.ingestion")
+
+    source = ingestion_module.CsvCicytexDatasetSource(tmp_path)
+    result = source.load()
+
+    assert isinstance(source, contract_module.CicytexDatasetSource)
+    assert source.contract is contract_module.CICYTEX_NORMALIZED_V1
+    assert_frame_equal(
+        result,
+        load_normalized_cicytex(tmp_path),
+        check_dtype=True,
+        check_exact=True,
+        check_like=False,
+    )
+
+
+def test_legacy_loader_delegates_to_csv_source(monkeypatch, tmp_path: Path):
+    ingestion_module = importlib.import_module("experiment_runner.cicytex.ingestion")
+    expected = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2023-01-01")],
+            "soil_moisture": [0.2],
+            "sensor_id": ["CP1_S1"],
+        }
+    )
+    observed: dict[str, object] = {}
+
+    def fake_load(source):
+        observed["directory"] = source.directory
+        observed["contract"] = source.contract
+        return expected
+
+    monkeypatch.setattr(ingestion_module.CsvCicytexDatasetSource, "load", fake_load)
+
+    result = ingestion_module.load_normalized_cicytex(tmp_path)
+
+    assert result is expected
+    assert observed == {
+        "directory": tmp_path,
+        "contract": importlib.import_module(
+            "experiment_runner.cicytex.dataset_contract"
+        ).CICYTEX_NORMALIZED_V1,
+    }
