@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import FrozenInstanceError
 from datetime import date
 
 import numpy as np
@@ -47,6 +48,10 @@ def test_family_spec_is_deeply_immutable_and_returns_defensive_parameter_copies(
     }
     with pytest.raises(TypeError):
         spec.parameter_items[0] = ("C", 2.0)
+    with pytest.raises(FrozenInstanceError):
+        spec.family = "changed"
+    with pytest.raises(ValueError, match="duplicates"):
+        ensemble_training.EnsembleFamilySpec("duplicate", (("C", 1.0), ("C", 2.0)))
 
 
 @pytest.mark.parametrize(

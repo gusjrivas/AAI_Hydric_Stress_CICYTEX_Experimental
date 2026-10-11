@@ -99,9 +99,22 @@ class EnsembleDemoPlan:
     decision_threshold: float
     variables: tuple[VariableMetadata, ...]
     temporal_cuts: TemporalCutPlan
-    family_names: tuple[str, ...]
+    family_specs: tuple[EnsembleFamilySpec, ...]
     model_identity_template: str
     calibrator_identity_template: str
+
+    @property
+    def family_names(self) -> tuple[str, ...]:
+        return tuple(spec.family for spec in self.family_specs)
+
+    def params_for(self, family: str) -> dict[str, ScientificScalar]:
+        for spec in self.family_specs:
+            if spec.family == family:
+                return spec.parameters()
+        raise KeyError(family)
+
+    def family_params_dict(self) -> dict[str, dict[str, ScientificScalar]]:
+        return {spec.family: spec.parameters() for spec in self.family_specs}
 
     def __post_init__(self) -> None:
         if self.horizons != SUPPORTED_HORIZONS:
@@ -112,6 +125,12 @@ class EnsembleDemoPlan:
         if self.event_comparison != "lt":
             raise ValueError("event_comparison must be lt")
         _non_empty_unique(self.feature_columns, "feature_columns")
+        if (
+            not isinstance(self.family_specs, tuple)
+            or not self.family_specs
+            or not all(isinstance(spec, EnsembleFamilySpec) for spec in self.family_specs)
+        ):
+            raise ValueError("family_specs must be a non-empty tuple of EnsembleFamilySpec")
         _non_empty_unique(self.family_names, "family_names")
         if (
             not isinstance(self.lags, tuple)
