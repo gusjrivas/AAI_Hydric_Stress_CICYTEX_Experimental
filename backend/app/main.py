@@ -22,6 +22,7 @@ from human_feedback.operational_repository import OperationalRepositoryError
 from .routers import (
     cicytex_replay,
     feedback,
+    feedback_triage,
     forecast,
     lineage,
     models,
@@ -153,3 +154,4 @@ app.include_router(lineage.router)
 app.include_router(producer_v2.router)
 app.include_router(replay.router)
 app.include_router(cicytex_replay.router)
+app.include_router(feedback_triage.router)
