@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import date
 
 import numpy as np
@@ -9,6 +10,8 @@ import pandas as pd
 import pytest
 
 from experiment_runner import ensemble_demo_training as ensemble_training
+from experiment_runner import melchor_romero_historical_demo_runner as melchor_runner
+from experiment_runner import pergamino_ensemble_demo_runner as pergamino_runner
 from experiment_runner.ensemble_demo_training import run_ensemble_demo_training
 from experiment_runner.pergamino_ensemble_demo_runner import PERGAMINO_DEMO_PLAN
 
@@ -57,6 +60,67 @@ def test_family_spec_is_deeply_immutable_and_returns_defensive_parameter_copies(
 def test_family_spec_rejects_invalid_scientific_configuration(family, parameters):
     with pytest.raises((TypeError, ValueError)):
         ensemble_training.EnsembleFamilySpec.from_mapping(family, parameters)
+
+
+@pytest.mark.parametrize(
+    ("runner", "plan_name"),
+    [
+        (pergamino_runner, "PERGAMINO_DEMO_PLAN"),
+        (melchor_runner, "MELCHOR_ROMERO_DEMO_PLAN"),
+    ],
+)
+def test_plan_is_authoritative_when_public_family_params_are_mutated(
+    runner, plan_name, monkeypatch
+):
+    public_snapshot = copy.deepcopy(runner.FAMILY_PARAMS)
+    plan = getattr(runner, plan_name)
+
+    assert plan.family_params_dict() == public_snapshot
+    assert plan.family_names == tuple(public_snapshot)
+    monkeypatch.setitem(runner.FAMILY_PARAMS["logistic_regression"], "C", 999.0)
+
+    assert plan.params_for("logistic_regression")["C"] == 1.0
+    if runner is pergamino_runner:
+        manifest = runner._new_run_manifest(
+            sensor_id="sensor",
+            horizons=(1,),
+            dataset_sha256="a" * 64,
+            input_hashes={},
+        )
+    else:
+        manifest = runner._new_run_manifest(
+            sensor_id="sensor",
+            horizons=(1,),
+            dataset_sha256="a" * 64,
+            dataset_name=runner.DATASET_NAME,
+        )
+    assert manifest["effective_config"]["family_params"] == public_snapshot
+
+    captured = {}
+
+    def fake_fit_estimator(family, parameters, X_train, y_train):
+        captured.update(family=family, parameters=parameters)
+        return _SerializableArtifact(X_train.shape[1])
+
+    class FakeCalibrator:
+        def __init__(self, estimator, *, method):
+            self.estimator = estimator
+            self.method = method
+
+        def fit(self, X_calib, y_calib):
+            return self
+
+    monkeypatch.setattr(runner, "fit_estimator", fake_fit_estimator)
+    monkeypatch.setattr(runner, "CalibratedClassifierCV", FakeCalibrator)
+    X = np.zeros((2, 1))
+    y = np.array([0, 1])
+    runner.fit_and_calibrate("logistic_regression", X, y, X, y)
+
+    assert captured == {
+        "family": "logistic_regression",
+        "parameters": public_snapshot["logistic_regression"],
+    }
+    assert captured["parameters"] is not runner.FAMILY_PARAMS["logistic_regression"]
 
 
 def _daily_frame() -> pd.DataFrame:
