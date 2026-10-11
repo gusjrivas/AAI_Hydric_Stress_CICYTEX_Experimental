@@ -97,10 +97,14 @@ from experiment_runner.controlled_daily_v4.provenance import (
     compute_sha256,
     validate_pergamino_provenance,
 )
+from experiment_runner.ensemble_demo_training import EnsembleDemoPlan
 from predictive_modeling.bundle_export import write_component_bundle, write_ensemble_manifest
 from predictive_modeling.bundle_packaging import attach_feature_names
 from predictive_modeling.labeling import fit_stress_threshold
-from predictive_modeling.operational_contract import OPERATIONAL_CONTRACT_VERSION
+from predictive_modeling.operational_contract import (
+    OPERATIONAL_CONTRACT_VERSION,
+    VariableMetadata,
+)
 from predictive_modeling.operational_preparation import (
     TARGET_LABEL_COLUMN,
     DateRange,
@@ -334,6 +338,24 @@ def build_cut_plan() -> TemporalCutPlan:
         evaluation=DEMO_EVALUATION,
         inference_as_of=INGESTION_END,
     )
+
+
+PERGAMINO_DEMO_PLAN = EnsembleDemoPlan(
+    horizons=(1, 2, 3),
+    contract_version=CONTRACT_VERSION,
+    event_variable=EVENT_VARIABLE,
+    event_unit=EVENT_UNIT,
+    event_comparison="lt",
+    feature_columns=FEATURE_COLUMNS,
+    lags=LAGS,
+    rolling_windows=ROLLING_WINDOWS,
+    decision_threshold=DECISION_THRESHOLD,
+    variables=tuple(VariableMetadata(item["name"], item["unit"]) for item in VARIABLES),
+    temporal_cuts=build_cut_plan(),
+    family_names=tuple(FAMILY_PARAMS),
+    model_identity_template="{family}_pergamino_demo_h{horizon}",
+    calibrator_identity_template="{family}_pergamino_demo_calibrator_h{horizon}",
+)
 
 
 def fit_and_calibrate(
