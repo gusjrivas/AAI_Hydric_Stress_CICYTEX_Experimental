@@ -21,10 +21,11 @@ import { demoGateForSensor } from "./features/demo/lock";
 import { HistoricalReplayPage } from "./features/historical-replay/HistoricalReplayPage";
 import { PergaminoDefensePage } from "./features/defense/PergaminoDefensePage";
 import { MelchorRomeroDefensePage } from "./features/defense/MelchorRomeroDefensePage";
+import { CicytexDefensePage } from "./features/defense/CicytexDefensePage";
 import { SensorLabPage } from "./features/lab/SensorLabPage";
 import { EvidenceResultsPage } from "./features/evidence/EvidenceResultsPage";
 
-const DEFENSE_ROUTES = ["defensa-pergamino", "defensa-melchor-romero"] as const;
+const DEFENSE_ROUTES = ["defensa-pergamino", "defensa-melchor-romero", "defensa-cicytex"] as const;
 function isDefenseRoute(route: string): route is (typeof DEFENSE_ROUTES)[number] {
   return (DEFENSE_ROUTES as readonly string[]).includes(route);
 }
@@ -232,6 +233,7 @@ function App() {
       <main id="main-content" className="app-sections" tabIndex={-1}>
         {!isDemoRoute && route === "defensa-pergamino" && <PergaminoDefensePage />}
         {!isDemoRoute && route === "defensa-melchor-romero" && <MelchorRomeroDefensePage />}
+        {!isDemoRoute && route === "defensa-cicytex" && <CicytexDefensePage />}
         {!isDemoRoute && route === LAB_ROUTE && <SensorLabPage onSensorWithData={setLabSensorId} onOpenInTools={openLabSensorInTools} />}
         {!isDemoRoute && route === "evidencia-resultados" && <EvidenceResultsPage />}
         {isHistoricalReplayRoute && (

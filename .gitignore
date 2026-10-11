@@ -63,6 +63,7 @@ frontend/.npm-cache/
 /data/cicytex/work/
 /data/cicytex/*.zip
 /data/cicytex/**/*.parquet
+/results/cicytex/causal_replay/models/
 
 # Estado efímero de arranque local (PIDs/logs) de
 # scripts/start_defense_demo.ps1 — nunca se versiona.
