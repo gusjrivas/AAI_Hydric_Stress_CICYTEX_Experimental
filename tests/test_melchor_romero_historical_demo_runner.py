@@ -13,11 +13,18 @@ package for the same dataset) and never imports `historical_replay.*`.
 
 from __future__ import annotations
 
+import inspect
 import json
+from dataclasses import FrozenInstanceError
 from datetime import date, timedelta
 
 import pytest
 
+from experiment_runner import melchor_romero_historical_demo_runner as melchor_runner
+from experiment_runner.ensemble_demo_training import (
+    EnsembleDemoTrainingResult,
+    HorizonDemoTrainingResult,
+)
 from experiment_runner.melchor_romero_historical_demo_runner import (
     DEMO_CALIBRATION,
     DEMO_TRAIN,
@@ -33,8 +40,45 @@ from predictive_modeling.ensemble_bundle import (
     load_ensemble_bundle,
     predict_ensemble_bundle,
 )
+from predictive_modeling.operational_contract import VariableMetadata
+from predictive_modeling.operational_preparation import (
+    TARGET_LABEL_COLUMN as CANONICAL_TARGET_LABEL,
+)
+from predictive_modeling.operational_preparation import TemporalCutPlan
+from predictive_modeling.operational_run import build_feature_frame as canonical_build_feature_frame
 
 SENSOR_ID = "test-melchor-romero-demo"
+
+
+def test_melchor_demo_plan_is_deeply_immutable_and_preserves_scientific_contract():
+    plan = melchor_runner.MELCHOR_ROMERO_DEMO_PLAN
+
+    assert isinstance(plan.temporal_cuts, TemporalCutPlan)
+    assert plan.temporal_cuts == melchor_runner.build_cut_plan()
+    assert plan.horizons == (1, 2, 3)
+    assert plan.variables == tuple(
+        VariableMetadata(item["name"], item["unit"]) for item in melchor_runner.VARIABLES
+    )
+    assert plan.feature_columns == melchor_runner.FEATURE_COLUMNS
+    assert plan.lags == melchor_runner.LAGS
+    assert plan.rolling_windows == melchor_runner.ROLLING_WINDOWS
+    assert plan.family_names == tuple(melchor_runner.FAMILY_PARAMS)
+    assert plan.event_variable == melchor_runner.EVENT_VARIABLE
+    assert plan.event_unit == melchor_runner.EVENT_UNIT
+    assert plan.event_comparison == "lt"
+    assert plan.decision_threshold == melchor_runner.DECISION_THRESHOLD
+    assert plan.contract_version == melchor_runner.CONTRACT_VERSION
+    assert plan.model_identity_template == "{family}_melchor_romero_demo_h{horizon}"
+    assert plan.calibrator_identity_template == (
+        "{family}_melchor_romero_demo_calibrator_h{horizon}"
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        plan.decision_threshold = 0.7
+    with pytest.raises(TypeError):
+        plan.family_names[0] = "changed"
+    with pytest.raises(FrozenInstanceError):
+        plan.variables[0].unit = "changed"
 
 
 @pytest.fixture(scope="module")
@@ -109,9 +153,12 @@ def test_run_manifest_records_fallido_on_a_partial_run_without_deleting_prior_pr
 
     manifest = json.loads((output_dir / RUN_MANIFEST_FILENAME).read_text())
     assert manifest["status"] == "fallido"
-    assert "error" in manifest
-    assert "1" in manifest["horizons"]
+    assert manifest["error"] == "KeyError: 99"
+    assert manifest["physical_threshold"] > 0
+    assert set(manifest["horizons"]) == {"1"}
+    assert manifest["horizons"]["1"]["train_rows_used"] > 0
     assert (output_dir / SENSOR_ID / "horizon_1" / "ensemble_manifest.json").exists()
+    assert not (output_dir / SENSOR_ID / "horizon_99").exists()
 
 
 def test_run_demo_from_frame_rejects_a_non_empty_output_dir(tmp_path, demo_frame):
@@ -124,12 +171,92 @@ def test_run_demo_from_frame_rejects_a_non_empty_output_dir(tmp_path, demo_frame
         run_demo_from_frame(frame, dataset_sha256, output_dir, sensor_id=SENSOR_ID)
 
 
+def test_run_demo_from_frame_delegates_to_the_shared_engine(tmp_path, demo_frame, monkeypatch):
+    frame, dataset_sha256 = demo_frame
+    output_dir = tmp_path / "output"
+    captured = {}
+    component_dir = output_dir / SENSOR_ID / "horizon_1" / "ensemble" / "family"
+    horizon_result = HorizonDemoTrainingResult(
+        horizon=1,
+        written_items=(("family", component_dir),),
+        train_rows_used=10,
+        train_rows_excluded_by_purge=2,
+        calibration_rows_used=5,
+        calibration_rows_excluded_by_purge=1,
+        component_file_items=(("family", (("model.joblib", "a" * 64),)),),
+    )
+
+    def fake_engine(daily_frame, **kwargs):
+        captured["daily_frame"] = daily_frame
+        captured.update(kwargs)
+        kwargs["on_threshold_resolved"](0.23)
+        kwargs["on_horizon_completed"](horizon_result)
+        return EnsembleDemoTrainingResult(0.23, (horizon_result,))
+
+    monkeypatch.setattr(melchor_runner, "run_ensemble_demo_training", fake_engine, raising=False)
+
+    written = run_demo_from_frame(
+        frame, dataset_sha256, output_dir, sensor_id=SENSOR_ID, horizons=(1,)
+    )
+
+    assert captured["daily_frame"] is frame
+    assert captured["dataset_sha256"] == dataset_sha256
+    assert captured["output_dir"] == output_dir
+    assert captured["sensor_id"] == SENSOR_ID
+    assert captured["horizons"] == (1,)
+    assert captured["plan"] is melchor_runner.MELCHOR_ROMERO_DEMO_PLAN
+    assert captured["resolve_threshold"] is melchor_runner.resolve_training_threshold
+    assert captured["fit_component"] is melchor_runner.fit_and_calibrate
+    assert written == {1: {"family": component_dir}}
+    manifest = json.loads((output_dir / RUN_MANIFEST_FILENAME).read_text())
+    assert manifest["status"] == "completado"
+    assert manifest["physical_threshold"] == 0.23
+    assert manifest["horizons"]["1"] == horizon_result.manifest_report()
+
+
 @pytest.fixture(scope="module")
 def demo_output(tmp_path_factory, demo_frame):
     frame, dataset_sha256 = demo_frame
     output_dir = tmp_path_factory.mktemp("melchor_romero_demo_output")
     run_demo_from_frame(frame, dataset_sha256, output_dir, sensor_id=SENSOR_ID, horizons=(1, 2, 3))
     return output_dir
+
+
+def test_public_facade_reexports_and_artifact_tree_are_frozen(demo_output):
+    signature = inspect.signature(run_demo_from_frame)
+    assert tuple(signature.parameters) == (
+        "daily_frame",
+        "dataset_sha256",
+        "output_dir",
+        "sensor_id",
+        "horizons",
+    )
+    assert signature.parameters["sensor_id"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["horizons"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["horizons"].default == (1, 2, 3)
+    assert melchor_runner.TARGET_LABEL_COLUMN == CANONICAL_TARGET_LABEL
+    assert melchor_runner.build_feature_frame is canonical_build_feature_frame
+
+    expected_files = {RUN_MANIFEST_FILENAME}
+    for horizon in (1, 2, 3):
+        horizon_root = f"{SENSOR_ID}/horizon_{horizon}"
+        expected_files.add(f"{horizon_root}/ensemble_manifest.json")
+        for family in FAMILY_PARAMS:
+            component_root = f"{horizon_root}/ensemble/{family}"
+            expected_files.update(
+                {
+                    f"{component_root}/model.joblib",
+                    f"{component_root}/calibrator.joblib",
+                    f"{component_root}/contract.json",
+                    f"{component_root}/bundle.json",
+                }
+            )
+    actual_files = {
+        path.relative_to(demo_output).as_posix()
+        for path in demo_output.rglob("*")
+        if path.is_file()
+    }
+    assert actual_files == expected_files
 
 
 @pytest.mark.parametrize("horizon", [1, 2, 3])
