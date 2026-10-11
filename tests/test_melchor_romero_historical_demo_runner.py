@@ -21,6 +21,10 @@ from datetime import date, timedelta
 import pytest
 
 from experiment_runner import melchor_romero_historical_demo_runner as melchor_runner
+from experiment_runner.ensemble_demo_training import (
+    EnsembleDemoTrainingResult,
+    HorizonDemoTrainingResult,
+)
 from experiment_runner.melchor_romero_historical_demo_runner import (
     DEMO_CALIBRATION,
     DEMO_TRAIN,
@@ -165,6 +169,49 @@ def test_run_demo_from_frame_rejects_a_non_empty_output_dir(tmp_path, demo_frame
 
     with pytest.raises(DemoRunnerError, match="no está vacío"):
         run_demo_from_frame(frame, dataset_sha256, output_dir, sensor_id=SENSOR_ID)
+
+
+def test_run_demo_from_frame_delegates_to_the_shared_engine(tmp_path, demo_frame, monkeypatch):
+    frame, dataset_sha256 = demo_frame
+    output_dir = tmp_path / "output"
+    captured = {}
+    component_dir = output_dir / SENSOR_ID / "horizon_1" / "ensemble" / "family"
+    horizon_result = HorizonDemoTrainingResult(
+        horizon=1,
+        written_items=(("family", component_dir),),
+        train_rows_used=10,
+        train_rows_excluded_by_purge=2,
+        calibration_rows_used=5,
+        calibration_rows_excluded_by_purge=1,
+        component_file_items=(("family", (("model.joblib", "a" * 64),)),),
+    )
+
+    def fake_engine(daily_frame, **kwargs):
+        captured["daily_frame"] = daily_frame
+        captured.update(kwargs)
+        kwargs["on_threshold_resolved"](0.23)
+        kwargs["on_horizon_completed"](horizon_result)
+        return EnsembleDemoTrainingResult(0.23, (horizon_result,))
+
+    monkeypatch.setattr(melchor_runner, "run_ensemble_demo_training", fake_engine, raising=False)
+
+    written = run_demo_from_frame(
+        frame, dataset_sha256, output_dir, sensor_id=SENSOR_ID, horizons=(1,)
+    )
+
+    assert captured["daily_frame"] is frame
+    assert captured["dataset_sha256"] == dataset_sha256
+    assert captured["output_dir"] == output_dir
+    assert captured["sensor_id"] == SENSOR_ID
+    assert captured["horizons"] == (1,)
+    assert captured["plan"] is melchor_runner.MELCHOR_ROMERO_DEMO_PLAN
+    assert captured["resolve_threshold"] is melchor_runner.resolve_training_threshold
+    assert captured["fit_component"] is melchor_runner.fit_and_calibrate
+    assert written == {1: {"family": component_dir}}
+    manifest = json.loads((output_dir / RUN_MANIFEST_FILENAME).read_text())
+    assert manifest["status"] == "completado"
+    assert manifest["physical_threshold"] == 0.23
+    assert manifest["horizons"]["1"] == horizon_result.manifest_report()
 
 
 @pytest.fixture(scope="module")
