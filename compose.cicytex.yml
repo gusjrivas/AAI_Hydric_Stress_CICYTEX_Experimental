@@ -64,6 +64,33 @@ services:
     ports: ["5500:5000"]
     networks: [cicytex]
 
+  backend:
+    build: {context: ., dockerfile: docker/cicytex/backend.Dockerfile}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      CICYTEX_REPLAY_DIR: /workspace/results/cicytex/causal_replay
+    ports: ["127.0.0.1:55800:8000"]
+    networks: [cicytex]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v2/cicytex/replay/catalog', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      retries: 20
+    restart: unless-stopped
+
+  frontend-cicytex:
+    build: {context: ., dockerfile: docker/producer-preview/frontend.Dockerfile}
+    depends_on:
+      backend: {condition: service_healthy}
+    ports: ["127.0.0.1:55180:80"]
+    networks: [cicytex]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/index.html"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
 networks:
   cicytex: {name: aai-cicytex-experiment-network}
 
