@@ -34,6 +34,7 @@ def _package(root: Path) -> None:
 def test_future_is_blocked_until_session_clock_advances(tmp_path, monkeypatch):
     _package(tmp_path)
     monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+    monkeypatch.setenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(tmp_path / "feedback"))
     with TestClient(app) as client:
         created = client.post("/api/v2/cicytex/replay/sessions", json={
             "sensor_id": "CP1_S1", "emission_date": "2023-07-06", "horizon_days": 1,
@@ -43,6 +44,11 @@ def test_future_is_blocked_until_session_clock_advances(tmp_path, monkeypatch):
         assert before["readings"][-1]["date"] == "2023-07-06"
         assert all(row["observed_soil_moisture"] is None for row in before["predictions"])
         assert before["metrics"] == {}
+        blocked = client.post(
+            f"/api/v2/cicytex/replay/sessions/{before['session_id']}/feedback",
+            json={"estado_validacion": "confirmada"},
+        )
+        assert blocked.status_code == 409
 
         advanced = client.post(
             f"/api/v2/cicytex/replay/sessions/{before['session_id']}/advance"
@@ -51,11 +57,22 @@ def test_future_is_blocked_until_session_clock_advances(tmp_path, monkeypatch):
         assert all(row["observed_soil_moisture"] == 0.18 for row in advanced["predictions"])
         assert advanced["metrics"]["ensemble"]["tp"] == 1
         assert advanced["metrics"]["persistence"]["fn"] == 1
+        registered = client.post(
+            f"/api/v2/cicytex/replay/sessions/{before['session_id']}/feedback",
+            json={"estado_validacion": "confirmada", "observacion": "Revisado en defensa"},
+        )
+        assert registered.status_code == 201
+        refreshed = client.get(
+            f"/api/v2/cicytex/replay/sessions/{before['session_id']}"
+        ).json()
+        assert refreshed["feedback"]["estado_validacion"] == "confirmada"
+        assert refreshed["feedback"]["scope"] == "demostracion; no recalibra ni reentrena"
 
 
 def test_rejects_non_archived_selection(tmp_path, monkeypatch):
     _package(tmp_path)
     monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+    monkeypatch.setenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(tmp_path / "feedback"))
     with TestClient(app) as client:
         response = client.post("/api/v2/cicytex/replay/sessions", json={
             "sensor_id": "CP1_S1", "emission_date": "2023-07-05", "horizon_days": 1,

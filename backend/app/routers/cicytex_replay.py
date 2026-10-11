@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import json
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
@@ -24,6 +25,12 @@ class SessionRequest(BaseModel):
     sensor_id: str
     emission_date: date
     horizon_days: int = Field(default=1, ge=1, le=3)
+
+
+class FeedbackRequest(BaseModel):
+    estado_validacion: str
+    etiqueta_corregida: int | None = Field(default=None, ge=0, le=1)
+    observacion: str | None = Field(default=None, max_length=1000)
 
 
 @dataclass
@@ -52,6 +59,30 @@ def _load() -> tuple[pd.DataFrame, pd.DataFrame]:
     except (OSError, ValueError) as error:
         raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
     return predictions, observations
+
+
+def _feedback_path() -> Path:
+    root = Path(os.getenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(_root() / "feedback")))
+    root.mkdir(parents=True, exist_ok=True)
+    return root / "feedback.json"
+
+
+def _feedback_key(session: Session) -> str:
+    return f"{session.sensor_id}|{session.emission_date.isoformat()}|{session.horizon_days}"
+
+
+def _read_feedback() -> dict:
+    path = _feedback_path()
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_feedback(document: dict) -> None:
+    path = _feedback_path()
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
 
 
 def _iso(value: object) -> str:
@@ -121,6 +152,7 @@ def _render(session_id: str, session: Session) -> dict:
         "predictions": predictions_view,
         "readings": [{"date": _iso(row.timestamp), "soil_moisture": float(row.soil_moisture)} for row in known.itertuples()],
         "metrics": metrics,
+        "feedback": _read_feedback().get(_feedback_key(session)),
         "can_advance": session.revealed_through < date(2023, 7, 25),
     }
 
@@ -186,3 +218,31 @@ def reset(session_id: str) -> dict:
             raise HTTPException(404, "Sesion inexistente")
         session.revealed_through = session.emission_date
     return _render(session_id, session)
+
+
+@router.post("/sessions/{session_id}/feedback", status_code=201)
+def create_feedback(session_id: str, request: FeedbackRequest) -> dict:
+    if request.estado_validacion not in {"confirmada", "rechazada"}:
+        raise HTTPException(422, "estado_validacion invalido")
+    with _lock:
+        session = _sessions.get(session_id)
+        if session is None:
+            raise HTTPException(404, "Sesion inexistente")
+        target = session.emission_date + timedelta(days=session.horizon_days)
+        if session.revealed_through < target:
+            raise HTTPException(409, "La observacion todavia no fue revelada")
+        document = _read_feedback()
+        key = _feedback_key(session)
+        if key in document:
+            raise HTTPException(409, "Ya existe feedback para esta prediccion")
+        entry = {
+            "estado_validacion": request.estado_validacion,
+            "etiqueta_corregida": request.etiqueta_corregida,
+            "observacion": request.observacion.strip() if request.observacion else None,
+            "registered_at": datetime.now(timezone.utc).isoformat(),
+            "simulated_at": session.revealed_through.isoformat(),
+            "scope": "demostracion; no recalibra ni reentrena",
+        }
+        document[key] = entry
+        _write_feedback(document)
+    return entry
