@@ -13,8 +13,9 @@ package for the same dataset) and never imports `historical_replay.*`.
 
 from __future__ import annotations
 
-import json
 import inspect
+import json
+from dataclasses import FrozenInstanceError
 from datetime import date, timedelta
 
 import pytest
@@ -35,10 +36,45 @@ from predictive_modeling.ensemble_bundle import (
     load_ensemble_bundle,
     predict_ensemble_bundle,
 )
-from predictive_modeling.operational_preparation import TARGET_LABEL_COLUMN as CANONICAL_TARGET_LABEL
+from predictive_modeling.operational_contract import VariableMetadata
+from predictive_modeling.operational_preparation import (
+    TARGET_LABEL_COLUMN as CANONICAL_TARGET_LABEL,
+)
+from predictive_modeling.operational_preparation import TemporalCutPlan
 from predictive_modeling.operational_run import build_feature_frame as canonical_build_feature_frame
 
 SENSOR_ID = "test-melchor-romero-demo"
+
+
+def test_melchor_demo_plan_is_deeply_immutable_and_preserves_scientific_contract():
+    plan = melchor_runner.MELCHOR_ROMERO_DEMO_PLAN
+
+    assert isinstance(plan.temporal_cuts, TemporalCutPlan)
+    assert plan.temporal_cuts == melchor_runner.build_cut_plan()
+    assert plan.horizons == (1, 2, 3)
+    assert plan.variables == tuple(
+        VariableMetadata(item["name"], item["unit"]) for item in melchor_runner.VARIABLES
+    )
+    assert plan.feature_columns == melchor_runner.FEATURE_COLUMNS
+    assert plan.lags == melchor_runner.LAGS
+    assert plan.rolling_windows == melchor_runner.ROLLING_WINDOWS
+    assert plan.family_names == tuple(melchor_runner.FAMILY_PARAMS)
+    assert plan.event_variable == melchor_runner.EVENT_VARIABLE
+    assert plan.event_unit == melchor_runner.EVENT_UNIT
+    assert plan.event_comparison == "lt"
+    assert plan.decision_threshold == melchor_runner.DECISION_THRESHOLD
+    assert plan.contract_version == melchor_runner.CONTRACT_VERSION
+    assert plan.model_identity_template == "{family}_melchor_romero_demo_h{horizon}"
+    assert plan.calibrator_identity_template == (
+        "{family}_melchor_romero_demo_calibrator_h{horizon}"
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        plan.decision_threshold = 0.7
+    with pytest.raises(TypeError):
+        plan.family_names[0] = "changed"
+    with pytest.raises(FrozenInstanceError):
+        plan.variables[0].unit = "changed"
 
 
 @pytest.fixture(scope="module")
