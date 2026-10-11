@@ -12,8 +12,13 @@ from fastapi import Depends, HTTPException
 
 from data_ingestion.catalog import CatalogRepository
 from data_ingestion.sensor_naming import validate_sensor_id
+from historical_replay.adapters.cicytex_csv import CsvReplayCatalogSource
+from historical_replay.catalog import GetReplayCatalog
 from historical_replay.feedback import ReplayFeedbackStore
 from historical_replay.package_loader import LoadedReplayPackage, load_package
+from human_feedback.adapters.disabled import DisabledDecisionPolicyEngine
+from human_feedback.adapters.laya_http import LayaDecisionPolicyEngine
+from human_feedback.decision_policy import TriageFeedback
 from human_feedback.historical_review_store import HistoricalReviewStore
 from human_feedback.operational_repository import OperationalRepository
 
@@ -78,6 +83,38 @@ def require_historical_replay_enabled(
 ) -> None:
     if not enabled:
         raise HTTPException(status_code=404, detail="Not Found")
+
+
+def get_cicytex_replay_catalog() -> GetReplayCatalog:
+    configured = os.getenv("CICYTEX_REPLAY_DIR")
+    root = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[2] / "results" / "cicytex" / "causal_replay"
+    )
+    return GetReplayCatalog(CsvReplayCatalogSource(root))
+
+
+def get_feedback_triage() -> TriageFeedback:
+    url = os.getenv("LAYA_DECISION_URL")
+    revision = os.getenv("LAYA_MODEL_REVISION")
+    minimum_confidence = float(os.getenv("LAYA_MIN_CONFIDENCE", "0.85"))
+
+    if url is None and revision is None:
+        return TriageFeedback(
+            DisabledDecisionPolicyEngine(),
+            minimum_confidence=minimum_confidence,
+        )
+    if not url or not revision:
+        raise RuntimeError("LAYA_DECISION_URL and LAYA_MODEL_REVISION must be configured together")
+
+    engine = LayaDecisionPolicyEngine(
+        url,
+        model_revision=revision,
+        timeout_seconds=float(os.getenv("LAYA_TIMEOUT_SECONDS", "0.8")),
+        api_key=os.getenv("LAYA_API_KEY"),
+    )
+    return TriageFeedback(engine, minimum_confidence=minimum_confidence)
 
 
 def get_historical_replay_package(

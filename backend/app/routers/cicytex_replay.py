@@ -11,8 +11,12 @@ from threading import Lock
 from uuid import uuid4
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from historical_replay.catalog import GetReplayCatalog
+
+from ..dependencies import get_cicytex_replay_catalog
 
 router = APIRouter(prefix="/api/v2/cicytex/replay", tags=["cicytex-replay"])
 METHOD_ORDER = [
@@ -205,20 +209,11 @@ def _render(session_id: str, session: Session) -> dict:
 
 
 @router.get("/catalog")
-def catalog() -> dict:
-    predictions, _ = _load()
-    emissions = sorted({_iso(value) for value in predictions["emission_date"]})
-    return {
-        "sensors": sorted(predictions["sensor_id"].unique().tolist()),
-        "emission_dates": emissions,
-        "emission_dates_by_horizon": {
-            str(horizon): sorted({_iso(value) for value in rows["emission_date"]})
-            for horizon, rows in predictions.groupby("horizon_days")
-        },
-        "horizons": [1, 2, 3],
-        "first_legitimate_emission": "2023-07-06",
-        "last_observation": "2023-07-25",
-    }
+def catalog(query: GetReplayCatalog = Depends(get_cicytex_replay_catalog)) -> dict:
+    try:
+        return query.execute().to_dict()
+    except (OSError, ValueError) as error:
+        raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
 
 
 @router.post("/sessions", status_code=201)
