@@ -98,6 +98,7 @@ from experiment_runner.controlled_daily_v4.models import fit_estimator
 from experiment_runner.ensemble_demo_training import (
     EmptyTrainingPartitionError,
     EnsembleDemoPlan,
+    EnsembleFamilySpec,
     HorizonDemoTrainingResult,
     run_ensemble_demo_training,
 )
@@ -201,7 +202,7 @@ def _new_run_manifest(
         "environment": capture_environment(),
         "permitted_frame_sha256": dataset_sha256,
         "effective_config": {
-            "family_params": FAMILY_PARAMS,
+            "family_params": MELCHOR_ROMERO_DEMO_PLAN.family_params_dict(),
             "decision_threshold": DECISION_THRESHOLD,
             "event_variable": EVENT_VARIABLE,
             "event_percentile": EVENT_PERCENTILE,
@@ -300,7 +301,10 @@ MELCHOR_ROMERO_DEMO_PLAN = EnsembleDemoPlan(
     decision_threshold=DECISION_THRESHOLD,
     variables=tuple(VariableMetadata(item["name"], item["unit"]) for item in VARIABLES),
     temporal_cuts=build_cut_plan(),
-    family_names=tuple(FAMILY_PARAMS),
+    family_specs=tuple(
+        EnsembleFamilySpec.from_mapping(family, parameters)
+        for family, parameters in FAMILY_PARAMS.items()
+    ),
     model_identity_template="{family}_melchor_romero_demo_h{horizon}",
     calibrator_identity_template="{family}_melchor_romero_demo_calibrator_h{horizon}",
 )
@@ -314,7 +318,7 @@ def fit_and_calibrate(
     `CalibratedClassifierCV(FrozenEstimator(...), "sigmoid")` pattern
     already used for Pergamino -- never a new calibration method, never a
     different family builder."""
-    params = FAMILY_PARAMS[family]
+    params = MELCHOR_ROMERO_DEMO_PLAN.params_for(family)
     model = fit_estimator(family, params, X_train, y_train)
     calibrator = CalibratedClassifierCV(FrozenEstimator(model), method="sigmoid")
     calibrator.fit(X_calib, y_calib)

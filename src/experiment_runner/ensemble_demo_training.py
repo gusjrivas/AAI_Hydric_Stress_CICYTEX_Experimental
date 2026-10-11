@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -29,6 +29,7 @@ from predictive_modeling.operational_run import build_feature_frame
 
 FitComponent = Callable[[str, Any, Any, Any, Any], tuple[Any, Any]]
 ResolveThreshold = Callable[[pd.DataFrame], float]
+ScientificScalar = str | int | float | bool | None
 
 
 def _non_empty(value: str, field: str) -> None:
@@ -43,6 +44,44 @@ def _non_empty_unique(values: tuple[str, ...], field: str) -> None:
         raise ValueError(f"{field} must contain non-empty text")
     if len(values) != len(set(values)):
         raise ValueError(f"{field} must not contain duplicates")
+
+
+@dataclass(frozen=True, slots=True)
+class EnsembleFamilySpec:
+    """Deeply immutable estimator-family configuration."""
+
+    family: str
+    parameter_items: tuple[tuple[str, ScientificScalar], ...]
+
+    def __post_init__(self) -> None:
+        _non_empty(self.family, "family")
+        if not isinstance(self.parameter_items, tuple) or not self.parameter_items:
+            raise ValueError("parameter_items must be a non-empty tuple")
+        keys: list[str] = []
+        for item in self.parameter_items:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise TypeError("parameter_items must contain key-value tuples")
+            key, value = item
+            _non_empty(key, "parameter key")
+            if not isinstance(value, str | int | float | bool) and value is not None:
+                raise TypeError("parameter values must be JSON scalar values")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("floating-point parameter values must be finite")
+            keys.append(key)
+        if len(keys) != len(set(keys)):
+            raise ValueError("parameter keys must not contain duplicates")
+
+    @classmethod
+    def from_mapping(
+        cls, family: str, parameters: Mapping[str, ScientificScalar]
+    ) -> EnsembleFamilySpec:
+        if not isinstance(parameters, Mapping):
+            raise TypeError("parameters must be a mapping")
+        return cls(family=family, parameter_items=tuple(parameters.items()))
+
+    def parameters(self) -> dict[str, ScientificScalar]:
+        """Return a mutable copy suitable for estimator and JSON boundaries."""
+        return dict(self.parameter_items)
 
 
 @dataclass(frozen=True)
@@ -60,9 +99,22 @@ class EnsembleDemoPlan:
     decision_threshold: float
     variables: tuple[VariableMetadata, ...]
     temporal_cuts: TemporalCutPlan
-    family_names: tuple[str, ...]
+    family_specs: tuple[EnsembleFamilySpec, ...]
     model_identity_template: str
     calibrator_identity_template: str
+
+    @property
+    def family_names(self) -> tuple[str, ...]:
+        return tuple(spec.family for spec in self.family_specs)
+
+    def params_for(self, family: str) -> dict[str, ScientificScalar]:
+        for spec in self.family_specs:
+            if spec.family == family:
+                return spec.parameters()
+        raise KeyError(family)
+
+    def family_params_dict(self) -> dict[str, dict[str, ScientificScalar]]:
+        return {spec.family: spec.parameters() for spec in self.family_specs}
 
     def __post_init__(self) -> None:
         if self.horizons != SUPPORTED_HORIZONS:
@@ -73,6 +125,12 @@ class EnsembleDemoPlan:
         if self.event_comparison != "lt":
             raise ValueError("event_comparison must be lt")
         _non_empty_unique(self.feature_columns, "feature_columns")
+        if (
+            not isinstance(self.family_specs, tuple)
+            or not self.family_specs
+            or not all(isinstance(spec, EnsembleFamilySpec) for spec in self.family_specs)
+        ):
+            raise ValueError("family_specs must be a non-empty tuple of EnsembleFamilySpec")
         _non_empty_unique(self.family_names, "family_names")
         if (
             not isinstance(self.lags, tuple)

@@ -100,6 +100,7 @@ from experiment_runner.controlled_daily_v4.provenance import (
 from experiment_runner.ensemble_demo_training import (
     EmptyTrainingPartitionError,
     EnsembleDemoPlan,
+    EnsembleFamilySpec,
     HorizonDemoTrainingResult,
     run_ensemble_demo_training,
 )
@@ -228,7 +229,7 @@ def _new_run_manifest(
         "input_hashes": dict(input_hashes),
         "permitted_frame_sha256": dataset_sha256,
         "effective_config": {
-            "family_params": FAMILY_PARAMS,
+            "family_params": PERGAMINO_DEMO_PLAN.family_params_dict(),
             "decision_threshold": DECISION_THRESHOLD,
             "event_variable": EVENT_VARIABLE,
             "event_percentile": EVENT_PERCENTILE,
@@ -355,7 +356,10 @@ PERGAMINO_DEMO_PLAN = EnsembleDemoPlan(
     decision_threshold=DECISION_THRESHOLD,
     variables=tuple(VariableMetadata(item["name"], item["unit"]) for item in VARIABLES),
     temporal_cuts=build_cut_plan(),
-    family_names=tuple(FAMILY_PARAMS),
+    family_specs=tuple(
+        EnsembleFamilySpec.from_mapping(family, parameters)
+        for family, parameters in FAMILY_PARAMS.items()
+    ),
     model_identity_template="{family}_pergamino_demo_h{horizon}",
     calibrator_identity_template="{family}_pergamino_demo_calibrator_h{horizon}",
 )
@@ -369,7 +373,7 @@ def fit_and_calibrate(
     pattern already used by `operational_run.fit_seed` and by Hito 1's
     `tests/test_ensemble_bundle_real_families.py` -- never a new calibration
     method, never a different family builder."""
-    params = FAMILY_PARAMS[family]
+    params = PERGAMINO_DEMO_PLAN.params_for(family)
     model = fit_estimator(family, params, X_train, y_train)
     calibrator = CalibratedClassifierCV(FrozenEstimator(model), method="sigmoid")
     calibrator.fit(X_calib, y_calib)
