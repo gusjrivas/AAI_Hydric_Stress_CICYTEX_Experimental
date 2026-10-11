@@ -6,7 +6,9 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import pytest
 
+from experiment_runner import ensemble_demo_training as ensemble_training
 from experiment_runner.ensemble_demo_training import run_ensemble_demo_training
 from experiment_runner.pergamino_ensemble_demo_runner import PERGAMINO_DEMO_PLAN
 
@@ -16,6 +18,45 @@ class _SerializableArtifact:
 
     def __init__(self, n_features: int):
         self.n_features_in_ = n_features
+
+
+def test_family_spec_is_deeply_immutable_and_returns_defensive_parameter_copies():
+    source = {
+        "C": 1.0,
+        "solver": "lbfgs",
+        "max_iter": 2000,
+        "enabled": True,
+        "optional": None,
+    }
+    spec = ensemble_training.EnsembleFamilySpec.from_mapping("logistic_regression", source)
+
+    source["C"] = 99.0
+    returned = spec.parameters()
+    returned["solver"] = "changed"
+
+    assert spec.family == "logistic_regression"
+    assert spec.parameters() == {
+        "C": 1.0,
+        "solver": "lbfgs",
+        "max_iter": 2000,
+        "enabled": True,
+        "optional": None,
+    }
+    with pytest.raises(TypeError):
+        spec.parameter_items[0] = ("C", 2.0)
+
+
+@pytest.mark.parametrize(
+    ("family", "parameters"),
+    [
+        ("", {"C": 1.0}),
+        ("logistic_regression", {"C": float("nan")}),
+        ("logistic_regression", {"nested": {"C": 1.0}}),
+    ],
+)
+def test_family_spec_rejects_invalid_scientific_configuration(family, parameters):
+    with pytest.raises((TypeError, ValueError)):
+        ensemble_training.EnsembleFamilySpec.from_mapping(family, parameters)
 
 
 def _daily_frame() -> pd.DataFrame:
