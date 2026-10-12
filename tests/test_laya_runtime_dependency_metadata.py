@@ -711,7 +711,28 @@ def test_exact_cyclonedx_sbom_profile_loads_and_normalizes_45_identities():
     identities = (sbom.root_component, *sbom.components)
     assert len({component.bom_ref for component in identities}) == 45
     assert len({component.purl for component in identities}) == 45
-    assert all(component.bom_ref == component.purl for component in identities)
+    for component in identities:
+        expected_bom_ref = f"pkg:pypi/{component.name}@{component.version}"
+        expected_purl = expected_bom_ref.replace("+", "%2B")
+        assert component.bom_ref == expected_bom_ref
+        assert component.purl == expected_purl
+
+
+def test_torch_preserves_distinct_purl_and_bom_ref_identities_in_dependency_graph():
+    sbom = _validate_sbom()
+    torch = next(component for component in sbom.components if component.name == "torch")
+
+    assert torch.version == "2.14.0+cpu"
+    assert torch.purl == "pkg:pypi/torch@2.14.0%2Bcpu"
+    assert torch.bom_ref == "pkg:pypi/torch@2.14.0+cpu"
+    assert torch.purl != torch.bom_ref
+
+    dependency_refs = {node.ref for node in sbom.dependencies}
+    dependency_edges = {reference for node in sbom.dependencies for reference in node.depends_on}
+    assert torch.bom_ref in dependency_refs
+    assert torch.bom_ref in dependency_edges
+    assert torch.purl not in dependency_refs
+    assert torch.purl not in dependency_edges
 
 
 def test_sbom_metadata_generator_lifecycle_and_lock_binding_are_exact():
