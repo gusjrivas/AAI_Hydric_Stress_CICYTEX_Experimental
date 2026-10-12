@@ -362,6 +362,7 @@ def test_invalid_evidence_fails_before_root_coercion_or_open(monkeypatch):
     assert root_coercions == 0
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="requires Linux absolute root traversal")
 def test_root_component_cap_is_private_bounded_and_enforced_before_open(monkeypatch):
     module = _adapter()
     limit = module._MAX_OCI_LAYOUT_ROOT_COMPONENTS
