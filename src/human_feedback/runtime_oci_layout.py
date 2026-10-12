@@ -13,6 +13,8 @@ MAX_OCI_LAYOUT_BYTES = 1_024
 MAX_OCI_INDEX_BYTES = 64 * 1_024
 MAX_OCI_CONTROL_JSON_DEPTH = 32
 MAX_OCI_CONTROL_STRING_LENGTH = 256
+MAX_OCI_BLOB_CHUNK_BYTES = 1_024 * 1_024
+MAX_OCI_BLOB_CHUNKS = 1_024
 
 LAYOUT_PLAN_SCHEMA = "laya-oci-layout-plan-v1"
 
@@ -27,6 +29,15 @@ _INDEX_ANNOTATIONS = {
 }
 _INDEX_PLATFORM = {"architecture": "amd64", "os": "linux"}
 _FACTORY_TOKEN = object()
+_GIT_LFS_POINTER_SIGNATURE = b"version https://git-lfs.github.com/spec/v1"
+
+
+class _BlobVerificationTypeError(TypeError):
+    pass
+
+
+class _BlobVerificationValueError(ValueError):
+    pass
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -129,6 +140,28 @@ class LayaOciLayoutPlan:
             != self.blob_total_size_bytes + _LAYOUT_SIZE_BYTES + _INDEX_SIZE_BYTES
         ):
             raise ValueError("OCI layout total size is invalid")
+
+    __repr__ = _private_repr
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class VerifiedLayaOciBlob:
+    plan: LayaOciLayoutPlan
+    blob: LayaOciBlobPlan
+    blob_bytes_verified: bool
+    _factory_token: InitVar[object]
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI blob receipt construction is factory-sealed")
+        if type(self.plan) is not LayaOciLayoutPlan:
+            raise TypeError("OCI blob receipt plan type is invalid")
+        if type(self.blob) is not LayaOciBlobPlan or not any(
+            candidate is self.blob for candidate in self.plan.blobs
+        ):
+            raise ValueError("OCI blob receipt binding is invalid")
+        if self.blob_bytes_verified is not True:
+            raise ValueError("OCI blob receipt verification flag is invalid")
 
     __repr__ = _private_repr
 
@@ -322,3 +355,104 @@ def prepare_laya_oci_layout_plan(
         return _prepare_laya_oci_layout_plan(oci_evidence, oci_layout_bytes, index_bytes)
     except (TypeError, ValueError) as error:
         raise type(error)(str(error)) from None
+
+
+def _authorize_laya_oci_blob(plan: LayaOciLayoutPlan, digest: str) -> LayaOciBlobPlan:
+    if type(plan) is not LayaOciLayoutPlan:
+        raise _BlobVerificationTypeError("OCI blob plan must be an exact factory-sealed type")
+    try:
+        plan.__post_init__(_FACTORY_TOKEN)
+    except (TypeError, ValueError):
+        raise _BlobVerificationValueError("OCI blob plan validation failed") from None
+    if type(digest) is not str:
+        raise _BlobVerificationTypeError("OCI blob digest identity is invalid")
+    if (
+        len(digest) != 71
+        or not digest.startswith("sha256:")
+        or any(character not in "0123456789abcdef" for character in digest[7:])
+    ):
+        raise _BlobVerificationValueError("OCI blob digest identity is invalid")
+
+    authorized_blob = None
+    for candidate in plan.blobs:
+        if candidate.digest == digest:
+            if authorized_blob is not None:
+                raise _BlobVerificationValueError("OCI blob digest authorization is ambiguous")
+            authorized_blob = candidate
+    if authorized_blob is None:
+        raise _BlobVerificationValueError("OCI blob digest is not authorized by the plan")
+    return authorized_blob
+
+
+def _verify_laya_oci_blob_chunks(
+    plan: LayaOciLayoutPlan,
+    digest: str,
+    chunks: object,
+) -> VerifiedLayaOciBlob:
+    blob = _authorize_laya_oci_blob(plan, digest)
+    if type(chunks) in {bytes, bytearray, memoryview, str}:
+        raise _BlobVerificationTypeError("OCI blob chunks must be an unambiguous iterable")
+
+    digest_hasher = hashlib.sha256()
+    total_size = 0
+    chunk_count = 0
+    lfs_prefix = b""
+    lfs_candidate = True
+    for chunk in chunks:  # type: ignore[union-attr]
+        chunk_count += 1
+        if chunk_count > MAX_OCI_BLOB_CHUNKS:
+            raise _BlobVerificationValueError("OCI blob chunk count exceeds limit")
+        if type(chunk) is not bytes:
+            raise _BlobVerificationTypeError("OCI blob chunk must be exact bytes")
+        if not chunk:
+            raise _BlobVerificationValueError("OCI blob chunk must not be empty or zero length")
+        if len(chunk) > MAX_OCI_BLOB_CHUNK_BYTES:
+            raise _BlobVerificationValueError("OCI blob chunk size exceeds limit")
+
+        total_size += len(chunk)
+        if total_size > blob.size_bytes:
+            raise _BlobVerificationValueError("OCI blob size exceeds the expected content length")
+
+        if lfs_candidate and len(lfs_prefix) < len(_GIT_LFS_POINTER_SIGNATURE):
+            remaining = len(_GIT_LFS_POINTER_SIGNATURE) - len(lfs_prefix)
+            lfs_prefix += chunk[:remaining]
+            if not _GIT_LFS_POINTER_SIGNATURE.startswith(lfs_prefix):
+                lfs_candidate = False
+            elif len(lfs_prefix) == len(_GIT_LFS_POINTER_SIGNATURE):
+                raise _BlobVerificationValueError("OCI blob content is a Git LFS pointer")
+
+        digest_hasher.update(chunk)
+
+    if total_size != blob.size_bytes:
+        raise _BlobVerificationValueError("OCI blob size does not match expected content length")
+    if digest_hasher.hexdigest() != blob.digest.removeprefix("sha256:"):
+        raise _BlobVerificationValueError("OCI blob digest verification failed")
+    return VerifiedLayaOciBlob(
+        plan=plan,
+        blob=blob,
+        blob_bytes_verified=True,
+        _factory_token=_FACTORY_TOKEN,
+    )
+
+
+def verify_laya_oci_blob_chunks(
+    plan: LayaOciLayoutPlan,
+    digest: str,
+    chunks: object,
+) -> VerifiedLayaOciBlob:
+    """Verify one authorized OCI blob incrementally from bounded chunks."""
+
+    try:
+        return _verify_laya_oci_blob_chunks(plan, digest, chunks)
+    except _BlobVerificationTypeError as error:
+        sanitized = TypeError(str(error))
+        sanitized.__suppress_context__ = True
+        raise sanitized
+    except _BlobVerificationValueError as error:
+        sanitized = ValueError(str(error))
+        sanitized.__suppress_context__ = True
+        raise sanitized
+    except Exception:
+        sanitized = ValueError("OCI blob stream iteration failed")
+        sanitized.__suppress_context__ = True
+        raise sanitized
