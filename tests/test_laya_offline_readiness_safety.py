@@ -123,6 +123,7 @@ def test_declared_choice_must_match_unique_probability_argmax():
             example_id="e1",
             category="model_behavior",
             probabilities=tuple(zip(CATEGORIES, (0.9, 0.025, 0.025, 0.025, 0.025), strict=True)),
+            answer_confidence=0.9,
             latency_ms=1.0,
             provider="laya-http",
             model_revision="revision",
@@ -139,11 +140,13 @@ def test_gate_applies_the_same_exact_confidence_boundary_as_production(
     predictions = list(_perfect_predictions(contract))
     predictions[0] = replace(
         predictions[0],
-        probabilities=tuple(zip(CATEGORIES, (0.84, 0.04, 0.04, 0.04, 0.04), strict=True)),
+        probabilities=tuple(zip(CATEGORIES, (0.9, 0.025, 0.025, 0.025, 0.025), strict=True)),
+        answer_confidence=0.84,
     )
     predictions[1] = replace(
         predictions[1],
-        probabilities=tuple(zip(CATEGORIES, (0.0375, 0.85, 0.0375, 0.0375, 0.0375), strict=True)),
+        probabilities=tuple(zip(CATEGORIES, (0.05, 0.8, 0.05, 0.05, 0.05), strict=True)),
+        answer_confidence=0.85,
     )
 
     report = evaluate_readiness(
@@ -153,3 +156,73 @@ def test_gate_applies_the_same_exact_confidence_boundary_as_production(
     )
 
     assert report.metrics.coverage == pytest.approx(14 / 15)
+
+
+def test_report_digest_changes_when_verified_supply_identity_changes(tmp_path: Path):
+    from human_feedback.offline_readiness import evaluate_readiness, load_contract
+
+    original = load_contract(FIXTURE)
+    contract_a, root_a = _materialize_supply(original, tmp_path / "a", marker="a")
+    contract_b, root_b = _materialize_supply(original, tmp_path / "b", marker="b")
+
+    report_a = evaluate_readiness(
+        contract_a,
+        _perfect_predictions(contract_a),
+        artifact_root=root_a,
+    )
+    report_b = evaluate_readiness(
+        contract_b,
+        _perfect_predictions(contract_b),
+        artifact_root=root_b,
+    )
+
+    assert report_a.supply_digest != report_b.supply_digest
+
+
+def test_offline_confidence_uses_answer_confidence_before_choice_probability(
+    tmp_path: Path,
+):
+    from human_feedback.offline_readiness import evaluate_readiness, load_contract
+
+    contract = load_contract(FIXTURE)
+    contract, artifact_root = _materialize_supply(contract, tmp_path)
+    predictions = list(_perfect_predictions(contract))
+    predictions[0] = replace(
+        predictions[0],
+        probabilities=tuple(zip(CATEGORIES, (0.9, 0.025, 0.025, 0.025, 0.025), strict=True)),
+        answer_confidence=0.84,
+    )
+    predictions[1] = replace(
+        predictions[1],
+        probabilities=tuple(zip(CATEGORIES, (0.04, 0.84, 0.04, 0.04, 0.04), strict=True)),
+        answer_confidence=0.90,
+    )
+
+    report = evaluate_readiness(
+        contract,
+        tuple(predictions),
+        artifact_root=artifact_root,
+    )
+
+    assert report.metrics.coverage == pytest.approx(14 / 15)
+
+
+def test_shared_confidence_resolver_matches_laya_response_precedence():
+    from human_feedback.decision_confidence import resolve_choice_confidence
+
+    assert (
+        resolve_choice_confidence(
+            answer_confidence=0.84,
+            probabilities={"data_quality": 0.90},
+            choice="data_quality",
+        )
+        == 0.84
+    )
+    assert (
+        resolve_choice_confidence(
+            answer_confidence=None,
+            probabilities={"data_quality": 0.90},
+            choice="data_quality",
+        )
+        == 0.90
+    )

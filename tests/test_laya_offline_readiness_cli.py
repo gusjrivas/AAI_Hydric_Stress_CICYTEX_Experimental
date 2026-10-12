@@ -28,6 +28,7 @@ def _write_predictions(tmp_path: Path) -> Path:
                 "probabilities": [
                     [category, 1.0 if category == gold else 0.0] for category in categories
                 ],
+                "answer_confidence": 1.0,
                 "latency_ms": 1.0,
                 "provider": "laya-http",
                 "model_revision": revision,

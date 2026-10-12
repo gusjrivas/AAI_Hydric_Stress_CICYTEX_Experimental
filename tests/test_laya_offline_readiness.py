@@ -15,13 +15,19 @@ CATEGORIES = (
 )
 
 
-def _materialize_supply(contract, tmp_path: Path):
+def verification_digest(supply):
+    from human_feedback.offline_readiness import supply_identity_digest
+
+    return supply_identity_digest(supply)
+
+
+def _materialize_supply(contract, tmp_path: Path, *, marker: str = "v1"):
     from human_feedback.offline_readiness import SupplyArtifact
 
     artifact_root = tmp_path / "supply"
     artifacts = []
     for index, name in enumerate(("model.safetensors", "tokenizer.json")):
-        payload = f"verified-artifact-{index}".encode()
+        payload = f"verified-artifact-{marker}-{index}".encode()
         path = artifact_root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
@@ -49,6 +55,7 @@ def _perfect_predictions(contract):
                 (category, 1.0 if category == example.gold_category else 0.0)
                 for category in CATEGORIES
             ),
+            answer_confidence=1.0,
             latency_ms=1.0,
             provider="laya-http",
             model_revision=contract.supply.checkpoint_revision,
@@ -81,6 +88,7 @@ def _prediction(
         example_id=example_id,
         category=category,
         probabilities=tuple(zip(CATEGORIES, probabilities, strict=True)),
+        answer_confidence=None,
         latency_ms=latency_ms,
         provider="laya-http",
         model_revision="55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851",
@@ -215,6 +223,7 @@ def test_synthetic_contract_is_only_characterization_and_report_is_canonical(tmp
     assert report_a.decision == "CHARACTERIZATION_ONLY"
     assert report_a.production_enablement_authorized is False
     assert report_a.human_review_required is True
+    assert report_a.supply_digest == verification_digest(contract.supply)
     assert canonical_report_bytes(report_a) == canonical_report_bytes(report_b)
     decoded = json.loads(canonical_report_bytes(report_a))
     assert "comment" not in canonical_report_bytes(report_a).decode("utf-8")
