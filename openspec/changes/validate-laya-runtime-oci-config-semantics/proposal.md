@@ -20,9 +20,12 @@ ancestry o corrección del rootfs.
   `User="65532:65532"`, workdir, diez DiffIDs declarados y 21 entradas de
   history, diez de ellas no vacías y todas con timestamps UTC calendar-valid.
 - Reconstruye canónicamente, mediante las APIs públicas existentes, la cadena
-  bundle→manifest OCI→layout antes de aceptar la evidencia PR20. Clones o wrappers
-  content-equivalent se normalizan por contenido y tipos de esquema detectables;
-  no se afirma procedencia de constructores Python.
+  bundle→manifest OCI→layout antes de aceptar la evidencia PR20. Acepta clones
+  content-equivalent sólo cuando conservan la clase exacta y normaliza únicamente
+  wrappers carrier `CapturedRuntimeArtifact` con spec, contenido y bindings
+  canónicos exactos. Rechaza wrappers, proxies y subclasses de prior, snapshot,
+  manifest, spec, proyección OCI, layout o plan; no se afirma procedencia de
+  constructores Python.
 - Eleva exclusivamente `oci_config_semantics_verified=true`, además de preservar
   los claims por bytes de PR20. DiffIDs calculados, rootfs, origen, licencia,
   ancestry, materialización, executor e inferencia permanecen falsos.

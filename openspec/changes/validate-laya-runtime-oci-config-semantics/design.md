@@ -108,11 +108,17 @@ detectables, cinco artefactos con roles/paths únicos, un config descriptor úni
 los flags PR20 esperados. A partir de sus cinco payloads se reconstruye un bundle
 canónico mediante `verify_laya_runtime_artifact_bytes`; sobre él se reconstruye la
 metadata OCI mediante `validate_laya_runtime_oci_metadata`, y se comprueba la
-equivalencia completa con el grafo recibido antes de componer PR21.
+equivalencia semántica de contenido, commitments, bindings y claims con la evidencia
+recibida antes de componer PR21.
 
-Esto admite clones o wrappers content-equivalent, porque se canonizan mediante APIs
-públicas y contenido verificable. No se acredita qué constructor creó el objeto ni
-se usa identidad de objeto como provenance.
+Esto admite clones content-equivalent sólo si cada tipo de esquema/evidencia conserva
+su clase exacta. La única excepción de carrier son wrappers
+`CapturedRuntimeArtifact`: se canonizan mediante la API pública exclusivamente
+cuando spec, contenido y bindings son canónicos y exactos. Wrappers, proxies o
+subclasses de prior, snapshot, manifest, artifact spec, proyección OCI, layout o
+plan se rechazan por tipo exacto. La canonicalización acredita equivalencia semántica
+de contenido/commitments/bindings/claims; no acredita qué constructor creó el objeto
+ni usa identidad de objeto como provenance.
 
 ### 4. Claims conservadores
 

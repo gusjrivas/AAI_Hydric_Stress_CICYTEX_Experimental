@@ -52,13 +52,25 @@ MUST usar UTC de segundo entero y MUST ser calendar-valid.
 Antes de componer PR21, el sistema MUST revalidar profundamente la evidencia PR20,
 sus esquemas y tipos exactos, reconstruir un bundle canónico de cinco artefactos
 mediante la API pública, reconstruir desde él la metadata OCI pública y comprobar
-equivalencia completa del grafo y bindings.
+equivalencia semántica de contenido, commitments, bindings y claims.
 
-#### Scenario: Un clon content-equivalent se canoniza
+#### Scenario: Un clon de clase exacta content-equivalent se acepta
 
-- **WHEN** un wrapper o clon usa contenido, schemas, tipos detectables, flags y bindings exactos
-- **THEN** el sistema lo reconstruye mediante las APIs públicas y acepta la representación canónica equivalente
+- **WHEN** un clon conserva las clases exactas de prior, snapshot, manifest, spec, proyección OCI, layout y plan, y usa contenido, commitments, bindings y claims equivalentes
+- **THEN** el sistema lo reconstruye mediante las APIs públicas y acepta su equivalencia semántica canónica
 - **AND** no afirma qué constructor creó el objeto original
+
+#### Scenario: Un carrier CapturedRuntimeArtifact se canoniza
+
+- **WHEN** un wrapper carrier `CapturedRuntimeArtifact` presenta spec, contenido y bindings canónicos exactos
+- **THEN** el sistema reconstruye el artefacto mediante la API pública y compara la equivalencia semántica resultante
+- **AND** esta excepción no se extiende a ningún tipo de esquema o evidencia
+
+#### Scenario: Un proxy o subclass de evidencia es rechazado
+
+- **WHEN** prior, snapshot, manifest, spec, proyección OCI, layout o plan es un wrapper, proxy o subclass en lugar de su tipo exacto
+- **THEN** la validación falla cerrada aunque sus atributos aparenten el mismo contenido
+- **AND** no emite evidencia PR21
 
 #### Scenario: Un grafo forjado es rechazado
 
@@ -90,7 +102,7 @@ omitir bytes config, Env, Labels, history, paths y digests privados.
 #### Scenario: El summary no filtra el perfil privado
 
 - **WHEN** se serializa una evidencia PR21 válida
-- **THEN** dos evidencias content-equivalent producen los mismos bytes canónicos
+- **THEN** dos evidencias de clase exacta y semánticamente equivalentes producen los mismos bytes canónicos
 - **AND** no aparecen payload, Env, Labels, history, paths ni digests privados
 
 ### Requirement: PR21 conservará la frontera operacional de PR20
