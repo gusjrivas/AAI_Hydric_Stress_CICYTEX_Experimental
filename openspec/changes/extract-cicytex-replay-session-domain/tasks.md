@@ -7,6 +7,7 @@
 - [x] 1.5 Registrar RED de pureza respecto de transporte, datos y filesystem.
 - [x] 1.6 Registrar RED P2 para tipo y orden de `last_observation` sin retroceso del reloj.
 - [x] 1.7 Registrar RED para reset concurrente con feedback y límite inyectado de avance.
+- [x] 1.8 Registrar RED que prohíbe el fallback no atómico del router.
 
 ## 2. Dominio y aplicación
 
@@ -14,7 +15,7 @@
 - [x] 2.2 Implementar `SessionRepository` y el adaptador in-memory sincronizado.
 - [x] 2.3 Inyectar el caso de uso y traducir errores sin cambiar HTTP.
 - [x] 2.4 Mantener feedback fuera del repositorio y distinguir su lock del estado de sesión.
-- [ ] 2.5 Revalidar atómicamente el reloj antes de persistir feedback.
+- [ ] 2.5 Revalidar atómicamente el reloj sin fallback de lecturas separadas.
 - [ ] 2.6 Derivar `can_advance` del mismo límite inyectado que usa `advance`.
 
 ## 3. Verificación

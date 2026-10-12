@@ -44,3 +44,35 @@ def test_backend_exposes_an_injectable_session_use_case_dependency():
     }
 
     assert "get_cicytex_replay_sessions" in functions
+
+
+def test_feedback_requires_the_atomic_session_operation_without_fallback_reads():
+    repository = Path(__file__).parents[2]
+    router = repository / "backend" / "app" / "routers" / "cicytex_replay.py"
+    tree = ast.parse(router.read_text(encoding="utf-8"))
+    create_feedback = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "create_feedback"
+    )
+    calls = [node for node in ast.walk(create_feedback) if isinstance(node, ast.Call)]
+    violations = []
+    for call in calls:
+        if isinstance(call.func, ast.Name) and call.func.id == "hasattr":
+            violations.append("hasattr fallback")
+        if (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "get"
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "sessions"
+        ):
+            violations.append("sessions.get fallback")
+
+    assert any(
+        isinstance(call.func, ast.Attribute)
+        and call.func.attr == "with_session"
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "sessions"
+        for call in calls
+    )
+    assert violations == []

@@ -290,17 +290,15 @@ def test_feedback_revalidates_the_session_after_a_concurrent_reset(tmp_path, mon
     )
     sessions.advance("coordinated-session")
     interleaving = Barrier(2, timeout=5)
-    first_get = True
 
     class CoordinatedSessions:
         def get(self, session_id):
-            nonlocal first_get
-            snapshot = sessions.get(session_id)
-            if first_get:
-                first_get = False
-                interleaving.wait()
-                interleaving.wait()
-            return snapshot
+            raise AssertionError("feedback must use the atomic session operation")
+
+        def with_session(self, session_id, operation):
+            interleaving.wait()
+            interleaving.wait()
+            return sessions.with_session(session_id, operation)
 
     app.dependency_overrides[get_cicytex_replay_sessions] = CoordinatedSessions
     try:

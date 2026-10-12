@@ -56,6 +56,7 @@ existente.
 - **GIVEN** un request de feedback que obtuvo una sesión con el objetivo revelado
 - **WHEN** la misma sesión se reinicia antes de validar y persistir el feedback
 - **THEN** el request revalida el reloj actual, responde 409 y no persiste feedback obsoleto.
+- **AND** toda dependencia válida ofrece la operación atómica `with_session`, sin fallback de lecturas separadas en el router.
 
 #### Scenario: Límite de avance inyectado
 
