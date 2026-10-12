@@ -1,0 +1,66 @@
+{
+  "schema_version": "laya-offline-readiness-v1",
+  "supply": {
+    "engine": {
+      "package": "laya",
+      "version": "0.4.2",
+      "source_commit": "68804629e8ccd9d616d48a40e87de9fabbeae069",
+      "license": "Apache-2.0"
+    },
+    "checkpoint": {
+      "repository": "convaiinnovations/laya",
+      "revision": "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851",
+      "files": [
+        {
+          "path": "multilingual/model.safetensors",
+          "sha256": "9d628fd971b700382ac6f65920a86f149777b2e748e0c955fb3b19695aa8f204",
+          "size_bytes": 643835514
+        },
+        {
+          "path": "multilingual/tokenizer/tokenizer.json",
+          "sha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+          "size_bytes": 34363188
+        }
+      ]
+    }
+  },
+  "corpus": {
+    "corpus_id": "synthetic-contract-v1",
+    "evidence_role": "characterization_only",
+    "adjudicated": false,
+    "examples": [
+      {"example_id":"c-dq","site_id":"cicytex","group_id":"c-dq","comment":"La sonda tiene saltos imposibles.","gold_category":"data_quality"},
+      {"example_id":"c-mb","site_id":"cicytex","group_id":"c-mb","comment":"La probabilidad pronosticada parece errónea.","gold_category":"model_behavior"},
+      {"example_id":"c-ac","site_id":"cicytex","group_id":"c-ac","comment":"Se realizó un riego entre mediciones.","gold_category":"agronomic_context"},
+      {"example_id":"c-us","site_id":"cicytex","group_id":"c-us","comment":"La explicación no se entiende.","gold_category":"usability"},
+      {"example_id":"c-ot","site_id":"cicytex","group_id":"c-ot","comment":"Comentario general para revisión.","gold_category":"other"},
+      {"example_id":"p-dq","site_id":"pergamino","group_id":"p-dq","comment":"Hay mediciones faltantes.","gold_category":"data_quality"},
+      {"example_id":"p-mb","site_id":"pergamino","group_id":"p-mb","comment":"El modelo cambió sin causa visible.","gold_category":"model_behavior"},
+      {"example_id":"p-ac","site_id":"pergamino","group_id":"p-ac","comment":"Hubo una labor en el lote.","gold_category":"agronomic_context"},
+      {"example_id":"p-us","site_id":"pergamino","group_id":"p-us","comment":"El flujo requiere demasiados pasos.","gold_category":"usability"},
+      {"example_id":"p-ot","site_id":"pergamino","group_id":"p-ot","comment":"Observación no clasificada.","gold_category":"other"},
+      {"example_id":"m-dq","site_id":"melchor-romero","group_id":"m-dq","comment":"El sensor quedó clavado.","gold_category":"data_quality"},
+      {"example_id":"m-mb","site_id":"melchor-romero","group_id":"m-mb","comment":"El pronóstico no coincide con el historial.","gold_category":"model_behavior"},
+      {"example_id":"m-ac","site_id":"melchor-romero","group_id":"m-ac","comment":"Llovió después de la lectura.","gold_category":"agronomic_context"},
+      {"example_id":"m-us","site_id":"melchor-romero","group_id":"m-us","comment":"No encuentro la alerta en pantalla.","gold_category":"usability"},
+      {"example_id":"m-ot","site_id":"melchor-romero","group_id":"m-ot","comment":"Nota adicional del ensayo.","gold_category":"other"},
+      {"example_id":"l-dq","site_id":"laboratorio-mock","group_id":"l-dq","comment":"El mock produjo un pico.","gold_category":"data_quality"},
+      {"example_id":"l-mb","site_id":"laboratorio-mock","group_id":"l-mb","comment":"La salida simulada cambió.","gold_category":"model_behavior"},
+      {"example_id":"l-ac","site_id":"laboratorio-mock","group_id":"l-ac","comment":"Se simuló un riego.","gold_category":"agronomic_context"},
+      {"example_id":"l-us","site_id":"laboratorio-mock","group_id":"l-us","comment":"El control de demo no responde.","gold_category":"usability"},
+      {"example_id":"l-ot","site_id":"laboratorio-mock","group_id":"l-ot","comment":"Caso sintético restante.","gold_category":"other"}
+    ]
+  },
+  "policy": {
+    "policy_id": "laya-readiness-policy-v1",
+    "minimum_coverage": 0.6,
+    "minimum_accuracy": 0.7,
+    "minimum_selective_accuracy": 0.8,
+    "minimum_macro_f1": 0.65,
+    "maximum_brier": 0.6,
+    "maximum_ece": 0.1,
+    "maximum_mean_cost": 1.0,
+    "minimum_site_macro_f1": 0.55,
+    "maximum_p95_latency_ms": 640.0
+  }
+}
