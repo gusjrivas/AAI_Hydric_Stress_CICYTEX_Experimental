@@ -96,7 +96,7 @@ comprimidos, DiffIDs, sizes y contenido. Errores y `repr` tampoco filtran esos d
 - Suite focal: `60 passed, 5 skipped`.
 - Gate real Linux: `1 passed`, con exactamente 12 llamadas de revalidación blob y
   10 llamadas de verificación DiffID.
-- Suite Laya completa: `980 passed, 34 skipped`; Black y Ruff limpios.
+- Suite Laya completa: `983 passed, 34 skipped`; Black y Ruff limpios.
 
 El gate externo fue manual, serial y opt-in. No se declara CI obligatorio ni se
 eleva la preservación de fingerprint a enforcement de permisos/mount read-only.

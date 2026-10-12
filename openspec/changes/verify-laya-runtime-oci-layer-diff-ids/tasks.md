@@ -27,7 +27,7 @@
 - [x] 4.3 Ejecutar suite Laya completa después de los fixes de presupuesto: `983 passed, 34 skipped`; Black y Ruff limpios.
 - [x] 4.4 Elevar sólo `oci_layer_diff_ids_verified`; mantener falsos TAR/rootfs/origen/licencia/ancestry/materialización/ejecución.
 - [x] 4.5 Preservar cinco roles/runtime identity, blobs externos y ausencia de caller productivo.
-- [ ] 4.6 Completar auditoría independiente final y merge gate.
+- [x] 4.6 Completar auditoría independiente final y merge gate: GO sin P0/P1/P2 sobre `9f7467ba2c63663e15ad831677b6c01b09cab730`; corrección documental posterior sujeta a revalidación exacta antes del merge.
 
 ## 5. Próximos slices
 
