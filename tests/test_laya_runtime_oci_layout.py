@@ -145,17 +145,25 @@ def _uses_layout_plan_api(source: str) -> bool:
         "LayaRuntimeOciLayoutEvidence",
         "VerifiedLayaOciBlob",
         "canonical_laya_runtime_oci_layout_summary_bytes",
+        "capture_and_verify_laya_oci_layout",
         "finalize_laya_oci_layout_evidence",
         "finalize_laya_runtime_oci_layout_evidence",
         "prepare_laya_oci_layout_plan",
         "verify_laya_oci_blob_chunks",
     }
     module_name = "human_feedback.runtime_oci_layout"
+    adapter_module_name = "human_feedback.adapters.filesystem_oci_layout"
     tree = ast.parse(source)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import) and any(alias.name == module_name for alias in node.names):
+        if isinstance(node, ast.Import) and any(
+            alias.name in {module_name, adapter_module_name} for alias in node.names
+        ):
             return True
         if isinstance(node, ast.ImportFrom):
+            if node.module == adapter_module_name and any(
+                alias.name == "*" or alias.name in symbols for alias in node.names
+            ):
+                return True
             if node.module == "human_feedback" and any(
                 alias.name == "runtime_oci_layout" for alias in node.names
             ):
@@ -177,7 +185,11 @@ def _uses_layout_plan_api(source: str) -> bool:
             return True
         if isinstance(node, ast.Attribute) and node.attr in symbols:
             return True
-        if isinstance(node, ast.Constant) and node.value in {module_name, *symbols}:
+        if isinstance(node, ast.Constant) and node.value in {
+            module_name,
+            adapter_module_name,
+            *symbols,
+        }:
             return True
     return False
 
@@ -957,6 +969,10 @@ def test_layout_evidence_core_api_is_private_sealed_without_public_finalizer():
     assert module.LAYOUT_EVIDENCE_SCHEMA == LAYOUT_EVIDENCE_SCHEMA
     assert is_dataclass(module.LayaRuntimeOciLayoutEvidence)
     assert "__slots__" in vars(module.LayaRuntimeOciLayoutEvidence)
+    assert is_dataclass(module._LayaOciLayoutCaptureAuthority)
+    assert "__slots__" in vars(module._LayaOciLayoutCaptureAuthority)
+    assert not hasattr(module, "LayaOciLayoutCaptureAuthority")
+    assert callable(module._seal_laya_oci_layout_capture_authority)
     assert callable(module._seal_laya_oci_layout_evidence)
     for forbidden_name in (
         "finalize_laya_oci_layout_evidence",
@@ -1015,31 +1031,70 @@ def test_layout_evidence_fields_are_exact_conservative_and_not_forgeable():
     assert all(evidence_fields[name].init is False for name in true_flags | false_flags)
 
 
-def test_private_layout_evidence_sealer_rejects_incomplete_proxy_and_foreign_receipts():
+def test_capture_authority_is_frozen_factory_sealed_and_opaque():
+    from human_feedback import runtime_oci_layout as module
+
+    plan = _prepare()
+    authority_type = module._LayaOciLayoutCaptureAuthority
+    assert authority_type.__dataclass_params__.frozen is True
+    assert "__dict__" not in authority_type.__slots__
+    authority_fields = {field.name: field for field in fields(authority_type)}
+    assert set(authority_fields) == {
+        "plan",
+        "receipts",
+        "controls_captured_from_same_root",
+        "inventory_captured_from_same_root",
+        "final_fd_sweep_verified",
+    }
+    assert all(field.repr is False for field in authority_fields.values())
+    values = {
+        "plan": plan,
+        "receipts": (),
+        "controls_captured_from_same_root": True,
+        "inventory_captured_from_same_root": True,
+        "final_fd_sweep_verified": True,
+    }
+    init_fields = tuple(field.name for field in fields(authority_type) if field.init)
+    assert set(init_fields) <= set(values)
+    with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+        authority_type(**{name: values[name] for name in init_fields})
+
+    class AuthoritySubclass(authority_type):
+        pass
+
+    with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+        AuthoritySubclass(**{name: values[name] for name in init_fields})
+
+
+def test_authority_and_evidence_sealers_reject_raw_proxy_and_foreign_inputs():
     from human_feedback import runtime_oci_layout as module
 
     plan = _prepare()
     receipt = _verify_manifest(plan)
     proxy = SimpleNamespace(
         plan=plan,
-        blob=plan.index_manifest,
-        blob_bytes_verified=True,
+        receipts=tuple(receipt for _blob in plan.blobs),
+        controls_captured_from_same_root=True,
+        inventory_captured_from_same_root=True,
+        final_fd_sweep_verified=True,
     )
-    candidates = (
-        [],
-        (),
-        (receipt,),
-        tuple(receipt for _blob in plan.blobs),
-        (proxy,),
-    )
-    for candidate in candidates:
-        with pytest.raises((TypeError, ValueError), match="receipt|tuple|complete|blob|order"):
-            module._seal_laya_oci_layout_evidence(plan, candidate)
+    raw_receipts = tuple(receipt for _blob in plan.blobs)
+    for invalid in (None, plan, (), raw_receipts, proxy):
+        with pytest.raises((TypeError, ValueError), match="authority|factory|seal|type"):
+            module._seal_laya_oci_layout_evidence(invalid)
 
     foreign_plan = _prepare()
     foreign_receipt = _verify_manifest(foreign_plan)
+    mixed_receipts = (foreign_receipt, *raw_receipts[1:])
+    assert len(mixed_receipts) == 12
     with pytest.raises(ValueError, match="receipt|plan|identity|foreign|blob"):
-        module._seal_laya_oci_layout_evidence(plan, (foreign_receipt,))
+        module._seal_laya_oci_layout_capture_authority(
+            plan,
+            mixed_receipts,
+            controls_captured_from_same_root=True,
+            inventory_captured_from_same_root=True,
+            final_fd_sweep_verified=True,
+        )
 
 
 def test_layout_evidence_direct_construction_replace_proxy_and_summary_fail_closed():
@@ -1145,6 +1200,64 @@ def test_runtime_oci_layout_module_is_pure_and_depends_only_on_pr19_contract():
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }.intersection(forbidden_calls)
+    public_functions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and not node.name.startswith("_")
+    }
+    assert public_functions == {
+        "prepare_laya_oci_layout_plan",
+        "verify_laya_oci_blob_chunks",
+        "canonical_laya_runtime_oci_layout_summary_bytes",
+    }
+    public_classes = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_")
+    }
+    assert public_classes == {
+        "LayaOciBlobPlan",
+        "LayaOciLayoutPlan",
+        "VerifiedLayaOciBlob",
+        "LayaRuntimeOciLayoutEvidence",
+    }
+    public_constants = {
+        target.id
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for target in (node.targets if isinstance(node, ast.Assign) else (node.target,))
+        if isinstance(target, ast.Name) and target.id.isupper() and not target.id.startswith("_")
+    }
+    assert public_constants == {
+        "MAX_OCI_LAYOUT_BYTES",
+        "MAX_OCI_INDEX_BYTES",
+        "MAX_OCI_CONTROL_JSON_DEPTH",
+        "MAX_OCI_CONTROL_STRING_LENGTH",
+        "MAX_OCI_BLOB_CHUNK_BYTES",
+        "MAX_OCI_BLOB_CHUNKS",
+        "LAYOUT_PLAN_SCHEMA",
+        "LAYOUT_PROFILE_ID",
+        "LAYOUT_EVIDENCE_SCHEMA",
+    }
+    forbidden_elevation_methods = {
+        "finalize",
+        "as_evidence",
+        "from_receipts",
+        "from_digest",
+        "seal",
+    }
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name in {
+            "VerifiedLayaOciBlob",
+            "LayaRuntimeOciLayoutEvidence",
+        }:
+            methods = {
+                child.name
+                for child in node.body
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            assert methods.isdisjoint(forbidden_elevation_methods)
     assert not {
         node.func.attr
         for node in ast.walk(tree)
@@ -1164,6 +1277,12 @@ def test_runtime_oci_layout_module_is_pure_and_depends_only_on_pr19_contract():
         ("from human_feedback.runtime_oci_layout import " "finalize_laya_oci_layout_evidence"),
         "name = 'canonical_laya_runtime_oci_layout_summary_bytes'",
         "from human_feedback.runtime_oci_layout import *",
+        "import human_feedback.adapters.filesystem_oci_layout",
+        (
+            "from human_feedback.adapters.filesystem_oci_layout import "
+            "capture_and_verify_laya_oci_layout"
+        ),
+        "filesystem_oci_layout.capture_and_verify_laya_oci_layout(evidence, root)",
         "from . import runtime_oci_layout as layout",
         "from .runtime_oci_layout import prepare_laya_oci_layout_plan",
         "from .runtime_oci_layout import *",

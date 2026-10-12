@@ -11,9 +11,14 @@ import pytest
 
 from tests.test_laya_runtime_oci_layout import (
     BLOB_TOTAL_SIZE_BYTES,
+    CONFIG_SHA256,
+    CONFIG_SIZE_BYTES,
+    LAYERS,
     LAYOUT_EVIDENCE_SCHEMA,
     LAYOUT_PROFILE_ID,
     LAYOUT_TOTAL_SIZE_BYTES,
+    MANIFEST_SHA256,
+    MANIFEST_SIZE_BYTES,
     _captured_manifest_bytes,
     _index_bytes,
     _layout_bytes,
@@ -21,6 +26,7 @@ from tests.test_laya_runtime_oci_layout import (
 )
 
 IS_LINUX = sys.platform.startswith("linux")
+REAL_LAYOUT_RELEASE_GATE_ENV = "LAYA_RUNTIME_OCI_LAYOUT_ROOT"
 ADAPTER_RELATIVE_PATH = "src/human_feedback/adapters/filesystem_oci_layout.py"
 CORE_RELATIVE_PATH = "src/human_feedback/runtime_oci_layout.py"
 TRUE_FLAGS = (
@@ -66,9 +72,13 @@ def _partial_layout_root(tmp_path: Path) -> Path:
     digest_root.mkdir(parents=True)
     (root / "oci-layout").write_bytes(_layout_bytes())
     (root / "index.json").write_bytes(_index_bytes())
-    evidence = _oci_evidence()
-    manifest_digest = evidence.oci_manifest.digest.removeprefix("sha256:")
-    (digest_root / manifest_digest).write_bytes(_captured_manifest_bytes())
+    manifest_payload = _captured_manifest_bytes()
+    assert len(manifest_payload) == MANIFEST_SIZE_BYTES
+    (digest_root / MANIFEST_SHA256).write_bytes(manifest_payload)
+    sparse_specs = ((CONFIG_SHA256, CONFIG_SIZE_BYTES), *LAYERS)
+    for digest, size_bytes in sparse_specs:
+        with (digest_root / digest).open("wb") as stream:
+            stream.truncate(size_bytes)
     return root
 
 
@@ -80,13 +90,37 @@ def _capture(root, evidence=None):
     )
 
 
+def test_partial_layout_helper_builds_exact_closed_sparse_inventory(tmp_path):
+    root = _partial_layout_root(tmp_path)
+    digest_root = root / "blobs" / "sha256"
+    expected = {
+        MANIFEST_SHA256: MANIFEST_SIZE_BYTES,
+        CONFIG_SHA256: CONFIG_SIZE_BYTES,
+        **dict(LAYERS),
+    }
+    assert {path.name: path.stat().st_size for path in digest_root.iterdir()} == expected
+    assert sum(expected.values()) == BLOB_TOTAL_SIZE_BYTES
+
+
 def _forbid_seal(monkeypatch):
     module = _adapter()
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("layout evidence sealer must not run after capture failure")
 
+    monkeypatch.setattr(module, "_seal_laya_oci_layout_capture_authority", forbidden)
     monkeypatch.setattr(module, "_seal_laya_oci_layout_evidence", forbidden)
+
+
+def _forbid_blob_verification_and_sealing(monkeypatch):
+    module = _adapter()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("blob verification must not run before structure is accepted")
+
+    monkeypatch.setattr(module, "verify_laya_oci_blob_chunks", forbidden, raising=False)
+    monkeypatch.setattr(module.runtime_oci_layout, "verify_laya_oci_blob_chunks", forbidden)
+    _forbid_seal(monkeypatch)
 
 
 def _private_error(error: BaseException, *markers: str) -> None:
@@ -105,34 +139,42 @@ def _product_python_files(repository: Path):
             yield from root.rglob("*.py")
 
 
-def _imports_or_calls_private_sealer(source: str) -> bool:
+def _private_sealers_used(source: str) -> set[str]:
     tree = ast.parse(source)
-    symbol = "_seal_laya_oci_layout_evidence"
+    symbols = {
+        "_seal_laya_oci_layout_capture_authority",
+        "_seal_laya_oci_layout_evidence",
+    }
+    found = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and any(alias.name == symbol for alias in node.names):
-            return True
-        if isinstance(node, ast.Name) and node.id == symbol:
-            return True
-        if isinstance(node, ast.Attribute) and node.attr == symbol:
-            return True
-        if isinstance(node, ast.Constant) and node.value == symbol:
-            return True
-    return False
+        if isinstance(node, ast.ImportFrom):
+            found.update(alias.name for alias in node.names if alias.name in symbols)
+        if isinstance(node, ast.Name) and node.id in symbols:
+            found.add(node.id)
+        if isinstance(node, ast.Attribute) and node.attr in symbols:
+            found.add(node.attr)
+        if isinstance(node, ast.Constant) and node.value in symbols:
+            found.add(node.value)
+    return found
 
 
-def test_adapter_is_the_only_product_caller_of_private_layout_evidence_sealer():
+def test_adapter_is_the_only_product_caller_of_both_private_layout_sealers():
     repository = Path(__file__).parents[1]
     adapter = repository / ADAPTER_RELATIVE_PATH
     core = repository / CORE_RELATIVE_PATH
     assert adapter.is_file()
     adapter_source = adapter.read_text(encoding="utf-8")
-    assert _imports_or_calls_private_sealer(adapter_source) is True
+    expected = {
+        "_seal_laya_oci_layout_capture_authority",
+        "_seal_laya_oci_layout_evidence",
+    }
+    assert _private_sealers_used(adapter_source) == expected
 
     offenders = []
     for path in _product_python_files(repository):
         if path in {adapter, core}:
             continue
-        if _imports_or_calls_private_sealer(path.read_text(encoding="utf-8")):
+        if _private_sealers_used(path.read_text(encoding="utf-8")):
             offenders.append(path.relative_to(repository).as_posix())
     assert offenders == []
 
@@ -167,6 +209,15 @@ def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
         and not node.name.startswith("_")
     }
     assert public_functions == {"capture_and_verify_laya_oci_layout"}
+    public_classes = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_")
+    }
+    assert public_classes == {
+        "OciLayoutCaptureError",
+        "SecureOciLayoutCaptureUnavailableError",
+    }
 
 
 def test_missing_secure_capability_fails_before_open_or_root_coercion(monkeypatch):
@@ -260,9 +311,34 @@ def test_root_symlink_is_rejected_without_sealing(monkeypatch, tmp_path):
     target = _partial_layout_root(tmp_path)
     link = tmp_path / "layout-link"
     link.symlink_to(target, target_is_directory=True)
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError):
         _capture(link)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd capture")
+def test_symlink_ancestor_of_root_is_rejected_before_verification(monkeypatch, tmp_path):
+    real_parent = tmp_path / "private-real-parent"
+    real_parent.mkdir()
+    _partial_layout_root(real_parent)
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    _forbid_blob_verification_and_sealing(monkeypatch)
+    with pytest.raises(_adapter().OciLayoutCaptureError):
+        _capture(linked_parent / "oci-layout-root")
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd capture")
+@pytest.mark.parametrize("directory", ["blobs", "blobs/sha256"])
+def test_blob_directory_symlink_is_rejected_before_verification(monkeypatch, tmp_path, directory):
+    root = _partial_layout_root(tmp_path)
+    target = root / directory
+    outside = tmp_path / ("private-" + directory.replace("/", "-"))
+    target.rename(outside)
+    target.symlink_to(outside, target_is_directory=True)
+    _forbid_blob_verification_and_sealing(monkeypatch)
+    with pytest.raises(_adapter().OciLayoutCaptureError):
+        _capture(root)
 
 
 @pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd capture")
@@ -284,7 +360,7 @@ def test_control_must_be_regular_single_link_file(monkeypatch, tmp_path, control
         outside.write_bytes(payload)
         os.link(outside, target)
         assert target.stat().st_nlink == 2
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError):
         _capture(root)
 
@@ -302,7 +378,7 @@ def test_each_missing_top_level_entry_is_rejected_without_sealing(monkeypatch, t
         target.rmdir()
     else:
         target.unlink()
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError):
         _capture(root)
 
@@ -313,7 +389,7 @@ def test_extra_top_level_entry_is_rejected_without_sealing(monkeypatch, tmp_path
     root = _partial_layout_root(tmp_path)
     extra = root / "private-extra-root-entry"
     extra.mkdir() if entry_kind == "directory" else extra.write_bytes(b"private-extra")
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError) as captured:
         _capture(root)
     _private_error(captured.value, str(root), "private-extra-root-entry")
@@ -335,7 +411,7 @@ def test_controls_are_read_from_capture_root_and_private_on_failure(monkeypatch,
         return original(evidence, layout_bytes, index_bytes)
 
     monkeypatch.setattr(module.runtime_oci_layout, "prepare_laya_oci_layout_plan", spy)
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(module.OciLayoutCaptureError) as captured:
         _capture(root)
     assert len(seen) == 1
@@ -351,16 +427,16 @@ def test_closed_blob_inventory_rejects_missing_extra_and_algorithm_entries(
 ):
     root = _partial_layout_root(tmp_path)
     digest_root = root / "blobs" / "sha256"
-    manifest = next(digest_root.iterdir())
+    selected = digest_root / CONFIG_SHA256
     if mutation == "missing-digest":
-        manifest.unlink()
+        selected.unlink()
     elif mutation == "extra-digest":
         (digest_root / ("a" * 64)).write_bytes(b"private-extra-blob")
     else:
         other = root / "blobs" / "sha512"
         other.mkdir()
         (other / ("a" * 64)).write_bytes(b"private-extra-algorithm")
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError):
         _capture(root)
 
@@ -370,16 +446,15 @@ def test_closed_blob_inventory_rejects_missing_extra_and_algorithm_entries(
 def test_blob_directories_must_be_exact_directories(monkeypatch, tmp_path, target_kind):
     root = _partial_layout_root(tmp_path)
     digest_root = root / "blobs" / "sha256"
-    manifest_payload = next(digest_root.iterdir()).read_bytes()
     for child in digest_root.iterdir():
         child.unlink()
     digest_root.rmdir()
     if target_kind == "sha256-file":
-        digest_root.write_bytes(manifest_payload)
+        digest_root.write_bytes(b"private-not-directory")
     else:
         (root / "blobs").rmdir()
-        (root / "blobs").write_bytes(manifest_payload)
-    _forbid_seal(monkeypatch)
+        (root / "blobs").write_bytes(b"private-not-directory")
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError):
         _capture(root)
 
@@ -389,21 +464,23 @@ def test_blob_directories_must_be_exact_directories(monkeypatch, tmp_path, targe
 def test_blob_must_be_regular_single_link_file(monkeypatch, tmp_path, kind):
     root = _partial_layout_root(tmp_path)
     digest_root = root / "blobs" / "sha256"
-    blob = next(digest_root.iterdir())
-    payload = blob.read_bytes()
+    digest, size_bytes = min(LAYERS, key=lambda item: item[1])
+    blob = digest_root / digest
     blob.unlink()
     if kind == "symlink":
         outside = tmp_path / "private-outside-blob"
-        outside.write_bytes(payload)
+        with outside.open("wb") as stream:
+            stream.truncate(size_bytes)
         blob.symlink_to(outside)
     elif kind == "fifo":
         os.mkfifo(blob)
     else:
         outside = tmp_path / "private-hardlink-source"
-        outside.write_bytes(payload)
+        with outside.open("wb") as stream:
+            stream.truncate(size_bytes)
         os.link(outside, blob)
         assert blob.stat().st_nlink == 2
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError):
         _capture(root)
 
@@ -412,23 +489,22 @@ def test_blob_must_be_regular_single_link_file(monkeypatch, tmp_path, kind):
 def test_blob_inventory_aborts_at_expected_plus_one_without_sealing(monkeypatch, tmp_path):
     root = _partial_layout_root(tmp_path)
     digest_root = root / "blobs" / "sha256"
-    for index in range(12):
-        (digest_root / f"{index:064x}").write_bytes(b"private-extra")
+    (digest_root / ("a" * 64)).write_bytes(b"private-extra")
     assert len(tuple(digest_root.iterdir())) == 13
-    _forbid_seal(monkeypatch)
+    _forbid_blob_verification_and_sealing(monkeypatch)
     with pytest.raises(_adapter().OciLayoutCaptureError):
         _capture(root)
 
 
 @pytest.mark.skipif(
-    not IS_LINUX or not os.environ.get("LAYA_RUNTIME_OCI_LAYOUT_ROOT"),
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
     reason="requires opt-in real external OCI layout on Linux",
 )
 def test_opt_in_real_same_root_capture_produces_conservative_evidence():
     from human_feedback import runtime_oci_layout
     from human_feedback.runtime_oci_metadata import canonical_laya_runtime_oci_summary_bytes
 
-    root = Path(os.environ["LAYA_RUNTIME_OCI_LAYOUT_ROOT"])
+    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
     oci_evidence = _oci_evidence()
     prior_summary = canonical_laya_runtime_oci_summary_bytes(oci_evidence)
     descriptors_before = len(tuple(Path("/proc/self/fd").iterdir()))
@@ -482,9 +558,22 @@ def test_opt_in_real_same_root_capture_produces_conservative_evidence():
         expected, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("ascii")
     rendered = repr(evidence) + repr(evidence.receipts) + summary.decode("ascii")
+    assert str(root) not in rendered
     assert all(blob.path not in rendered for blob in evidence.plan.blobs)
     assert all(blob.digest not in rendered for blob in evidence.plan.blobs)
     assert str(evidence.plan.total_size_bytes) not in rendered
     assert _layout_bytes().decode("ascii") not in rendered
     assert _index_bytes().decode("ascii") not in rendered
     assert canonical_laya_runtime_oci_summary_bytes(oci_evidence) == prior_summary
+
+
+def test_full_positive_is_a_mandatory_external_release_gate_not_a_normal_fixture(
+    monkeypatch,
+):
+    """Normal CI may specify failures, but cannot claim the 612 MB image was verified."""
+
+    monkeypatch.delenv(REAL_LAYOUT_RELEASE_GATE_ENV, raising=False)
+    fixture_root = Path(__file__).parent / "fixtures" / "laya" / "runtime_oci_layout"
+    assert os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV) is None
+    assert {path.name for path in fixture_root.iterdir()} == {"index.json", "oci-layout"}
+    assert not (fixture_root / "blobs").exists()
