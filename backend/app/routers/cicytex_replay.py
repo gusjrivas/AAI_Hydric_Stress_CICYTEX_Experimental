@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
-from uuid import uuid4
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from historical_replay.catalog import GetReplayCatalog
+from historical_replay.sessions import (
+    ReplaySession,
+    ReplaySessionNotFound,
+    ReplaySessionService,
+)
 
-from ..dependencies import get_cicytex_replay_catalog
+from ..dependencies import get_cicytex_replay_catalog, get_cicytex_replay_sessions
 
 router = APIRouter(prefix="/api/v2/cicytex/replay", tags=["cicytex-replay"])
 METHOD_ORDER = [
@@ -40,17 +43,7 @@ class FeedbackRequest(BaseModel):
     observacion: str | None = Field(default=None, max_length=1000)
 
 
-@dataclass
-class Session:
-    sensor_id: str
-    start_date: date
-    emission_date: date
-    horizon_days: int
-    revealed_through: date
-
-
-_sessions: dict[str, Session] = {}
-_lock = Lock()
+_feedback_lock = Lock()
 
 
 def _root() -> Path:
@@ -80,18 +73,23 @@ def _feedback_path() -> Path:
     return root / "feedback.json"
 
 
-def _feedback_key(session: Session) -> str:
+def _feedback_key(session: ReplaySession) -> str:
     return f"{session.sensor_id}|{session.emission_date.isoformat()}|{session.horizon_days}"
 
 
-def _read_feedback() -> dict:
+def _read_feedback_document() -> dict:
     path = _feedback_path()
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _write_feedback(document: dict) -> None:
+def _read_feedback() -> dict:
+    with _feedback_lock:
+        return _read_feedback_document()
+
+
+def _write_feedback_document(document: dict) -> None:
     path = _feedback_path()
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -143,7 +141,7 @@ def _metric(rows: pd.DataFrame) -> dict:
     }
 
 
-def _render(session_id: str, session: Session) -> dict:
+def _render(session: ReplaySession) -> dict:
     predictions, observations = _load()
     sensor_predictions = predictions.loc[predictions["sensor_id"] == session.sensor_id].copy()
     selected = sensor_predictions.loc[
@@ -190,7 +188,7 @@ def _render(session_id: str, session: Session) -> dict:
     ]
     metrics = {method: _metric(rows) for method, rows in accumulated.groupby("method")}
     return {
-        "session_id": session_id,
+        "session_id": session.session_id,
         "sensor_id": session.sensor_id,
         "emission_date": session.emission_date.isoformat(),
         "horizon_days": session.horizon_days,
@@ -204,7 +202,7 @@ def _render(session_id: str, session: Session) -> dict:
         ],
         "metrics": metrics,
         "feedback": _read_feedback().get(_feedback_key(session)),
-        "can_advance": session.revealed_through < date(2023, 7, 25),
+        "can_advance": session.can_advance,
     }
 
 
@@ -217,7 +215,10 @@ def catalog(query: GetReplayCatalog = Depends(get_cicytex_replay_catalog)) -> di
 
 
 @router.post("/sessions", status_code=201)
-def create_session(request: SessionRequest) -> dict:
+def create_session(
+    request: SessionRequest,
+    sessions: ReplaySessionService = Depends(get_cicytex_replay_sessions),
+) -> dict:
     predictions, _ = _load()
     valid = predictions.loc[
         (predictions["sensor_id"] == request.sensor_id)
@@ -226,73 +227,81 @@ def create_session(request: SessionRequest) -> dict:
     ]
     if valid.empty:
         raise HTTPException(422, "Seleccion fuera del paquete causal")
-    session_id = uuid4().hex
-    session = Session(
-        request.sensor_id,
-        request.emission_date,
-        request.emission_date,
-        request.horizon_days,
-        request.emission_date,
+    session = sessions.create(
+        sensor_id=request.sensor_id,
+        emission_date=request.emission_date,
+        horizon_days=request.horizon_days,
     )
-    with _lock:
-        _sessions[session_id] = session
-    return _render(session_id, session)
+    return _render(session)
 
 
 @router.get("/sessions/{session_id}")
-def get_session(session_id: str) -> dict:
-    with _lock:
-        session = _sessions.get(session_id)
-    if session is None:
+def get_session(
+    session_id: str,
+    sessions: ReplaySessionService = Depends(get_cicytex_replay_sessions),
+) -> dict:
+    try:
+        session = sessions.get(session_id)
+    except ReplaySessionNotFound:
         raise HTTPException(404, "Sesion inexistente")
-    return _render(session_id, session)
+    return _render(session)
 
 
 @router.post("/sessions/{session_id}/advance")
-def advance(session_id: str) -> dict:
-    with _lock:
-        session = _sessions.get(session_id)
-        if session is None:
-            raise HTTPException(404, "Sesion inexistente")
-        session.revealed_through = min(
-            session.revealed_through + timedelta(days=1), date(2023, 7, 25)
-        )
-    return _render(session_id, session)
+def advance(
+    session_id: str,
+    sessions: ReplaySessionService = Depends(get_cicytex_replay_sessions),
+) -> dict:
+    try:
+        session = sessions.advance(session_id)
+    except ReplaySessionNotFound:
+        raise HTTPException(404, "Sesion inexistente")
+    return _render(session)
 
 
 @router.post("/sessions/{session_id}/reset")
-def reset(session_id: str) -> dict:
-    with _lock:
-        session = _sessions.get(session_id)
-        if session is None:
-            raise HTTPException(404, "Sesion inexistente")
-        session.revealed_through = session.emission_date
-    return _render(session_id, session)
+def reset(
+    session_id: str,
+    sessions: ReplaySessionService = Depends(get_cicytex_replay_sessions),
+) -> dict:
+    try:
+        session = sessions.reset(session_id)
+    except ReplaySessionNotFound:
+        raise HTTPException(404, "Sesion inexistente")
+    return _render(session)
 
 
 @router.post("/sessions/{session_id}/feedback", status_code=201)
-def create_feedback(session_id: str, request: FeedbackRequest) -> dict:
+def create_feedback(
+    session_id: str,
+    request: FeedbackRequest,
+    sessions: ReplaySessionService = Depends(get_cicytex_replay_sessions),
+) -> dict:
     if request.estado_validacion not in {"confirmada", "rechazada"}:
         raise HTTPException(422, "estado_validacion invalido")
-    with _lock:
-        session = _sessions.get(session_id)
-        if session is None:
-            raise HTTPException(404, "Sesion inexistente")
+
+    def register(session: ReplaySession) -> dict:
         target = session.emission_date + timedelta(days=session.horizon_days)
         if session.revealed_through < target:
             raise HTTPException(409, "La observacion todavia no fue revelada")
-        document = _read_feedback()
-        key = _feedback_key(session)
-        if key in document:
-            raise HTTPException(409, "Ya existe feedback para esta prediccion")
-        entry = {
-            "estado_validacion": request.estado_validacion,
-            "etiqueta_corregida": request.etiqueta_corregida,
-            "observacion": request.observacion.strip() if request.observacion else None,
-            "registered_at": datetime.now(timezone.utc).isoformat(),
-            "simulated_at": session.revealed_through.isoformat(),
-            "scope": "demostracion; no recalibra ni reentrena",
-        }
-        document[key] = entry
-        _write_feedback(document)
-    return entry
+        with _feedback_lock:
+            document = _read_feedback_document()
+            key = _feedback_key(session)
+            if key in document:
+                raise HTTPException(409, "Ya existe feedback para esta prediccion")
+            entry = {
+                "estado_validacion": request.estado_validacion,
+                "etiqueta_corregida": request.etiqueta_corregida,
+                "observacion": request.observacion.strip() if request.observacion else None,
+                "registered_at": datetime.now(timezone.utc).isoformat(),
+                "simulated_at": session.revealed_through.isoformat(),
+                "scope": "demostracion; no recalibra ni reentrena",
+            }
+            document[key] = entry
+            _write_feedback_document(document)
+        return entry
+
+    try:
+        return sessions.with_session(session_id, register)
+    except ReplaySessionNotFound:
+        raise HTTPException(404, "Sesion inexistente")
