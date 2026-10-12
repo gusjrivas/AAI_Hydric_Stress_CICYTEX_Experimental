@@ -649,6 +649,24 @@ def test_oci_aggregate_requires_exact_raw_manifest_not_only_semantic_equivalence
     assert captured.value.__suppress_context__ is True
 
 
+def test_oci_aggregate_requires_exact_sha_even_when_semantic_variant_size_matches():
+    exact = _fixture_bytes()
+    original = b'"schemaVersion": 2,\n  "mediaType"'
+    replacement = b'"schemaVersion": 2, \n "mediaType"'
+    assert len(original) == len(replacement)
+    assert exact.count(original) == 1
+    variant = exact.replace(original, replacement, 1)
+
+    assert len(variant) == len(exact) == FIXTURE_SIZE_BYTES
+    assert hashlib.sha256(variant).hexdigest() != FIXTURE_SHA256
+    assert _validate(variant) == _validate(exact)
+    snapshot = _oci_snapshot(oci_payload=variant)
+    assert snapshot.artifact_integrity_verified is True
+
+    with pytest.raises(ValueError, match="OCI|manifest|artifact|exact|byte|digest"):
+        _validate_oci_evidence(snapshot)
+
+
 @pytest.mark.parametrize(
     "kind",
     ["dependency_lock", "sbom", "runtime_config", "checkpoint_manifest"],
@@ -821,6 +839,36 @@ def test_oci_public_summary_is_minimal_deterministic_and_private():
     assert all(private not in first for private in forbidden)
 
 
+def test_oci_public_summary_rejects_unsealed_proxies_snapshots_and_invalid_types():
+    from types import SimpleNamespace
+
+    from human_feedback.runtime_oci_metadata import canonical_laya_runtime_oci_summary_bytes
+
+    evidence = _validate_oci_evidence()
+    proxy = SimpleNamespace(
+        schema_version=evidence.schema_version,
+        snapshot=evidence.snapshot,
+        oci_manifest=evidence.oci_manifest,
+        runtime_identity=evidence.runtime_identity,
+        artifact_integrity_verified=True,
+        oci_manifest_semantics_verified=True,
+    )
+    invalid_values = (
+        evidence.snapshot,
+        evidence.oci_manifest,
+        proxy,
+        SimpleNamespace(),
+        None,
+        object(),
+        b"not-evidence",
+        {"schema_version": evidence.schema_version},
+    )
+
+    for invalid in invalid_values:
+        with pytest.raises((TypeError, ValueError), match="OCI|evidence|valid|sealed"):
+            canonical_laya_runtime_oci_summary_bytes(invalid)  # type: ignore[arg-type]
+
+
 def test_oci_validation_does_not_compose_or_mutate_prior_evidence_layers():
     from human_feedback.runtime_bundle import canonical_laya_runtime_bundle_summary_bytes
     from human_feedback.runtime_dependency_metadata import (
@@ -875,3 +923,52 @@ def test_oci_aggregate_errors_hide_private_captured_content_and_context():
     assert marker.decode("ascii") not in rendered_chain
     assert error.__cause__ is None
     assert error.__suppress_context__ is True
+
+
+def test_no_external_product_module_imports_or_uses_oci_evidence_aggregator():
+    repository = Path(__file__).parents[1]
+    aggregator_symbols = {
+        "LayaRuntimeOciEvidence",
+        "canonical_laya_runtime_oci_summary_bytes",
+        "validate_laya_runtime_oci_metadata",
+    }
+    offenders: list[str] = []
+    production_roots = (
+        repository / "backend",
+        repository / "src",
+        repository / "scripts",
+    )
+
+    for root in production_roots:
+        for path in root.rglob("*.py"):
+            if path.name == "runtime_oci_metadata.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            imported_or_used = {
+                alias.name
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.Import, ast.ImportFrom))
+                for alias in node.names
+                if alias.name in aggregator_symbols
+            }
+            imported_or_used.update(
+                node.id
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Name) and node.id in aggregator_symbols
+            )
+            imported_or_used.update(
+                node.attr
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute) and node.attr in aggregator_symbols
+            )
+            imported_or_used.update(
+                node.value
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value in aggregator_symbols
+            )
+            if imported_or_used:
+                offenders.append(path.relative_to(repository).as_posix())
+
+    assert offenders == []
