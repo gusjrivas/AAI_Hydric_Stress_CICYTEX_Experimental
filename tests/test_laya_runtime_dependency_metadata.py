@@ -40,6 +40,7 @@ PYTORCH_INDEX = "https://download.pytorch.org/whl/cpu"
 CYCLONEDX_SCHEMA = "https://cyclonedx.org/schema/bom-1.6.schema.json"
 ALLOWED_REGISTRIES = {"https://pypi.org/simple", PYTORCH_INDEX}
 ALLOWED_ARTIFACT_HOSTS = {"files.pythonhosted.org", "download-r2.pytorch.org"}
+DEPENDENCY_EVIDENCE_SCHEMA_VERSION = "laya-runtime-dependency-evidence-v1"
 
 
 def _fixture_path() -> Path:
@@ -165,6 +166,40 @@ def _validate_sbom_parsed(monkeypatch, value: dict[str, object]):
 
     monkeypatch.setattr(module.json, "loads", lambda _text: value)
     return module.validate_laya_cyclonedx_sbom_bytes(b'{"synthetic":"valid-size"}')
+
+
+def _dependency_payloads(
+    *, lock_payload: bytes | None = None, sbom_payload: bytes | None = None
+) -> dict[str, bytes]:
+    from tests.test_laya_runtime_artifact_integrity import ARTIFACT_PATHS, _payloads
+
+    payloads = _payloads()
+    payloads[ARTIFACT_PATHS["dependency_lock"]] = (
+        _fixture_bytes() if lock_payload is None else lock_payload
+    )
+    payloads[ARTIFACT_PATHS["sbom"]] = (
+        _sbom_fixture_bytes() if sbom_payload is None else sbom_payload
+    )
+    return payloads
+
+
+def _dependency_snapshot(*, lock_payload: bytes | None = None, sbom_payload: bytes | None = None):
+    from tests.test_laya_runtime_artifact_integrity import _manifest, _verify
+
+    payloads = _dependency_payloads(
+        lock_payload=lock_payload,
+        sbom_payload=sbom_payload,
+    )
+    return _verify(_manifest(payloads=payloads), payloads)
+
+
+def _validate_dependency_metadata(snapshot=None):
+    from human_feedback.runtime_dependency_metadata import (
+        validate_laya_runtime_dependency_metadata,
+    )
+
+    actual = _dependency_snapshot() if snapshot is None else snapshot
+    return validate_laya_runtime_dependency_metadata(actual)
 
 
 def _package(lock, name: str):
@@ -1088,6 +1123,320 @@ def test_sbom_parser_error_chain_is_generic_and_private(case):
     error = captured.value
     rendered_chain = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
     assert marker not in str(error)
+    assert marker not in rendered_chain
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
+
+
+def test_dependency_combinator_uses_only_captured_snapshot_artifacts():
+    from human_feedback.runtime_dependency_metadata import (
+        LayaRuntimeDependencyEvidence,
+        validate_laya_runtime_dependency_metadata,
+    )
+
+    snapshot = _dependency_snapshot()
+    evidence = _validate_dependency_metadata(snapshot)
+
+    assert isinstance(evidence, LayaRuntimeDependencyEvidence)
+    assert evidence.schema_version == DEPENDENCY_EVIDENCE_SCHEMA_VERSION
+    assert evidence.snapshot is snapshot
+    assert evidence.runtime_identity == snapshot.runtime_identity
+    assert evidence.dependency_lock == _validate()
+    assert evidence.sbom == _validate_sbom()
+    with pytest.raises(TypeError):
+        validate_laya_runtime_dependency_metadata(  # type: ignore[call-arg]
+            snapshot,
+            _fixture_bytes(),
+            _sbom_fixture_bytes(),
+        )
+    with pytest.raises((TypeError, ValueError), match="snapshot|bundle"):
+        validate_laya_runtime_dependency_metadata(snapshot.artifacts)  # type: ignore[arg-type]
+
+
+def test_lock_and_sbom_inventory_sources_and_activated_edges_are_exactly_consistent():
+    evidence = _validate_dependency_metadata()
+    lock = evidence.dependency_lock
+    sbom = evidence.sbom
+
+    lock_inventory = {
+        (package.name, package.version, package.source_kind, package.source_url)
+        for package in lock.packages
+    }
+
+    def sbom_source(component):
+        if component.name == "laya-runtime-supply":
+            return "virtual", "."
+        if component.name == "laya":
+            return "git", LAYA_GIT
+        if component.name == "torch":
+            return "registry", PYTORCH_INDEX
+        return "registry", "https://pypi.org/simple"
+
+    sbom_inventory = {
+        (component.name, component.version, *sbom_source(component))
+        for component in (sbom.root_component, *sbom.components)
+    }
+    assert lock_inventory == sbom_inventory
+    assert len(lock_inventory) == 45
+
+    packages = {package.name: package for package in lock.packages}
+    expected_edges = {
+        (package.name, dependency)
+        for package in lock.packages
+        for dependency in package.dependencies
+    }
+    assert packages["laya-runtime-supply"].dependencies == ("laya", "torch")
+    serve = dict(packages["laya"].optional_dependencies)["serve"]
+    assert serve == ("fastapi", "python-multipart", "uvicorn")
+    expected_edges.update(("laya", dependency) for dependency in serve)
+
+    by_ref = {
+        component.bom_ref: component.name for component in (sbom.root_component, *sbom.components)
+    }
+    actual_edges = {
+        (by_ref[node.ref], by_ref[dependency])
+        for node in sbom.dependencies
+        for dependency in node.depends_on
+    }
+    assert len(expected_edges) == 70
+    assert actual_edges == expected_edges
+    assert set(by_ref) == {node.ref for node in sbom.dependencies}
+    assert all(dependency in by_ref for node in sbom.dependencies for dependency in node.depends_on)
+    adjacency = {node.ref: set(node.depends_on) for node in sbom.dependencies}
+    reachable = {sbom.root_component.bom_ref}
+    pending = [sbom.root_component.bom_ref]
+    while pending:
+        for dependency in adjacency[pending.pop()]:
+            if dependency not in reachable:
+                reachable.add(dependency)
+                pending.append(dependency)
+    assert reachable == set(by_ref)
+
+
+def test_dependency_combinator_cross_checks_manifest_runtime_profile():
+    evidence = _validate_dependency_metadata()
+    manifest = evidence.snapshot.manifest
+    lock = evidence.dependency_lock
+
+    assert manifest.engine == "laya==0.4.2"
+    assert manifest.source == (
+        "https://github.com/NandhaKishorM/laya@" "68804629e8ccd9d616d48a40e87de9fabbeae069"
+    )
+    assert manifest.python == "3.11.10"
+    assert manifest.platform == "linux/amd64"
+    assert lock.requires_python == f"=={manifest.python}"
+    assert lock.resolution_markers == (MARKER,)
+    assert _package(lock, "laya").version == manifest.engine.removeprefix("laya==")
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["missing", "extra", "version", "source", "edge", "root", "digest"],
+)
+def test_dependency_combinator_rejects_inconsistent_captured_metadata(case):
+    value = _sbom_fixture_object()
+    components = value["components"]
+    dependencies = value["dependencies"]
+    metadata = value["metadata"]
+    assert isinstance(components, list)
+    assert isinstance(dependencies, list)
+    assert isinstance(metadata, dict)
+
+    if case == "missing":
+        components.pop(0)
+    elif case == "extra":
+        components.append(deepcopy(components[0]))
+        components[-1]["name"] = "private-extra-package"
+    elif case == "version":
+        components[0]["version"] = "999.0.0"
+    elif case == "source":
+        components[0]["purl"] = "pkg:pypi/private-source@0.0.1"
+    elif case == "edge":
+        dependencies[0]["dependsOn"].append(dependencies[1]["ref"])
+    elif case == "root":
+        metadata["component"]["name"] = "private-root"
+    else:
+        properties = metadata["properties"]
+        lock_property = next(item for item in properties if item["name"] == "aai:uv-lock:sha256")
+        lock_property["value"] = "f" * 64
+
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("ascii")
+    snapshot = _dependency_snapshot(sbom_payload=payload)
+    with pytest.raises(ValueError, match="dependency|lock|SBOM|profile|metadata|consistent"):
+        _validate_dependency_metadata(snapshot)
+
+
+def test_dependency_combinator_rejects_lock_version_and_source_mutations():
+    mutations = (
+        _mutated(b'version = "0.0.5"', b'version = "999.0.0"'),
+        _mutated(
+            b'source = { registry = "https://pypi.org/simple" }',
+            b'source = { registry = "https://private.invalid/simple" }',
+        ),
+    )
+
+    for payload in mutations:
+        snapshot = _dependency_snapshot(lock_payload=payload)
+        with pytest.raises(ValueError, match="dependency|lock|profile|package|source"):
+            _validate_dependency_metadata(snapshot)
+
+
+def test_dependency_combinator_rejects_runtime_proxies_and_mixed_snapshots():
+    from types import SimpleNamespace
+
+    first = _dependency_snapshot()
+    second = _dependency_snapshot()
+    runtime_proxy = SimpleNamespace(
+        schema_version=first.schema_version,
+        manifest=object(),
+        artifacts=first.artifacts,
+        runtime_identity=first.runtime_identity,
+        artifact_integrity_verified=True,
+    )
+    mixed_proxy = SimpleNamespace(
+        schema_version=first.schema_version,
+        manifest=first.manifest,
+        artifacts=(first.artifacts[0], *second.artifacts[1:]),
+        runtime_identity=first.runtime_identity,
+        artifact_integrity_verified=True,
+    )
+
+    for candidate in (runtime_proxy, mixed_proxy):
+        with pytest.raises((TypeError, ValueError), match="snapshot|bundle|runtime"):
+            _validate_dependency_metadata(candidate)
+
+
+def test_dependency_evidence_is_frozen_slotted_factory_sealed_and_not_replaceable():
+    evidence = _validate_dependency_metadata()
+
+    assert is_dataclass(evidence)
+    assert not hasattr(evidence, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        evidence.lock_verified = False  # type: ignore[misc]
+    with pytest.raises((TypeError, ValueError)):
+        replace(evidence, snapshot=evidence.snapshot)
+    with pytest.raises((TypeError, ValueError)):
+        replace(evidence, dependency_lock=evidence.dependency_lock)
+    with pytest.raises((TypeError, ValueError), match="factory|token|seal|valid"):
+        type(evidence)(
+            schema_version=evidence.schema_version,
+            snapshot=evidence.snapshot,
+            dependency_lock=evidence.dependency_lock,
+            sbom=evidence.sbom,
+            runtime_identity=evidence.runtime_identity,
+        )
+
+
+def test_dependency_evidence_flags_make_only_lock_sbom_consistency_claims():
+    evidence = _validate_dependency_metadata()
+    expected = {
+        "artifact_integrity_verified": True,
+        "lock_verified": True,
+        "sbom_verified": True,
+        "lock_sbom_consistent": True,
+        "runtime_config_semantics_verified": False,
+        "checkpoint_manifest_semantics_verified": False,
+        "checkpoint_bytes_verified": False,
+        "oci_bytes_verified": False,
+        "oci_manifest_semantics_verified": False,
+        "runtime_materialized": False,
+        "origin_verified": False,
+        "executor_available": False,
+        "inference_executed": False,
+    }
+
+    for field, expected_value in expected.items():
+        assert getattr(evidence, field) is expected_value
+        with pytest.raises((TypeError, ValueError)):
+            replace(evidence, **{field: not expected_value})
+    for field in (
+        "license_verified",
+        "vulnerability_verified",
+        "installation_verified",
+        "runtime_compatibility_verified",
+    ):
+        if hasattr(evidence, field):
+            assert getattr(evidence, field) is False
+            with pytest.raises((TypeError, ValueError)):
+                replace(evidence, **{field: True})
+
+
+def test_dependency_summary_is_deterministic_minimal_and_private():
+    from human_feedback.runtime_dependency_metadata import (
+        canonical_laya_runtime_dependency_summary_bytes,
+    )
+
+    snapshot = _dependency_snapshot()
+    evidence = _validate_dependency_metadata(snapshot)
+    first = canonical_laya_runtime_dependency_summary_bytes(evidence)
+    second = canonical_laya_runtime_dependency_summary_bytes(evidence)
+    decoded = json.loads(first)
+
+    assert first == second
+    assert decoded == {
+        "artifact_integrity_verified": True,
+        "checkpoint_bytes_verified": False,
+        "checkpoint_manifest_semantics_verified": False,
+        "executor_available": False,
+        "inference_executed": False,
+        "lock_sbom_consistent": True,
+        "lock_verified": True,
+        "oci_bytes_verified": False,
+        "oci_manifest_semantics_verified": False,
+        "origin_verified": False,
+        "runtime_config_semantics_verified": False,
+        "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
+        "runtime_identity_sha256": evidence.runtime_identity.sha256,
+        "runtime_materialized": False,
+        "sbom_verified": True,
+        "schema_version": DEPENDENCY_EVIDENCE_SCHEMA_VERSION,
+    }
+    rendered = repr(evidence) + repr(evidence.dependency_lock) + repr(evidence.sbom)
+    forbidden = {
+        _fixture_bytes().decode("utf-8"),
+        _sbom_fixture_bytes().decode("utf-8"),
+        FIXTURE_SHA256,
+        SBOM_FIXTURE_SHA256,
+        EXPECTED_LOCK_SEMANTICS_SHA256,
+        EXPECTED_SBOM_SEMANTICS_SHA256,
+        LAYA_GIT,
+        PYTORCH_INDEX,
+        "laya-runtime-supply",
+        "2.14.0+cpu",
+        "pkg:pypi/torch@2.14.0+cpu",
+    }
+    for private in forbidden:
+        assert private not in rendered
+        assert private.encode("utf-8") not in first
+
+
+def test_dependency_validation_does_not_mutate_prior_bundle_summary():
+    from human_feedback.runtime_bundle import canonical_laya_runtime_bundle_summary_bytes
+
+    snapshot = _dependency_snapshot()
+    before = canonical_laya_runtime_bundle_summary_bytes(snapshot)
+    _validate_dependency_metadata(snapshot)
+    after = canonical_laya_runtime_bundle_summary_bytes(snapshot)
+
+    assert after == before
+    assert json.loads(after)["lock_verified"] is False
+    assert json.loads(after)["sbom_verified"] is False
+    assert json.loads(after)["lock_sbom_consistent"] is False
+
+
+def test_dependency_combinator_errors_do_not_leak_captured_payloads():
+    marker = "private-dependency-combinator-secret"
+    value = _sbom_fixture_object()
+    value["components"][0]["name"] = marker
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("ascii")
+    snapshot = _dependency_snapshot(sbom_payload=payload)
+
+    with pytest.raises(ValueError) as captured:
+        _validate_dependency_metadata(snapshot)
+
+    error = captured.value
+    rendered_chain = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
+    assert marker not in repr(error)
     assert marker not in rendered_chain
     assert error.__cause__ is None
     assert error.__suppress_context__ is True
