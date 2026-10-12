@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json as _json_parser
-from dataclasses import InitVar, dataclass
+from dataclasses import InitVar, dataclass, field
 from typing import Any
 
 from human_feedback.runtime_oci_metadata import LayaRuntimeOciEvidence
@@ -17,6 +17,8 @@ MAX_OCI_BLOB_CHUNK_BYTES = 1_024 * 1_024
 MAX_OCI_BLOB_CHUNKS = 1_024
 
 LAYOUT_PLAN_SCHEMA = "laya-oci-layout-plan-v1"
+LAYOUT_PROFILE_ID = "laya-runtime-oci-layout-profile-v1"
+LAYOUT_EVIDENCE_SCHEMA = "laya-runtime-oci-layout-evidence-v1"
 
 _LAYOUT_SIZE_BYTES = 30
 _LAYOUT_SHA256 = "18f0797eab35a4597c1e9624aa4f15fd91f6254e5538c1e0d193b2a95dd4acc6"
@@ -166,6 +168,137 @@ class VerifiedLayaOciBlob:
     __repr__ = _private_repr
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class _LayaOciLayoutCaptureAuthority:
+    plan: LayaOciLayoutPlan = field(repr=False)
+    receipts: tuple[VerifiedLayaOciBlob, ...] = field(repr=False)
+    controls_captured_from_same_root: bool = field(repr=False)
+    inventory_captured_from_same_root: bool = field(repr=False)
+    final_fd_sweep_verified: bool = field(repr=False)
+    _factory_token: InitVar[object]
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI capture authority construction is factory-sealed")
+        if type(self.plan) is not LayaOciLayoutPlan:
+            raise TypeError("OCI capture authority plan type is invalid")
+        if type(self.receipts) is not tuple or len(self.receipts) != len(self.plan.blobs):
+            raise ValueError("OCI capture authority receipt tuple is incomplete")
+        if not all(
+            flag is True
+            for flag in (
+                self.controls_captured_from_same_root,
+                self.inventory_captured_from_same_root,
+                self.final_fd_sweep_verified,
+            )
+        ):
+            raise ValueError("OCI capture authority attestation flag is invalid")
+        for position, receipt in enumerate(self.receipts):
+            if type(receipt) is not VerifiedLayaOciBlob:
+                raise TypeError("OCI capture authority receipt type is invalid")
+            if receipt.plan is not self.plan:
+                raise ValueError("OCI capture authority plan identity is foreign")
+            if receipt.blob is not self.plan.blobs[position]:
+                raise ValueError("OCI capture authority receipt order is invalid")
+            if receipt.blob_bytes_verified is not True:
+                raise ValueError("OCI capture authority verification is incomplete")
+
+    __repr__ = _private_repr
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LayaRuntimeOciLayoutEvidence:
+    schema_version: str
+    plan: LayaOciLayoutPlan = field(repr=False)
+    runtime_identity: object = field(repr=False)
+    receipts: tuple[VerifiedLayaOciBlob, ...] = field(repr=False)
+    _factory_token: InitVar[object]
+    artifact_integrity_verified: bool = field(init=False, default=True)
+    oci_manifest_semantics_verified: bool = field(init=False, default=True)
+    oci_layout_controls_bytes_verified: bool = field(init=False, default=True)
+    oci_blob_inventory_verified: bool = field(init=False, default=True)
+    oci_same_root_capture_verified: bool = field(init=False, default=True)
+    oci_manifest_blob_bytes_verified: bool = field(init=False, default=True)
+    oci_config_blob_bytes_verified: bool = field(init=False, default=True)
+    oci_layer_blobs_bytes_verified: bool = field(init=False, default=True)
+    oci_bytes_verified: bool = field(init=False, default=True)
+    lock_verified: bool = field(init=False, default=False)
+    sbom_verified: bool = field(init=False, default=False)
+    lock_sbom_consistent: bool = field(init=False, default=False)
+    runtime_config_semantics_verified: bool = field(init=False, default=False)
+    checkpoint_manifest_semantics_verified: bool = field(init=False, default=False)
+    checkpoint_bytes_verified: bool = field(init=False, default=False)
+    oci_config_semantics_verified: bool = field(init=False, default=False)
+    oci_layer_diff_ids_verified: bool = field(init=False, default=False)
+    oci_rootfs_verified: bool = field(init=False, default=False)
+    origin_verified: bool = field(init=False, default=False)
+    license_verified: bool = field(init=False, default=False)
+    base_ancestry_verified: bool = field(init=False, default=False)
+    rootfs_materialized: bool = field(init=False, default=False)
+    runtime_materialized: bool = field(init=False, default=False)
+    executor_available: bool = field(init=False, default=False)
+    inference_executed: bool = field(init=False, default=False)
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI layout evidence construction is factory-sealed")
+        if self.schema_version != LAYOUT_EVIDENCE_SCHEMA:
+            raise ValueError("OCI layout evidence schema is invalid")
+        if type(self.plan) is not LayaOciLayoutPlan:
+            raise TypeError("OCI layout evidence plan type is invalid")
+        if self.runtime_identity is not self.plan.runtime_identity:
+            raise ValueError("OCI layout evidence runtime identity is invalid")
+        if type(self.receipts) is not tuple or len(self.receipts) != len(self.plan.blobs):
+            raise ValueError("OCI layout evidence receipt tuple is incomplete")
+        for position, receipt in enumerate(self.receipts):
+            if (
+                type(receipt) is not VerifiedLayaOciBlob
+                or receipt.plan is not self.plan
+                or receipt.blob is not self.plan.blobs[position]
+                or receipt.blob_bytes_verified is not True
+            ):
+                raise ValueError("OCI layout evidence receipt binding is invalid")
+        if not all(
+            flag is True
+            for flag in (
+                self.artifact_integrity_verified,
+                self.oci_manifest_semantics_verified,
+                self.oci_layout_controls_bytes_verified,
+                self.oci_blob_inventory_verified,
+                self.oci_same_root_capture_verified,
+                self.oci_manifest_blob_bytes_verified,
+                self.oci_config_blob_bytes_verified,
+                self.oci_layer_blobs_bytes_verified,
+                self.oci_bytes_verified,
+            )
+        ):
+            raise ValueError("OCI layout evidence positive claim is invalid")
+        if not all(
+            flag is False
+            for flag in (
+                self.lock_verified,
+                self.sbom_verified,
+                self.lock_sbom_consistent,
+                self.runtime_config_semantics_verified,
+                self.checkpoint_manifest_semantics_verified,
+                self.checkpoint_bytes_verified,
+                self.oci_config_semantics_verified,
+                self.oci_layer_diff_ids_verified,
+                self.oci_rootfs_verified,
+                self.origin_verified,
+                self.license_verified,
+                self.base_ancestry_verified,
+                self.rootfs_materialized,
+                self.runtime_materialized,
+                self.executor_available,
+                self.inference_executed,
+            )
+        ):
+            raise ValueError("OCI layout evidence conservative claim is invalid")
+
+    __repr__ = _private_repr
+
+
 def _validate_json_limits(value: object, *, depth: int = 0) -> None:
     if depth > MAX_OCI_CONTROL_JSON_DEPTH:
         raise ValueError("OCI control JSON depth exceeds limit")
@@ -277,11 +410,7 @@ def _blob_plan(role: str, media_type: str, digest: str, size_bytes: int) -> Laya
     )
 
 
-def _prepare_laya_oci_layout_plan(
-    oci_evidence: LayaRuntimeOciEvidence,
-    oci_layout_bytes: bytes,
-    index_bytes: bytes,
-) -> LayaOciLayoutPlan:
+def _require_exact_laya_oci_evidence(oci_evidence: object) -> LayaRuntimeOciEvidence:
     if type(oci_evidence) is not LayaRuntimeOciEvidence:
         raise TypeError("OCI evidence must be an exact factory-sealed type")
     if (
@@ -290,6 +419,15 @@ def _prepare_laya_oci_layout_plan(
         or oci_evidence.runtime_identity is not oci_evidence.snapshot.runtime_identity
     ):
         raise ValueError("OCI evidence identity or verification state is invalid")
+    return oci_evidence
+
+
+def _prepare_laya_oci_layout_plan(
+    oci_evidence: LayaRuntimeOciEvidence,
+    oci_layout_bytes: bytes,
+    index_bytes: bytes,
+) -> LayaOciLayoutPlan:
+    _require_exact_laya_oci_evidence(oci_evidence)
 
     _preflight_control(oci_layout_bytes, byte_limit=MAX_OCI_LAYOUT_BYTES)
     _preflight_control(index_bytes, byte_limit=MAX_OCI_INDEX_BYTES)
@@ -456,3 +594,116 @@ def verify_laya_oci_blob_chunks(
         sanitized = ValueError("OCI blob stream iteration failed")
         sanitized.__suppress_context__ = True
         raise sanitized
+
+
+def _seal_laya_oci_layout_capture_authority(
+    plan: LayaOciLayoutPlan,
+    receipts: tuple[VerifiedLayaOciBlob, ...],
+    *,
+    controls_captured_from_same_root: bool,
+    inventory_captured_from_same_root: bool,
+    final_fd_sweep_verified: bool,
+) -> _LayaOciLayoutCaptureAuthority:
+    if type(plan) is not LayaOciLayoutPlan:
+        raise TypeError("OCI capture authority requires an exact factory-sealed plan")
+    for flag in (
+        controls_captured_from_same_root,
+        inventory_captured_from_same_root,
+        final_fd_sweep_verified,
+    ):
+        if flag is not True:
+            raise ValueError("OCI capture same-root inventory sweep flag is invalid")
+    if type(receipts) is not tuple:
+        raise TypeError("OCI capture receipt container must be an exact tuple")
+    if len(receipts) != len(plan.blobs):
+        raise ValueError("OCI capture receipt count is incomplete")
+    for position, receipt in enumerate(receipts):
+        if type(receipt) is not VerifiedLayaOciBlob:
+            raise TypeError("OCI capture receipt type is invalid")
+        if receipt.plan is not plan:
+            raise ValueError("OCI capture plan identity is foreign")
+        if receipt.blob is not plan.blobs[position]:
+            raise ValueError("OCI capture receipt order or duplicate identity is invalid")
+        if receipt.blob_bytes_verified is not True:
+            raise ValueError("OCI capture receipt verification is incomplete")
+    return _LayaOciLayoutCaptureAuthority(
+        plan=plan,
+        receipts=receipts,
+        controls_captured_from_same_root=controls_captured_from_same_root,
+        inventory_captured_from_same_root=inventory_captured_from_same_root,
+        final_fd_sweep_verified=final_fd_sweep_verified,
+        _factory_token=_FACTORY_TOKEN,
+    )
+
+
+def _seal_laya_oci_layout_evidence(
+    authority: _LayaOciLayoutCaptureAuthority,
+) -> LayaRuntimeOciLayoutEvidence:
+    if type(authority) is not _LayaOciLayoutCaptureAuthority:
+        raise TypeError("OCI capture authority must be an exact factory-sealed type")
+    authority.__post_init__(_FACTORY_TOKEN)
+    return LayaRuntimeOciLayoutEvidence(
+        schema_version=LAYOUT_EVIDENCE_SCHEMA,
+        plan=authority.plan,
+        runtime_identity=authority.plan.runtime_identity,
+        receipts=authority.receipts,
+        _factory_token=_FACTORY_TOKEN,
+    )
+
+
+def canonical_laya_runtime_oci_layout_summary_bytes(
+    evidence: LayaRuntimeOciLayoutEvidence,
+) -> bytes:
+    """Return the privacy-safe canonical summary of sealed layout evidence."""
+
+    if type(evidence) is not LayaRuntimeOciLayoutEvidence:
+        error = TypeError("OCI layout evidence must be an exact factory-sealed type")
+        error.__suppress_context__ = True
+        raise error
+    try:
+        evidence.__post_init__(_FACTORY_TOKEN)
+        summary = {
+            "schema_version": evidence.schema_version,
+            "profile_id": LAYOUT_PROFILE_ID,
+            "plan_schema_version": evidence.plan.schema_version,
+            "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
+            "runtime_identity_sha256": evidence.runtime_identity.sha256,
+            "artifact_integrity_verified": evidence.artifact_integrity_verified,
+            "oci_manifest_semantics_verified": evidence.oci_manifest_semantics_verified,
+            "oci_layout_controls_bytes_verified": evidence.oci_layout_controls_bytes_verified,
+            "oci_blob_inventory_verified": evidence.oci_blob_inventory_verified,
+            "oci_same_root_capture_verified": evidence.oci_same_root_capture_verified,
+            "oci_manifest_blob_bytes_verified": evidence.oci_manifest_blob_bytes_verified,
+            "oci_config_blob_bytes_verified": evidence.oci_config_blob_bytes_verified,
+            "oci_layer_blobs_bytes_verified": evidence.oci_layer_blobs_bytes_verified,
+            "oci_bytes_verified": evidence.oci_bytes_verified,
+            "lock_verified": evidence.lock_verified,
+            "sbom_verified": evidence.sbom_verified,
+            "lock_sbom_consistent": evidence.lock_sbom_consistent,
+            "runtime_config_semantics_verified": evidence.runtime_config_semantics_verified,
+            "checkpoint_manifest_semantics_verified": (
+                evidence.checkpoint_manifest_semantics_verified
+            ),
+            "checkpoint_bytes_verified": evidence.checkpoint_bytes_verified,
+            "oci_config_semantics_verified": evidence.oci_config_semantics_verified,
+            "oci_layer_diff_ids_verified": evidence.oci_layer_diff_ids_verified,
+            "oci_rootfs_verified": evidence.oci_rootfs_verified,
+            "origin_verified": evidence.origin_verified,
+            "license_verified": evidence.license_verified,
+            "base_ancestry_verified": evidence.base_ancestry_verified,
+            "rootfs_materialized": evidence.rootfs_materialized,
+            "runtime_materialized": evidence.runtime_materialized,
+            "executor_available": evidence.executor_available,
+            "inference_executed": evidence.inference_executed,
+        }
+        return _json_parser.dumps(
+            summary,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("ascii")
+    except Exception:
+        error = ValueError("OCI layout evidence summary validation failed")
+        error.__suppress_context__ = True
+        raise error
