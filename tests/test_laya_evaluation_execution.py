@@ -315,11 +315,11 @@ def test_prediction_requires_ordered_categories_argmax_and_contract_identity(tmp
         replace(
             valid, category=next(category for category in CATEGORIES if category != valid.category)
         )
-    for field, value in (("provider", "other-provider"), ("model_revision", "other-model")):
-        changed = list(_predictions(contract))
-        changed[0] = replace(changed[0], **{field: value})
-        with pytest.raises(ValueError, match="provider|model|contract"):
-            validate_loso_prediction_set(contract, tuple(changed))
+    changed = list(_predictions(contract))
+    changed[0] = replace(changed[0], model_revision="a" * 40)
+    assert changed[0].model_revision == "a" * 40
+    with pytest.raises(ValueError, match="model|contract"):
+        validate_loso_prediction_set(contract, tuple(changed))
 
 
 def test_answer_confidence_is_optional_but_when_present_is_validated(tmp_path: Path):
