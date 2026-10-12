@@ -1284,6 +1284,13 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         for invalid in (True, 1, None):
             assert_ancestry_rejected(forged_dataclass(prior, **{flag: invalid}))
 
+    for invalid_schema in ("private-prior-schema", 1, None):
+        markers = (invalid_schema,) if isinstance(invalid_schema, str) else ()
+        assert_ancestry_rejected(
+            forged_dataclass(prior, schema_version=invalid_schema),
+            *markers,
+        )
+
     class PriorSubclass(type(prior)):
         pass
 
