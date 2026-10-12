@@ -24,6 +24,10 @@ _FACTORY_TOKEN = object()
 _LAYER_ROLES = tuple(f"layer-{index:02d}" for index in range(10))
 
 
+class _LayerExpansionError(ValueError):
+    pass
+
+
 def _private_repr(value: object) -> str:
     return f"<{type(value).__name__}: sealed private OCI layer DiffID plan>"
 
@@ -339,7 +343,23 @@ def _verify_laya_oci_layer_diff_id_chunks(
     plan: object,
     digest: object,
     chunks: object,
+    *,
+    max_uncompressed_bytes: object = None,
 ) -> VerifiedLayaOciLayerDiffId:
+    global_limit = min(
+        MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
+        MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES,
+    )
+    if max_uncompressed_bytes is None:
+        expansion_limit = global_limit
+    elif (
+        type(max_uncompressed_bytes) is not int
+        or max_uncompressed_bytes < 1
+        or max_uncompressed_bytes > global_limit
+    ):
+        raise ValueError("OCI layer uncompressed budget must be a bounded positive integer")
+    else:
+        expansion_limit = max_uncompressed_bytes
     authorized_plan, position = _authorize_layer(plan, digest)
     if type(chunks) in {bytes, bytearray, memoryview, str}:
         raise TypeError("OCI layer chunks must be an unambiguous byte stream")
@@ -349,16 +369,12 @@ def _verify_laya_oci_layer_diff_id_chunks(
     uncompressed_size = 0
     chunk_count = 0
     decompression_failed = False
-    expansion_limit = min(
-        MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
-        MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES,
-    )
 
     def consume_output(output: bytes) -> None:
         nonlocal uncompressed_size
         uncompressed_size += len(output)
         if uncompressed_size > expansion_limit:
-            raise ValueError("OCI layer uncompressed expansion exceeds size limit")
+            raise _LayerExpansionError("OCI layer uncompressed expansion exceeds size limit")
         uncompressed_hasher.update(output)
 
     def decompress_input(compressed: bytes) -> None:
@@ -367,7 +383,9 @@ def _verify_laya_oci_layer_diff_id_chunks(
         pending = compressed
         while pending:
             previous_size = len(pending)
-            output = decompressor.decompress(pending, MAX_OCI_LAYER_CHUNK_BYTES)
+            remaining = expansion_limit - uncompressed_size
+            output_limit = min(MAX_OCI_LAYER_CHUNK_BYTES, remaining + 1)
+            output = decompressor.decompress(pending, output_limit)
             consume_output(output)
             if decompressor.unused_data:
                 raise ValueError("OCI layer gzip stream has trailing or multiple members")
@@ -390,6 +408,8 @@ def _verify_laya_oci_layer_diff_id_chunks(
             if not decompression_failed:
                 try:
                     decompress_input(chunk)
+                except _LayerExpansionError:
+                    raise
                 except (ValueError, zlib.error):
                     decompression_failed = True
             yield chunk
@@ -406,7 +426,9 @@ def _verify_laya_oci_layer_diff_id_chunks(
     if decompression_failed:
         raise ValueError("OCI layer gzip member is invalid")
     while not decompressor.eof:
-        output = decompressor.decompress(b"", MAX_OCI_LAYER_CHUNK_BYTES)
+        remaining = expansion_limit - uncompressed_size
+        output_limit = min(MAX_OCI_LAYER_CHUNK_BYTES, remaining + 1)
+        output = decompressor.decompress(b"", output_limit)
         consume_output(output)
         if decompressor.unused_data:
             raise ValueError("OCI layer gzip stream has trailing or multiple members")
@@ -437,12 +459,36 @@ def verify_laya_oci_layer_diff_id_chunks(
     plan: LayaOciLayerDiffIdPlan,
     digest: str,
     chunks: object,
+    *,
+    max_uncompressed_bytes: int | None = None,
 ) -> VerifiedLayaOciLayerDiffId:
     """Verify compressed bytes and their declared uncompressed OCI DiffID."""
 
+    global_limit = min(
+        MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
+        MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES,
+    )
+    if max_uncompressed_bytes is None:
+        effective_limit = global_limit
+    elif (
+        type(max_uncompressed_bytes) is not int
+        or max_uncompressed_bytes < 1
+        or max_uncompressed_bytes > global_limit
+    ):
+        _raise_private(
+            ValueError,
+            "OCI layer uncompressed budget must be a bounded positive integer",
+        )
+    else:
+        effective_limit = max_uncompressed_bytes
     failed = False
     try:
-        return _verify_laya_oci_layer_diff_id_chunks(plan, digest, chunks)
+        return _verify_laya_oci_layer_diff_id_chunks(
+            plan,
+            digest,
+            chunks,
+            max_uncompressed_bytes=effective_limit,
+        )
     except Exception:
         failed = True
     if failed:

@@ -20,6 +20,8 @@ _CONTROL_LIMITS = {
 }
 _NATIVE_OPEN_SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
 _MAX_OCI_LAYOUT_ROOT_COMPONENTS = 128
+_MAX_OCI_LAYER_UNCOMPRESSED_BYTES = 2 * 1_024 * 1_024 * 1_024
+_MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES = 3 * 1_024 * 1_024 * 1_024
 
 
 class OciLayoutCaptureError(ValueError):
@@ -271,6 +273,7 @@ def _capture_layer_diff_id(
     sha256_fd: int,
     plan: Any,
     position: int,
+    max_uncompressed_bytes: int,
     owned: list[int],
 ):
     blob = plan.layer_blobs[position]
@@ -283,6 +286,7 @@ def _capture_layer_diff_id(
             plan,
             blob.digest,
             _blob_chunks(descriptor, blob.size_bytes),
+            max_uncompressed_bytes=max_uncompressed_bytes,
         )
         after = os.fstat(descriptor)
         if _fingerprint(before) != _fingerprint(after):
@@ -496,13 +500,22 @@ def _capture_and_verify_layer_diff_ids(
                 raise OciLayoutCaptureError("secure OCI blob path changed during capture")
 
         receipts = []
+        remaining_rootfs = _MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
         for position, blob in enumerate(layer_plan.layer_blobs):
+            if remaining_rootfs <= 0:
+                raise OciLayoutCaptureError("secure OCI rootfs budget is exhausted")
+            effective_limit = min(
+                _MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
+                remaining_rootfs,
+            )
             receipt, fingerprint = _capture_layer_diff_id(
                 sha256_fd,
                 layer_plan,
                 position,
+                effective_limit,
                 owned,
             )
+            remaining_rootfs -= receipt.uncompressed_size_bytes
             if fingerprint != fingerprints["blob:" + blob.role]:
                 raise OciLayoutCaptureError("secure OCI layer changed between verification passes")
             name = blob.digest.removeprefix("sha256:")
