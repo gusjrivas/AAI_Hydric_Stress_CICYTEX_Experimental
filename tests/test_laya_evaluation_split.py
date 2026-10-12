@@ -289,12 +289,11 @@ def test_fold_and_plan_reject_direct_or_replace_based_invalid_states(tmp_path: P
 
 
 def test_public_summary_and_repr_do_not_expose_private_corpus_values(tmp_path: Path):
+    from human_feedback.evaluation_corpus import evaluation_corpus_digest
     from human_feedback.evaluation_split import (
         build_loso_evaluation_plan,
         canonical_loso_plan_summary_bytes,
     )
-
-    from human_feedback.evaluation_corpus import evaluation_corpus_digest
 
     records = _records()
     corpus = _load_corpus(tmp_path, records, stem="privacy")
