@@ -18,9 +18,9 @@ from human_feedback.evaluation_split import (
     LosoEvaluationPlan,
     loso_evaluation_plan_digest,
 )
+from human_feedback.runtime_identity import RuntimeIdentityRef
 
 SCHEMA_VERSION = "laya-loso-execution-contract-v1"
-RUNTIME_IDENTITY_SCHEMA_VERSION = "laya-runtime-identity-v1"
 LAYA_PROVIDER = "laya-http"
 
 
@@ -68,21 +68,6 @@ def _require_model_revision(value: object) -> str:
     ):
         raise ValueError("model revision must be a non-null lowercase SHA-1 digest")
     return value
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeIdentityRef:
-    """Opaque reference to a separately validated runtime identity."""
-
-    schema_version: str
-    sha256: str
-
-    def __post_init__(self) -> None:
-        if self.schema_version != RUNTIME_IDENTITY_SCHEMA_VERSION:
-            raise ValueError("runtime identity schema version is invalid")
-        _require_digest(self.sha256, label="runtime identity digest")
-        if self.sha256 == "0" * 64:
-            raise ValueError("runtime identity digest cannot use the null sentinel")
 
 
 @dataclass(frozen=True, slots=True)
