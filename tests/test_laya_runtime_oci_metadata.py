@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import json
 import traceback
@@ -15,6 +16,7 @@ MAX_OCI_JSON_DEPTH = 32
 MAX_OCI_STRING_LENGTH = 4_096
 MAX_OCI_LAYERS = 128
 MAX_OCI_ANNOTATIONS = 64
+OCI_EVIDENCE_SCHEMA_VERSION = "laya-runtime-oci-evidence-v1"
 MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
 LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar+gzip"
@@ -111,6 +113,53 @@ def _validate_parsed(monkeypatch, value: object):
 
     monkeypatch.setattr(module.json, "loads", lambda _text: value)
     return module.validate_laya_oci_manifest_bytes(b'{"synthetic":"bounded"}')
+
+
+def _oci_snapshot(
+    *,
+    oci_payload: bytes | None = None,
+    payload_mutation=None,
+    manifest_mutation=None,
+):
+    from tests.test_laya_runtime_artifact_integrity import ARTIFACT_PATHS, _manifest, _verify
+    from tests.test_laya_runtime_dependency_metadata import (
+        _fixture_bytes as dependency_lock_bytes,
+    )
+    from tests.test_laya_runtime_dependency_metadata import (
+        _sbom_fixture_bytes,
+    )
+    from tests.test_laya_runtime_deployment_metadata import _deployment_payloads
+
+    payloads, _, _ = _deployment_payloads()
+    payloads[ARTIFACT_PATHS["dependency_lock"]] = dependency_lock_bytes()
+    payloads[ARTIFACT_PATHS["sbom"]] = _sbom_fixture_bytes()
+    payloads[ARTIFACT_PATHS["oci_manifest"]] = (
+        _fixture_bytes() if oci_payload is None else oci_payload
+    )
+    if payload_mutation is not None:
+        payload_mutation(payloads)
+
+    def mutate_manifest(value):
+        value["base_image_ref"] = (
+            "docker.io/library/python@sha256:"
+            "840e180ebcc6e5c8efab209c43f5e40fd2af98cb49db5c7103c90539c56bb30e"
+        )
+        if manifest_mutation is not None:
+            manifest_mutation(value)
+
+    manifest = _manifest(payloads=payloads, mutation=mutate_manifest)
+    return _verify(manifest, payloads)
+
+
+def _validate_oci_evidence(snapshot=None):
+    from human_feedback.runtime_oci_metadata import validate_laya_runtime_oci_metadata
+
+    actual = _oci_snapshot() if snapshot is None else snapshot
+    return validate_laya_runtime_oci_metadata(actual)
+
+
+def _captured_payload(snapshot, kind: str) -> bytes:
+    return next(artifact.content for artifact in snapshot.artifacts if artifact.spec.kind == kind)
 
 
 def test_committed_oci_manifest_fixture_is_exact_captured_local_profile_bytes():
@@ -456,26 +505,373 @@ def test_public_parser_errors_are_generic_private_and_context_suppressed(case):
     assert error.__suppress_context__ is True
 
 
-def test_oci_metadata_module_is_pure_parser_only():
+def test_oci_metadata_module_has_only_pure_stdlib_and_contract_dependencies():
     from human_feedback import runtime_oci_metadata
 
     source = Path(runtime_oci_metadata.__file__).read_text(encoding="utf-8")
-    forbidden = (
-        "subprocess",
-        "requests",
-        "httpx",
-        "docker",
-        "socket",
-        "pathlib",
-        "Path(",
-        "open(",
+    tree = ast.parse(source)
+    allowed_imports = {
+        "__future__",
+        "dataclasses",
+        "hashlib",
+        "human_feedback.runtime_bundle",
+        "human_feedback.runtime_identity",
+        "json",
+        "typing",
+    }
+    direct_imports = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    from_imports = {
+        (
+            f"human_feedback.{alias.name}"
+            if node.module in {None, "", "human_feedback"}
+            else node.module
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    forbidden_calls = {
+        "__import__",
+        "compile",
+        "eval",
+        "exec",
+        "open",
         "read_bytes",
+        "read_text",
         "write_bytes",
-        "runtime_bundle",
-        "offline_readiness",
-        "experiment_runner",
-        "backend",
-        "adapters",
+        "write_text",
+        "run",
+        "Popen",
+        "system",
+        "socket",
+        "urlopen",
+    }
+    called_names = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    } | {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+
+    assert direct_imports | from_imports <= allowed_imports
+    assert called_names.isdisjoint(forbidden_calls)
+    assert '"docker.io/library/python:3.11.10-slim-bookworm"' in source
+
+
+def test_oci_combinator_uses_only_manifest_captured_in_exact_snapshot():
+    from human_feedback.runtime_oci_metadata import (
+        LayaRuntimeOciEvidence,
+        validate_laya_runtime_oci_metadata,
     )
 
-    assert [token for token in forbidden if token in source] == []
+    snapshot = _oci_snapshot()
+    evidence = _validate_oci_evidence(snapshot)
+
+    assert isinstance(evidence, LayaRuntimeOciEvidence)
+    assert evidence.schema_version == OCI_EVIDENCE_SCHEMA_VERSION
+    assert evidence.snapshot is snapshot
+    assert evidence.runtime_identity == snapshot.runtime_identity
+    assert evidence.oci_manifest == _validate(_captured_payload(snapshot, "oci_manifest"))
+    with pytest.raises(TypeError):
+        validate_laya_runtime_oci_metadata(  # type: ignore[call-arg]
+            snapshot,
+            _fixture_bytes(),
+        )
+    with pytest.raises((TypeError, ValueError), match="snapshot|bundle"):
+        validate_laya_runtime_oci_metadata(snapshot.artifacts)  # type: ignore[arg-type]
+
+
+def test_oci_evidence_crosslinks_annotations_to_actual_captured_artifact_bytes():
+    snapshot = _oci_snapshot()
+    evidence = _validate_oci_evidence(snapshot)
+    annotations = dict(evidence.oci_manifest.annotations)
+    expected_artifact_links = {
+        "dependency_lock": "org.aai-hydric.runtime.uv-lock.sha256",
+        "sbom": "org.aai-hydric.runtime.sbom.sha256",
+        "runtime_config": "org.aai-hydric.runtime.config.sha256",
+        "checkpoint_manifest": "org.aai-hydric.runtime.checkpoint-manifest.sha256",
+    }
+
+    for kind, annotation in expected_artifact_links.items():
+        assert (
+            annotations[annotation] == hashlib.sha256(_captured_payload(snapshot, kind)).hexdigest()
+        )
+    assert annotations["org.opencontainers.image.source"] == snapshot.manifest.source.split("@")[0]
+    assert (
+        annotations["org.opencontainers.image.revision"]
+        == snapshot.manifest.source.rsplit("@", 1)[1]
+    )
+    assert annotations["org.opencontainers.image.licenses"] == snapshot.manifest.license
+    assert annotations["org.opencontainers.image.version"] == snapshot.manifest.engine.removeprefix(
+        "laya=="
+    )
+    assert snapshot.manifest.base_image_ref == (
+        "docker.io/library/python@" + annotations["org.opencontainers.image.base.digest"]
+    )
+    assert annotations["org.opencontainers.image.base.name"] == (
+        "docker.io/library/python:3.11.10-slim-bookworm"
+    )
+
+
+def test_oci_aggregate_requires_exact_raw_manifest_not_only_semantic_equivalence():
+    exact = _fixture_bytes()
+    reordered = dict(reversed(tuple(_fixture_object().items())))
+    variant = json.dumps(
+        reordered,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("ascii")
+
+    assert _validate(variant) == _validate(exact)
+    assert len(variant) != FIXTURE_SIZE_BYTES
+    assert hashlib.sha256(variant).hexdigest() != FIXTURE_SHA256
+    snapshot = _oci_snapshot(oci_payload=variant)
+    assert snapshot.artifact_integrity_verified is True
+
+    with pytest.raises(ValueError, match="OCI|manifest|artifact|exact|byte") as captured:
+        _validate_oci_evidence(snapshot)
+
+    rendered_chain = "".join(
+        traceback.TracebackException.from_exception(captured.value).format(chain=True)
+    )
+    assert variant.decode("ascii") not in rendered_chain
+    assert captured.value.__cause__ is None
+    assert captured.value.__suppress_context__ is True
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["dependency_lock", "sbom", "runtime_config", "checkpoint_manifest"],
+)
+def test_oci_aggregate_rejects_each_captured_annotation_digest_mismatch(kind):
+    from tests.test_laya_runtime_artifact_integrity import ARTIFACT_PATHS
+
+    marker = f"private-{kind}-crosslink-mismatch".encode("ascii")
+
+    def mutate(payloads):
+        payloads[ARTIFACT_PATHS[kind]] += marker
+
+    snapshot = _oci_snapshot(payload_mutation=mutate)
+    with pytest.raises(ValueError, match="OCI|annotation|digest|artifact|crosslink") as captured:
+        _validate_oci_evidence(snapshot)
+
+    rendered_chain = "".join(
+        traceback.TracebackException.from_exception(captured.value).format(chain=True)
+    )
+    assert marker.decode("ascii") not in rendered_chain
+    assert captured.value.__cause__ is None
+    assert captured.value.__suppress_context__ is True
+
+
+def test_oci_aggregate_rejects_an_alternate_base_image_identity():
+    snapshot = _oci_snapshot(
+        manifest_mutation=lambda value: value.update(
+            base_image_ref="docker.io/library/python@sha256:" + "a" * 64
+        )
+    )
+
+    with pytest.raises(ValueError, match="OCI|base|image|runtime|profile"):
+        _validate_oci_evidence(snapshot)
+
+
+def test_oci_aggregate_rejects_missing_duplicate_proxy_and_identity_mismatch():
+    from types import SimpleNamespace
+
+    snapshot = _oci_snapshot()
+    without_oci = tuple(
+        artifact for artifact in snapshot.artifacts if artifact.spec.kind != "oci_manifest"
+    )
+    oci = next(artifact for artifact in snapshot.artifacts if artifact.spec.kind == "oci_manifest")
+    candidates = (
+        SimpleNamespace(
+            manifest=snapshot.manifest,
+            artifacts=without_oci,
+            runtime_identity=snapshot.runtime_identity,
+            artifact_integrity_verified=True,
+        ),
+        SimpleNamespace(
+            manifest=snapshot.manifest,
+            artifacts=(*snapshot.artifacts, oci),
+            runtime_identity=snapshot.runtime_identity,
+            artifact_integrity_verified=True,
+        ),
+        SimpleNamespace(
+            manifest=snapshot.manifest,
+            artifacts=snapshot.artifacts,
+            runtime_identity=object(),
+            artifact_integrity_verified=True,
+        ),
+        SimpleNamespace(
+            manifest=snapshot.manifest,
+            artifacts=snapshot.artifacts,
+            runtime_identity=snapshot.runtime_identity,
+            artifact_integrity_verified=False,
+        ),
+    )
+
+    for candidate in candidates:
+        with pytest.raises((TypeError, ValueError), match="snapshot|bundle|identity|integrity"):
+            _validate_oci_evidence(candidate)
+    with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct"):
+        type(snapshot)(
+            schema_version=snapshot.schema_version,
+            manifest=snapshot.manifest,
+            artifacts=snapshot.artifacts,
+            runtime_identity=snapshot.runtime_identity,
+        )
+
+
+def test_oci_evidence_is_frozen_slotted_factory_sealed_and_private():
+    evidence = _validate_oci_evidence()
+
+    assert is_dataclass(evidence)
+    assert not hasattr(evidence, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        evidence.oci_manifest_semantics_verified = False  # type: ignore[misc]
+    with pytest.raises((TypeError, ValueError)):
+        replace(evidence, snapshot=evidence.snapshot)
+    with pytest.raises((TypeError, ValueError)):
+        replace(evidence, oci_manifest=evidence.oci_manifest)
+    with pytest.raises((TypeError, ValueError), match="factory|token|seal|valid"):
+        type(evidence)(
+            schema_version=evidence.schema_version,
+            snapshot=evidence.snapshot,
+            oci_manifest=evidence.oci_manifest,
+            runtime_identity=evidence.runtime_identity,
+        )
+
+    rendered = repr(evidence) + repr(evidence.snapshot) + repr(evidence.oci_manifest)
+    assert _fixture_bytes().decode("ascii") not in rendered
+    assert FIXTURE_SHA256 not in rendered
+    assert CONFIG[1] not in rendered
+    assert all(digest not in rendered for digest, _size in LAYERS)
+
+
+def test_oci_evidence_flags_make_only_manifest_semantics_claims():
+    evidence = _validate_oci_evidence()
+    expected = {
+        "artifact_integrity_verified": True,
+        "oci_manifest_semantics_verified": True,
+        "lock_verified": False,
+        "sbom_verified": False,
+        "lock_sbom_consistent": False,
+        "runtime_config_semantics_verified": False,
+        "checkpoint_manifest_semantics_verified": False,
+        "checkpoint_bytes_verified": False,
+        "oci_bytes_verified": False,
+        "origin_verified": False,
+        "runtime_materialized": False,
+        "executor_available": False,
+        "inference_executed": False,
+    }
+
+    for field, expected_value in expected.items():
+        assert getattr(evidence, field) is expected_value
+        with pytest.raises((TypeError, ValueError)):
+            replace(evidence, **{field: not expected_value})
+
+
+def test_oci_public_summary_is_minimal_deterministic_and_private():
+    from human_feedback.runtime_oci_metadata import canonical_laya_runtime_oci_summary_bytes
+
+    evidence = _validate_oci_evidence()
+    first = canonical_laya_runtime_oci_summary_bytes(evidence)
+    second = canonical_laya_runtime_oci_summary_bytes(evidence)
+    decoded = json.loads(first)
+
+    assert first == second
+    assert decoded == {
+        "artifact_integrity_verified": True,
+        "checkpoint_bytes_verified": False,
+        "checkpoint_manifest_semantics_verified": False,
+        "executor_available": False,
+        "inference_executed": False,
+        "lock_sbom_consistent": False,
+        "lock_verified": False,
+        "oci_bytes_verified": False,
+        "oci_manifest_semantics_verified": True,
+        "origin_verified": False,
+        "runtime_config_semantics_verified": False,
+        "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
+        "runtime_identity_sha256": evidence.runtime_identity.sha256,
+        "runtime_materialized": False,
+        "sbom_verified": False,
+        "schema_version": OCI_EVIDENCE_SCHEMA_VERSION,
+    }
+    forbidden = {
+        _fixture_bytes(),
+        FIXTURE_SHA256.encode("ascii"),
+        SEMANTICS_SHA256.encode("ascii"),
+        *(digest.encode("ascii") for digest, _size in LAYERS),
+        *(key.encode("ascii") for key in ANNOTATIONS),
+        *(value.encode("ascii") for value in ANNOTATIONS.values()),
+        *(spec.path.encode("ascii") for spec in evidence.snapshot.manifest.artifacts),
+        *(spec.sha256.encode("ascii") for spec in evidence.snapshot.manifest.artifacts),
+    }
+    assert all(private not in first for private in forbidden)
+
+
+def test_oci_validation_does_not_compose_or_mutate_prior_evidence_layers():
+    from human_feedback.runtime_bundle import canonical_laya_runtime_bundle_summary_bytes
+    from human_feedback.runtime_dependency_metadata import (
+        canonical_laya_runtime_dependency_summary_bytes,
+        validate_laya_runtime_dependency_metadata,
+    )
+    from human_feedback.runtime_deployment_metadata import (
+        canonical_laya_runtime_deployment_summary_bytes,
+        validate_laya_runtime_deployment_metadata,
+    )
+
+    snapshot = _oci_snapshot()
+    dependency = validate_laya_runtime_dependency_metadata(snapshot)
+    deployment = validate_laya_runtime_deployment_metadata(snapshot)
+    before = (
+        canonical_laya_runtime_bundle_summary_bytes(snapshot),
+        canonical_laya_runtime_dependency_summary_bytes(dependency),
+        canonical_laya_runtime_deployment_summary_bytes(deployment),
+    )
+    evidence = _validate_oci_evidence(snapshot)
+    after = (
+        canonical_laya_runtime_bundle_summary_bytes(snapshot),
+        canonical_laya_runtime_dependency_summary_bytes(dependency),
+        canonical_laya_runtime_deployment_summary_bytes(deployment),
+    )
+
+    assert after == before
+    assert snapshot.oci_manifest_semantics_verified is False
+    assert snapshot.lock_verified is False
+    assert snapshot.sbom_verified is False
+    assert evidence.lock_verified is False
+    assert evidence.sbom_verified is False
+    assert evidence.runtime_config_semantics_verified is False
+    assert evidence.checkpoint_manifest_semantics_verified is False
+
+
+def test_oci_aggregate_errors_hide_private_captured_content_and_context():
+    from tests.test_laya_runtime_artifact_integrity import ARTIFACT_PATHS
+
+    marker = b"private-oci-aggregate-secret"
+
+    def mutate(payloads):
+        payloads[ARTIFACT_PATHS["runtime_config"]] += marker
+
+    snapshot = _oci_snapshot(payload_mutation=mutate)
+    with pytest.raises(ValueError) as captured:
+        _validate_oci_evidence(snapshot)
+
+    error = captured.value
+    rendered_chain = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
+    assert marker.decode("ascii") not in str(error)
+    assert marker.decode("ascii") not in rendered_chain
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
