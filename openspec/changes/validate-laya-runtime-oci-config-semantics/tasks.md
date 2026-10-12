@@ -23,7 +23,7 @@
 - [x] 4.4 Ejecutar gate manual real Linux: `152 passed`; no presentarlo como CI obligatorio.
 - [x] 4.5 Ejecutar suite Laya completa `949 passed, 30 skipped`, Black, Ruff y diff-check limpios.
 - [x] 4.6 Documentar que PR21 no recaptura ni toca la raíz y no eleva la no modificación/fingerprint de PR20 a enforcement de permisos/mount read-only.
-- [ ] 4.7 Completar auditoría independiente final y merge gate.
+- [x] 4.7 Completar auditoría independiente final y merge gate: GO, cero P0-P2; Windows focal `514 passed, 1 skipped`, Windows Laya `887 passed, 92 skipped`, Linux real `152 passed`, Linux Laya `949 passed, 30 skipped`; OpenSpec strict, quality gates y árbol limpios; fuente externa preservada.
 
 ## 5. Próximo slice
 
