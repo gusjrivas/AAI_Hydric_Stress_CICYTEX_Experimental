@@ -304,6 +304,49 @@ def _oci_config_successor_metadata_violations(source: str) -> tuple[str, ...]:
     return tuple(sorted(set(violations)))
 
 
+def _oci_config_successor_bundle_violations(source: str) -> tuple[str, ...]:
+    """Permit only the public PR16 all-or-nothing bundle verifier."""
+    tree = ast.parse(source)
+    expected_module = "human_feedback.runtime_bundle"
+    expected_symbol = "verify_laya_runtime_artifact_bytes"
+    imports = []
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == expected_module for alias in node.names
+        ):
+            violations.append("bundle-module-import-forbidden")
+        if isinstance(node, ast.ImportFrom) and node.module == expected_module:
+            imports.extend(alias.name for alias in node.names)
+            if any(
+                alias.name != expected_symbol or alias.asname is not None for alias in node.names
+            ):
+                violations.append("bundle-import-not-exact")
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and (
+                node.value == expected_module
+                or node.value.startswith("_verify_laya_runtime_artifact_bytes")
+            )
+        ):
+            violations.append("dynamic-bundle-symbol-forbidden")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"__import__", "getattr", "import_module"}
+            and any(
+                isinstance(argument, ast.Constant)
+                and argument.value in {expected_module, expected_symbol}
+                for argument in node.args
+            )
+        ):
+            violations.append("dynamic-bundle-access-forbidden")
+    if imports != [expected_symbol]:
+        violations.append("exactly-one-public-bundle-verifier-required")
+    return tuple(sorted(set(violations)))
+
+
 def test_committed_layout_control_fixtures_are_exact_captured_profile_bytes():
     assert len(_layout_bytes()) == LAYOUT_SIZE_BYTES
     assert hashlib.sha256(_layout_bytes()).hexdigest() == LAYOUT_SHA256
@@ -1576,6 +1619,35 @@ def test_oci_config_successor_uses_only_public_metadata_validator(source, expect
     assert _oci_config_successor_metadata_violations(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "from human_feedback.runtime_bundle import verify_laya_runtime_artifact_bytes",
+            (),
+        ),
+        (
+            "import human_feedback.runtime_bundle as bundle",
+            ("bundle-module-import-forbidden", "exactly-one-public-bundle-verifier-required"),
+        ),
+        (
+            "from human_feedback.runtime_bundle import *",
+            ("bundle-import-not-exact", "exactly-one-public-bundle-verifier-required"),
+        ),
+        (
+            "from human_feedback.runtime_bundle import _verify_laya_runtime_artifact_bytes",
+            ("bundle-import-not-exact", "exactly-one-public-bundle-verifier-required"),
+        ),
+        (
+            "value = getattr(owner, 'verify_laya_runtime_artifact_bytes')",
+            ("dynamic-bundle-access-forbidden", "exactly-one-public-bundle-verifier-required"),
+        ),
+    ],
+)
+def test_oci_config_successor_uses_only_public_bundle_verifier(source, expected):
+    assert _oci_config_successor_bundle_violations(source) == expected
+
+
 def test_only_oci_config_successor_imports_or_uses_layout_plan_api():
     repository_root = Path(__file__).parents[1]
     target = repository_root / "src" / "human_feedback" / "runtime_oci_layout.py"
@@ -1585,6 +1657,7 @@ def test_only_oci_config_successor_imports_or_uses_layout_plan_api():
     assert _uses_layout_plan_api(successor_source) is True
     assert _oci_config_successor_layout_violations(successor_source) == ()
     assert _oci_config_successor_metadata_violations(successor_source) == ()
+    assert _oci_config_successor_bundle_violations(successor_source) == ()
     allowed_consumers = {target, adapter, successor}
     offenders = []
     for relative_root in ("backend", "src", "scripts"):

@@ -29,6 +29,7 @@ ALLOWED_PARSER_IMPORTS = {
     "__future__",
     "dataclasses",
     "hashlib",
+    "human_feedback.runtime_bundle",
     "human_feedback.runtime_oci_layout",
     "human_feedback.runtime_oci_metadata",
     "json",
@@ -966,8 +967,8 @@ def test_normal_suite_has_no_committed_config_blob_or_fabricated_positive_gate(m
     reason="requires opt-in real external OCI layout on Linux",
 )
 def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(monkeypatch):
+    from human_feedback import runtime_bundle, runtime_oci_metadata
     from human_feedback import runtime_oci_config as module
-    from human_feedback import runtime_oci_metadata
     from human_feedback.adapters.filesystem_oci_layout import (
         capture_and_verify_laya_oci_layout,
     )
@@ -1005,10 +1006,34 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         return projection
 
     monkeypatch.setattr(module, "_parse_laya_runtime_oci_config_bytes", parser_spy)
+    rebuild_events = []
+    rebuilt_snapshots = []
+    bundle_inputs = []
+    original_bundle_verifier = runtime_bundle.verify_laya_runtime_artifact_bytes
+
+    def bundle_verifier_spy(manifest, payload_by_path):
+        rebuild_events.append("bundle")
+        bundle_inputs.append((manifest, payload_by_path))
+        rebuilt = original_bundle_verifier(manifest, payload_by_path)
+        rebuilt_snapshots.append(rebuilt)
+        return rebuilt
+
+    monkeypatch.setattr(
+        runtime_bundle,
+        "verify_laya_runtime_artifact_bytes",
+        bundle_verifier_spy,
+    )
+    monkeypatch.setattr(
+        module,
+        "verify_laya_runtime_artifact_bytes",
+        bundle_verifier_spy,
+        raising=False,
+    )
     original_metadata_validator = runtime_oci_metadata.validate_laya_runtime_oci_metadata
     validated_snapshots = []
 
     def metadata_validator_spy(snapshot):
+        rebuild_events.append("metadata")
         validated_snapshots.append(snapshot)
         return original_metadata_validator(snapshot)
 
@@ -1025,7 +1050,23 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     )
     evidence = module.validate_laya_runtime_oci_config_semantics(layout_evidence, payload)
     assert len(parsed_projections) == 1
+    assert rebuild_events == ["bundle", "metadata"]
+    assert len(rebuilt_snapshots) == 1
+    assert len(bundle_inputs) == 1
+    assert bundle_inputs[0][0] is layout_evidence.plan.oci_evidence.snapshot.manifest
+    assert type(bundle_inputs[0][1]) is dict
+    assert bundle_inputs[0][1] == {
+        artifact.spec.path: artifact.content
+        for artifact in layout_evidence.plan.oci_evidence.snapshot.artifacts
+    }
+    assert type(rebuilt_snapshots[0]) is type(layout_evidence.plan.oci_evidence.snapshot)
+    assert rebuilt_snapshots[0] == layout_evidence.plan.oci_evidence.snapshot
+    assert (
+        rebuilt_snapshots[0].runtime_identity
+        == layout_evidence.plan.oci_evidence.snapshot.runtime_identity
+    )
     assert validated_snapshots == [layout_evidence.plan.oci_evidence.snapshot]
+    assert validated_snapshots[0] is rebuilt_snapshots[0]
     assert type(evidence) is LayaRuntimeOciConfigEvidence
     assert is_dataclass(evidence)
     assert not hasattr(evidence, "__dict__")
@@ -1051,6 +1092,18 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
                 changes.get(field.name, getattr(value, field.name)),
             )
         return forged
+
+    def populated_clone(value, target_type=None):
+        clone = object.__new__(type(value) if target_type is None else target_type)
+        for field in fields(value):
+            object.__setattr__(clone, field.name, getattr(value, field.name))
+        return clone
+
+    def populated_proxy(value, *, marker):
+        return SimpleNamespace(
+            **{field.name: getattr(value, field.name) for field in fields(value)},
+            marker=marker,
+        )
 
     def private_strings(value):
         if isinstance(value, str):
@@ -1101,11 +1154,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         corrupt_evidence = evidence_with_layout(corrupt_layout)
         parsed_projections.clear()
         config_hash_calls.clear()
-        metadata_call_count = len(validated_snapshots)
-        try:
-            corrupt_snapshot = corrupt_prior.snapshot
-        except Exception:
-            corrupt_snapshot = None
+        event_position = len(rebuild_events)
         monkeypatch.setattr(
             module,
             "hashlib",
@@ -1123,13 +1172,48 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             module.canonical_laya_runtime_oci_config_summary_bytes(corrupt_evidence)
         assert parsed_projections == []
         assert config_hash_calls == []
-        if type(corrupt_prior) is type(prior) and corrupt_snapshot is not None:
-            assert len(validated_snapshots) == metadata_call_count + 2
-            assert validated_snapshots[-2:] == [corrupt_snapshot, corrupt_snapshot]
+        pending_bundle = 0
+        for event in rebuild_events[event_position:]:
+            if event == "bundle":
+                pending_bundle += 1
+            else:
+                assert event == "metadata"
+                assert pending_bundle > 0
+                pending_bundle -= 1
         _private_error(validator_error.value, *markers, str(root), descriptor.digest)
         _private_error(summary_error.value, *markers, str(root), descriptor.digest)
 
     prior = layout_evidence.plan.oci_evidence
+
+    class BundleSnapshotSubclass(type(prior.snapshot)):
+        pass
+
+    for reconstructed, marker in (
+        (SimpleNamespace(marker="private-rebuilt-bundle-proxy"), "private-rebuilt-bundle-proxy"),
+        (object.__new__(BundleSnapshotSubclass), "private-rebuilt-bundle-subclass"),
+        (object.__new__(type(prior.snapshot)), "private-rebuilt-bundle-unsealed"),
+    ):
+        monkeypatch.setattr(
+            module,
+            "verify_laya_runtime_artifact_bytes",
+            lambda _manifest, _payloads, value=reconstructed: value,
+        )
+        assert_ancestry_rejected(prior, marker)
+    monkeypatch.setattr(
+        module,
+        "verify_laya_runtime_artifact_bytes",
+        lambda _manifest, _payloads: prior.snapshot,
+    )
+    assert_ancestry_rejected(
+        forged_dataclass(prior, artifact_integrity_verified=False),
+        "private-rebuilt-bundle-must-not-wash-outer",
+    )
+    monkeypatch.setattr(
+        module,
+        "verify_laya_runtime_artifact_bytes",
+        bundle_verifier_spy,
+    )
+
     prior_true_flags = (
         "artifact_integrity_verified",
         "oci_manifest_semantics_verified",
@@ -1288,6 +1372,63 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             marker,
         )
 
+    original_artifacts = prior.snapshot.artifacts
+    for invalid_artifacts in (
+        list(original_artifacts),
+        tuple(reversed(original_artifacts)),
+        original_artifacts[:-1],
+        (*original_artifacts, original_artifacts[-1]),
+        (original_artifacts[0], *original_artifacts),
+    ):
+        corrupt_snapshot = forged_dataclass(
+            prior.snapshot,
+            artifacts=invalid_artifacts,
+        )
+        assert_ancestry_rejected(forged_dataclass(prior, snapshot=corrupt_snapshot))
+
+    for artifact_position, artifact in enumerate(original_artifacts):
+
+        class ArtifactSubclass(type(artifact)):
+            pass
+
+        invalid_artifacts = (
+            (
+                populated_proxy(
+                    artifact,
+                    marker=f"private-artifact-{artifact_position}-proxy",
+                ),
+                f"private-artifact-{artifact_position}-proxy",
+            ),
+            (
+                populated_clone(artifact, ArtifactSubclass),
+                f"private-artifact-{artifact_position}-subclass",
+            ),
+            (
+                populated_clone(artifact),
+                f"private-artifact-{artifact_position}-unsealed",
+            ),
+        )
+        for invalid_artifact, marker in invalid_artifacts:
+            artifacts = list(original_artifacts)
+            artifacts[artifact_position] = invalid_artifact
+            corrupt_snapshot = forged_dataclass(prior.snapshot, artifacts=tuple(artifacts))
+            assert_ancestry_rejected(
+                forged_dataclass(prior, snapshot=corrupt_snapshot),
+                marker,
+            )
+
+    homogeneous_proxies = tuple(
+        populated_proxy(artifact, marker="private-all-artifact-proxies")
+        for artifact in original_artifacts
+    )
+    assert_ancestry_rejected(
+        forged_dataclass(
+            prior,
+            snapshot=forged_dataclass(prior.snapshot, artifacts=homogeneous_proxies),
+        ),
+        "private-all-artifact-proxies",
+    )
+
     non_manifest_positions = tuple(
         index
         for index, artifact in enumerate(prior.snapshot.artifacts)
@@ -1380,6 +1521,30 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             marker,
         )
 
+    populated_manifest_variants = (
+        (
+            populated_proxy(
+                runtime_manifest,
+                marker="private-populated-runtime-manifest-proxy",
+            ),
+            "private-populated-runtime-manifest-proxy",
+        ),
+        (
+            populated_clone(runtime_manifest, RuntimeManifestSubclass),
+            "private-populated-runtime-manifest-subclass",
+        ),
+        (
+            populated_clone(runtime_manifest),
+            "private-populated-runtime-manifest-unsealed",
+        ),
+    )
+    for invalid_manifest, marker in populated_manifest_variants:
+        corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=invalid_manifest)
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            marker,
+        )
+
     manifest_field_mutations = {
         "schema_version": "private-runtime-manifest-schema",
         "runtime_id": "private-runtime-id",
@@ -1435,6 +1600,23 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             "private-runtime-spec-proxy",
         )
     first_spec = manifest_specs[0]
+
+    class HostileSpec:
+        @property
+        def kind(self):
+            raise AssertionError("private-hostile-runtime-spec")
+
+    hostile_specs = (HostileSpec(), *manifest_specs[1:])
+    assert_ancestry_rejected(
+        forged_dataclass(
+            prior,
+            snapshot=forged_dataclass(
+                prior.snapshot,
+                manifest=forged_dataclass(runtime_manifest, artifacts=hostile_specs),
+            ),
+        ),
+        "private-hostile-runtime-spec",
+    )
     for field_name, invalid in {
         "kind": "private-kind",
         "format": "private-format",
@@ -1450,6 +1632,52 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             forged_dataclass(prior, snapshot=corrupt_snapshot),
             *private_strings(invalid),
         )
+    for spec_position, spec in enumerate(manifest_specs):
+
+        class SpecSubclass(type(spec)):
+            pass
+
+        for invalid_spec, marker in (
+            (
+                populated_proxy(
+                    spec,
+                    marker=f"private-spec-{spec_position}-proxy",
+                ),
+                f"private-spec-{spec_position}-proxy",
+            ),
+            (
+                populated_clone(spec, SpecSubclass),
+                f"private-spec-{spec_position}-subclass",
+            ),
+            (
+                populated_clone(spec),
+                f"private-spec-{spec_position}-unsealed",
+            ),
+        ):
+            corrupt_specs = list(manifest_specs)
+            corrupt_specs[spec_position] = invalid_spec
+            corrupt_manifest = forged_dataclass(
+                runtime_manifest,
+                artifacts=tuple(corrupt_specs),
+            )
+            corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=corrupt_manifest)
+            assert_ancestry_rejected(
+                forged_dataclass(prior, snapshot=corrupt_snapshot),
+                marker,
+            )
+    all_spec_proxies = tuple(
+        populated_proxy(spec, marker="private-all-spec-proxies") for spec in manifest_specs
+    )
+    assert_ancestry_rejected(
+        forged_dataclass(
+            prior,
+            snapshot=forged_dataclass(
+                prior.snapshot,
+                manifest=forged_dataclass(runtime_manifest, artifacts=all_spec_proxies),
+            ),
+        ),
+        "private-all-spec-proxies",
+    )
     for spec_position, spec in enumerate(manifest_specs):
         corrupt_specs = list(manifest_specs)
         corrupt_specs[spec_position] = forged_dataclass(spec, sha256="a" * 64)
