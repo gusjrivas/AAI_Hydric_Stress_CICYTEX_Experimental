@@ -4,6 +4,7 @@ import json
 from typing import Protocol, cast
 from urllib.request import Request, urlopen
 
+from human_feedback.decision_confidence import resolve_choice_confidence
 from human_feedback.decision_policy import (
     DecisionPolicyUnavailable,
     FeedbackCategory,
@@ -121,18 +122,18 @@ class LayaDecisionPolicyEngine:
         if choice not in ALLOWED_CATEGORIES:
             raise DecisionPolicyUnavailable("Laya returned an unknown category")
 
-        confidence = answer.get("answer_confidence")
-        if confidence is None:
-            probabilities = answer.get("probabilities")
-            if not isinstance(probabilities, dict):
-                raise DecisionPolicyUnavailable("Laya response has no answer confidence")
-            confidence = probabilities.get(choice)
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-            raise DecisionPolicyUnavailable("Laya answer confidence is invalid")
+        probabilities = answer.get("probabilities")
+        if probabilities is not None and not isinstance(probabilities, dict):
+            raise DecisionPolicyUnavailable("Laya probabilities are invalid")
+        confidence = resolve_choice_confidence(
+            answer_confidence=answer.get("answer_confidence"),
+            probabilities=probabilities,
+            choice=choice,
+        )
 
         return PolicySuggestion(
             category=cast(FeedbackCategory, choice),
-            confidence=float(confidence),
+            confidence=confidence,
             provider="laya-http",
             model_revision=self._model_revision,
         )

@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
+from human_feedback.decision_confidence import resolve_choice_confidence
 from human_feedback.decision_policy import FeedbackCategory
 
 EvaluationCategory = Literal[
@@ -189,6 +190,7 @@ class OfflinePrediction:
     example_id: str
     category: FeedbackCategory
     probabilities: tuple[tuple[str, float], ...]
+    answer_confidence: float | None
     latency_ms: float
     provider: str
     model_revision: str
@@ -208,6 +210,12 @@ class OfflinePrediction:
             raise ValueError("probabilities must be finite and non-negative")
         if not math.isclose(sum(values), 1.0, rel_tol=0.0, abs_tol=1e-9):
             raise ValueError("probabilities must sum to 1")
+        if self.answer_confidence is not None and (
+            isinstance(self.answer_confidence, bool)
+            or not math.isfinite(self.answer_confidence)
+            or not 0.0 <= self.answer_confidence <= 1.0
+        ):
+            raise ValueError("answer confidence must be finite and between 0 and 1")
         if not math.isfinite(self.latency_ms) or self.latency_ms < 0:
             raise ValueError("latency must be finite and non-negative")
         if not self.provider or not self.model_revision:
@@ -253,6 +261,7 @@ class ReadinessReport:
     policy_id: str
     policy_digest: str
     supply_verified: bool
+    supply_digest: str
     model_revision: str
     metrics: ReadinessMetrics
     metrics_by_site: tuple[tuple[str, ReadinessMetrics], ...]
@@ -487,6 +496,7 @@ def evaluate_readiness(
         policy_id=contract.policy.policy_id,
         policy_digest=_digest(contract.policy),
         supply_verified=supply_verification.verified,
+        supply_digest=supply_verification.supply_digest,
         model_revision=contract.supply.checkpoint_revision,
         metrics=metrics,
         metrics_by_site=metrics_by_site,
@@ -544,6 +554,11 @@ def load_predictions(path: Path) -> tuple[OfflinePrediction, ...]:
                 example_id=item["example_id"],
                 category=item["category"],
                 probabilities=tuple((name, float(value)) for name, value in item["probabilities"]),
+                answer_confidence=(
+                    None
+                    if item.get("answer_confidence") is None
+                    else float(item["answer_confidence"])
+                ),
                 latency_ms=float(latency),
                 provider=item["provider"],
                 model_revision=item["model_revision"],
@@ -577,13 +592,18 @@ def _apply_confidence_policy(
 ) -> OfflinePrediction:
     if prediction.abstained:
         return prediction
-    confidence = dict(prediction.probabilities)[prediction.category]
+    confidence = resolve_choice_confidence(
+        answer_confidence=prediction.answer_confidence,
+        probabilities=dict(prediction.probabilities),
+        choice=prediction.category,
+    )
     if confidence >= minimum_confidence:
         return prediction
     return OfflinePrediction(
         example_id=prediction.example_id,
         category="unclassified",
         probabilities=prediction.probabilities,
+        answer_confidence=prediction.answer_confidence,
         latency_ms=prediction.latency_ms,
         provider=prediction.provider,
         model_revision=prediction.model_revision,
