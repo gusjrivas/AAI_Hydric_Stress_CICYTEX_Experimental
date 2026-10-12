@@ -29,6 +29,8 @@ MAX_OCI_CONTROL_JSON_DEPTH = 32
 MAX_OCI_CONTROL_STRING_LENGTH = 256
 MAX_OCI_BLOB_CHUNK_BYTES = 1_024 * 1_024
 MAX_OCI_BLOB_CHUNKS = 1_024
+LAYOUT_PROFILE_ID = "laya-runtime-oci-layout-profile-v1"
+LAYOUT_EVIDENCE_SCHEMA = "laya-runtime-oci-layout-evidence-v1"
 _UNSET = object()
 
 LAYERS = (
@@ -144,6 +146,7 @@ def _uses_layout_plan_api(source: str) -> bool:
         "VerifiedLayaOciBlob",
         "canonical_laya_runtime_oci_layout_summary_bytes",
         "finalize_laya_oci_layout_evidence",
+        "finalize_laya_runtime_oci_layout_evidence",
         "prepare_laya_oci_layout_plan",
         "verify_laya_oci_blob_chunks",
     }
@@ -915,9 +918,15 @@ def test_individual_receipt_cannot_finalize_or_elevate_layout_evidence():
     assert not hasattr(receipt, "oci_bytes_verified")
     assert not hasattr(module, "verified_laya_oci_blob_from_digest")
     assert not hasattr(module, "receipt_from_digest")
-    assert not hasattr(module, "LayaRuntimeOciLayoutEvidence")
-    assert not hasattr(module, "finalize_laya_oci_layout_evidence")
-    assert not hasattr(module, "canonical_laya_runtime_oci_layout_summary_bytes")
+    assert hasattr(module, "LayaRuntimeOciLayoutEvidence")
+    assert hasattr(module, "canonical_laya_runtime_oci_layout_summary_bytes")
+    for forbidden_name in (
+        "finalize_laya_oci_layout_evidence",
+        "finalize_laya_runtime_oci_layout_evidence",
+        "laya_oci_layout_session",
+        "seal_laya_oci_layout_from_receipts",
+    ):
+        assert not hasattr(module, forbidden_name)
 
 
 def test_verified_blob_proxy_and_subclass_cannot_masquerade_as_factory_receipt():
@@ -939,6 +948,126 @@ def test_verified_blob_proxy_and_subclass_cannot_masquerade_as_factory_receipt()
         ReceiptSubclass(
             **{field.name: getattr(receipt, field.name) for field in fields(receipt) if field.init}
         )
+
+
+def test_layout_evidence_core_api_is_private_sealed_without_public_finalizer():
+    from human_feedback import runtime_oci_layout as module
+
+    assert module.LAYOUT_PROFILE_ID == LAYOUT_PROFILE_ID
+    assert module.LAYOUT_EVIDENCE_SCHEMA == LAYOUT_EVIDENCE_SCHEMA
+    assert is_dataclass(module.LayaRuntimeOciLayoutEvidence)
+    assert "__slots__" in vars(module.LayaRuntimeOciLayoutEvidence)
+    assert callable(module._seal_laya_oci_layout_evidence)
+    for forbidden_name in (
+        "finalize_laya_oci_layout_evidence",
+        "finalize_laya_runtime_oci_layout_evidence",
+        "seal_laya_oci_layout_from_receipts",
+        "laya_oci_layout_session",
+        "receipt_from_digest",
+    ):
+        assert not hasattr(module, forbidden_name)
+
+
+def test_layout_evidence_fields_are_exact_conservative_and_not_forgeable():
+    from human_feedback import runtime_oci_layout as module
+
+    true_flags = {
+        "artifact_integrity_verified",
+        "oci_manifest_semantics_verified",
+        "oci_layout_controls_bytes_verified",
+        "oci_blob_inventory_verified",
+        "oci_same_root_capture_verified",
+        "oci_manifest_blob_bytes_verified",
+        "oci_config_blob_bytes_verified",
+        "oci_layer_blobs_bytes_verified",
+        "oci_bytes_verified",
+    }
+    false_flags = {
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "runtime_config_semantics_verified",
+        "checkpoint_manifest_semantics_verified",
+        "checkpoint_bytes_verified",
+        "oci_config_semantics_verified",
+        "oci_layer_diff_ids_verified",
+        "oci_rootfs_verified",
+        "origin_verified",
+        "license_verified",
+        "base_ancestry_verified",
+        "rootfs_materialized",
+        "runtime_materialized",
+        "executor_available",
+        "inference_executed",
+    }
+    evidence_fields = {field.name: field for field in fields(module.LayaRuntimeOciLayoutEvidence)}
+    assert set(evidence_fields) == {
+        "schema_version",
+        "plan",
+        "runtime_identity",
+        "receipts",
+        *true_flags,
+        *false_flags,
+    }
+    assert evidence_fields["plan"].repr is False
+    assert evidence_fields["runtime_identity"].repr is False
+    assert evidence_fields["receipts"].repr is False
+    assert all(evidence_fields[name].init is False for name in true_flags | false_flags)
+
+
+def test_private_layout_evidence_sealer_rejects_incomplete_proxy_and_foreign_receipts():
+    from human_feedback import runtime_oci_layout as module
+
+    plan = _prepare()
+    receipt = _verify_manifest(plan)
+    proxy = SimpleNamespace(
+        plan=plan,
+        blob=plan.index_manifest,
+        blob_bytes_verified=True,
+    )
+    candidates = (
+        [],
+        (),
+        (receipt,),
+        tuple(receipt for _blob in plan.blobs),
+        (proxy,),
+    )
+    for candidate in candidates:
+        with pytest.raises((TypeError, ValueError), match="receipt|tuple|complete|blob|order"):
+            module._seal_laya_oci_layout_evidence(plan, candidate)
+
+    foreign_plan = _prepare()
+    foreign_receipt = _verify_manifest(foreign_plan)
+    with pytest.raises(ValueError, match="receipt|plan|identity|foreign|blob"):
+        module._seal_laya_oci_layout_evidence(plan, (foreign_receipt,))
+
+
+def test_layout_evidence_direct_construction_replace_proxy_and_summary_fail_closed():
+    from human_feedback import runtime_oci_layout as module
+
+    plan = _prepare()
+    evidence_type = module.LayaRuntimeOciLayoutEvidence
+    values = {
+        "schema_version": LAYOUT_EVIDENCE_SCHEMA,
+        "plan": plan,
+        "runtime_identity": plan.runtime_identity,
+        "receipts": (),
+    }
+    init_fields = tuple(field.name for field in fields(evidence_type) if field.init)
+    assert set(init_fields) <= set(values)
+    with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+        evidence_type(**{name: values[name] for name in init_fields})
+
+    proxy = SimpleNamespace(**values)
+    for invalid in (None, plan, proxy, (), SimpleNamespace()):
+        with pytest.raises((TypeError, ValueError), match="evidence|factory|seal|type"):
+            module.canonical_laya_runtime_oci_layout_summary_bytes(invalid)
+
+    class EvidenceSubclass(evidence_type):
+        pass
+
+    with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+        EvidenceSubclass(**{name: values[name] for name in init_fields})
 
 
 def test_manifest_verification_does_not_mutate_plan_or_prior_evidence_summaries():
@@ -1062,13 +1191,15 @@ def test_layout_plan_isolation_detector_avoids_unrelated_false_positives(source)
 def test_no_existing_product_module_imports_or_uses_layout_plan_api():
     repository_root = Path(__file__).parents[1]
     target = repository_root / "src" / "human_feedback" / "runtime_oci_layout.py"
+    adapter = repository_root / "src" / "human_feedback" / "adapters" / "filesystem_oci_layout.py"
+    allowed_consumers = {target, adapter}
     offenders = []
     for relative_root in ("backend", "src", "scripts"):
         product_root = repository_root / relative_root
         if not product_root.is_dir():
             continue
         for path in product_root.rglob("*.py"):
-            if path == target:
+            if path in allowed_consumers:
                 continue
             if _uses_layout_plan_api(path.read_text(encoding="utf-8")):
                 offenders.append(path.relative_to(repository_root).as_posix())
