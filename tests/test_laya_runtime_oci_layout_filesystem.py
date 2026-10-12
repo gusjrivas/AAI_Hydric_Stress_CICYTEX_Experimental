@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import traceback
+from collections import Counter
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -253,6 +254,8 @@ def test_windows_fails_closed_before_root_traversal(tmp_path):
 
 
 def test_invalid_evidence_fails_before_root_coercion_or_open(monkeypatch):
+    from human_feedback.runtime_oci_metadata import LayaRuntimeOciEvidence
+
     module = _adapter()
     root_coercions = 0
     _forbid_seal(monkeypatch)
@@ -267,6 +270,11 @@ def test_invalid_evidence_fails_before_root_coercion_or_open(monkeypatch):
         oci_manifest_semantics_verified=True,
         artifact_integrity_verified=True,
     )
+
+    class EvidenceSubclass(LayaRuntimeOciEvidence):
+        pass
+
+    subclass = object.__new__(EvidenceSubclass)
     monkeypatch.setattr(module, "_secure_oci_layout_capture_available", lambda: True)
     monkeypatch.setattr(
         module.os,
@@ -275,8 +283,9 @@ def test_invalid_evidence_fails_before_root_coercion_or_open(monkeypatch):
             AssertionError("invalid evidence must fail before os.open")
         ),
     )
-    with pytest.raises((TypeError, ValueError), match="evidence|factory|seal|type"):
-        module.capture_and_verify_laya_oci_layout(proxy, HostileRoot())
+    for invalid in (proxy, subclass):
+        with pytest.raises((TypeError, ValueError), match="evidence|factory|seal|type"):
+            module.capture_and_verify_laya_oci_layout(invalid, HostileRoot())
     assert root_coercions == 0
 
 
@@ -496,17 +505,182 @@ def test_blob_inventory_aborts_at_expected_plus_one_without_sealing(monkeypatch,
         _capture(root)
 
 
+def _fds_within(root: Path) -> set[int]:
+    descriptors = set()
+    root_text = str(root)
+    for entry in Path("/proc/self/fd").iterdir():
+        try:
+            target = os.readlink(entry)
+        except OSError:
+            continue
+        if target == root_text or target.startswith(root_text + os.sep):
+            descriptors.add(int(entry.name))
+    return descriptors
+
+
+def _capture_with_instrumented_fault(root, operation=None, fault_at=None):
+    module = _adapter()
+    originals = {
+        name: getattr(module.os, name) for name in ("open", "read", "scandir", "fstat", "close")
+    }
+    calls = Counter()
+    opened = Counter()
+    closed = Counter()
+    injected = False
+
+    def should_fail(name):
+        nonlocal injected
+        calls[name] += 1
+        if name == operation and calls[name] == fault_at:
+            injected = True
+            return True
+        return False
+
+    def tracked_open(*args, **kwargs):
+        if should_fail("open"):
+            raise OSError("private injected open failure")
+        descriptor = originals["open"](*args, **kwargs)
+        opened[descriptor] += 1
+        return descriptor
+
+    def tracked_read(*args, **kwargs):
+        if should_fail("read"):
+            raise OSError("private injected read failure")
+        return originals["read"](*args, **kwargs)
+
+    def tracked_scandir(*args, **kwargs):
+        if should_fail("scandir"):
+            raise OSError("private injected scandir failure")
+        return originals["scandir"](*args, **kwargs)
+
+    def tracked_fstat(*args, **kwargs):
+        if should_fail("fstat"):
+            raise OSError("private injected fstat failure")
+        return originals["fstat"](*args, **kwargs)
+
+    def tracked_close(descriptor):
+        closed[descriptor] += 1
+        result = originals["close"](descriptor)
+        if should_fail("close"):
+            raise OSError("private injected close failure")
+        return result
+
+    before = _fds_within(root)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(module.os, "open", tracked_open)
+        patch.setattr(module.os, "read", tracked_read)
+        patch.setattr(module.os, "scandir", tracked_scandir)
+        patch.setattr(module.os, "fstat", tracked_fstat)
+        patch.setattr(module.os, "close", tracked_close)
+        _forbid_seal(patch)
+        with pytest.raises(module.OciLayoutCaptureError) as captured:
+            _capture(root)
+    after = _fds_within(root)
+    assert after == before == set()
+    assert closed == opened
+    _private_error(
+        captured.value,
+        str(root),
+        *(("private injected",) if operation is not None else ()),
+    )
+    return calls, injected
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="requires Linux descriptor inspection")
+def test_every_observed_capture_fault_point_closes_all_fds_once_and_never_seals(tmp_path):
+    baseline_root = _partial_layout_root(tmp_path / "baseline")
+    baseline_calls, baseline_injected = _capture_with_instrumented_fault(baseline_root)
+    assert baseline_injected is False
+    assert all(baseline_calls[name] > 0 for name in ("open", "read", "scandir", "fstat", "close"))
+
+    for operation in ("open", "read", "scandir", "fstat", "close"):
+        for fault_at in range(1, baseline_calls[operation] + 1):
+            root = _partial_layout_root(tmp_path / f"{operation}-{fault_at}")
+            _calls, injected = _capture_with_instrumented_fault(root, operation, fault_at)
+            assert injected is True, (operation, fault_at)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd inventory")
+def test_inventory_stops_on_thirteenth_unexpected_entry_without_consuming_fourteenth(
+    monkeypatch, tmp_path
+):
+    module = _adapter()
+    root = _partial_layout_root(tmp_path)
+    digest_root = root / "blobs" / "sha256"
+    extra = "a" * 64
+    (digest_root / extra).write_bytes(b"private-extra")
+    original_scandir = module.os.scandir
+    consumed = 0
+
+    class SentinelScandir:
+        def __init__(self, argument):
+            self._context = original_scandir(argument)
+            entries = list(self._context)
+            self._entries = iter(sorted(entries, key=lambda entry: entry.name == extra))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self._context.__exit__(*args)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            nonlocal consumed
+            if consumed == 13:
+                raise AssertionError("fourteenth inventory entry must not be consumed")
+            entry = next(self._entries)
+            consumed += 1
+            return entry
+
+    def bounded_scandir(argument):
+        try:
+            path = (
+                os.readlink(f"/proc/self/fd/{argument}") if type(argument) is int else str(argument)
+            )
+        except OSError:
+            path = ""
+        if Path(path).name == "sha256":
+            return SentinelScandir(argument)
+        return original_scandir(argument)
+
+    monkeypatch.setattr(module.os, "scandir", bounded_scandir)
+    _forbid_blob_verification_and_sealing(monkeypatch)
+    with pytest.raises(module.OciLayoutCaptureError):
+        _capture(root)
+    assert consumed == 13
+
+
 @pytest.mark.skipif(
     not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
     reason="requires opt-in real external OCI layout on Linux",
 )
-def test_opt_in_real_same_root_capture_produces_conservative_evidence():
+def test_opt_in_real_same_root_capture_produces_conservative_evidence(monkeypatch):
     from human_feedback import runtime_oci_layout
     from human_feedback.runtime_oci_metadata import canonical_laya_runtime_oci_summary_bytes
 
     root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
     oci_evidence = _oci_evidence()
     prior_summary = canonical_laya_runtime_oci_summary_bytes(oci_evidence)
+    module = _adapter()
+    original_open = module.os.open
+    original_close = module.os.close
+    opened = Counter()
+    closed = Counter()
+
+    def tracked_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        opened[descriptor] += 1
+        return descriptor
+
+    def tracked_close(descriptor):
+        closed[descriptor] += 1
+        return original_close(descriptor)
+
+    monkeypatch.setattr(module.os, "open", tracked_open)
+    monkeypatch.setattr(module.os, "close", tracked_close)
     descriptors_before = len(tuple(Path("/proc/self/fd").iterdir()))
     evidence = _capture(root, oci_evidence)
     descriptors_after = len(tuple(Path("/proc/self/fd").iterdir()))
@@ -529,10 +703,29 @@ def test_opt_in_real_same_root_capture_produces_conservative_evidence():
     assert evidence.plan.blob_total_size_bytes == BLOB_TOTAL_SIZE_BYTES
     assert evidence.plan.total_size_bytes == LAYOUT_TOTAL_SIZE_BYTES
     assert descriptors_after == descriptors_before
+    assert opened
+    assert closed == opened
     for flag in TRUE_FLAGS:
         assert getattr(evidence, flag) is True
     for flag in FALSE_FLAGS:
         assert getattr(evidence, flag) is False
+
+    authority = runtime_oci_layout._seal_laya_oci_layout_capture_authority(
+        evidence.plan,
+        evidence.receipts,
+        controls_captured_from_same_root=True,
+        inventory_captured_from_same_root=True,
+        final_fd_sweep_verified=True,
+    )
+    assert type(authority) is runtime_oci_layout._LayaOciLayoutCaptureAuthority
+    assert runtime_oci_layout._seal_laya_oci_layout_evidence(authority) == evidence
+    for field in fields(authority):
+        if field.name.startswith("_"):
+            continue
+        with pytest.raises(FrozenInstanceError):
+            setattr(authority, field.name, getattr(authority, field.name))
+        with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+            replace(authority, **{field.name: getattr(authority, field.name)})
 
     for field in fields(evidence):
         if field.name.startswith("_"):
@@ -557,20 +750,245 @@ def test_opt_in_real_same_root_capture_produces_conservative_evidence():
     assert summary == json.dumps(
         expected, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("ascii")
-    rendered = repr(evidence) + repr(evidence.receipts) + summary.decode("ascii")
+    rendered = repr(authority) + repr(evidence) + repr(evidence.receipts) + summary.decode("ascii")
     assert str(root) not in rendered
     assert all(blob.path not in rendered for blob in evidence.plan.blobs)
     assert all(blob.digest not in rendered for blob in evidence.plan.blobs)
     assert str(evidence.plan.total_size_bytes) not in rendered
     assert _layout_bytes().decode("ascii") not in rendered
     assert _index_bytes().decode("ascii") not in rendered
+    assert _captured_manifest_bytes().decode("ascii") not in rendered
     assert canonical_laya_runtime_oci_summary_bytes(oci_evidence) == prior_summary
 
 
-def test_full_positive_is_a_mandatory_external_release_gate_not_a_normal_fixture(
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+def test_opt_in_real_receipts_close_authority_matrix_without_shortcuts():
+    from human_feedback import runtime_oci_layout
+
+    evidence = _capture(Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV]))
+    plan = evidence.plan
+    receipts = evidence.receipts
+    assert len(receipts) == 12
+    invalid_receipts = (
+        list(receipts),
+        receipts[:-1],
+        receipts + (receipts[-1],),
+        (receipts[0], receipts[0], *receipts[2:]),
+        tuple(reversed(receipts)),
+        (
+            SimpleNamespace(
+                **{
+                    field: getattr(receipts[0], field)
+                    for field in ("plan", "blob", "blob_bytes_verified")
+                }
+            ),
+            *receipts[1:],
+        ),
+    )
+    for invalid in invalid_receipts:
+        with pytest.raises(
+            (TypeError, ValueError), match="tuple|count|complete|order|duplicate|type"
+        ):
+            runtime_oci_layout._seal_laya_oci_layout_capture_authority(
+                plan,
+                invalid,
+                controls_captured_from_same_root=True,
+                inventory_captured_from_same_root=True,
+                final_fd_sweep_verified=True,
+            )
+
+    for field in (
+        "controls_captured_from_same_root",
+        "inventory_captured_from_same_root",
+        "final_fd_sweep_verified",
+    ):
+        for invalid in (False, 1, None):
+            flags = {
+                "controls_captured_from_same_root": True,
+                "inventory_captured_from_same_root": True,
+                "final_fd_sweep_verified": True,
+            }
+            flags[field] = invalid
+            with pytest.raises(
+                (TypeError, ValueError), match="capture|same.root|inventory|sweep|flag"
+            ):
+                runtime_oci_layout._seal_laya_oci_layout_capture_authority(plan, receipts, **flags)
+
+    second_plan = runtime_oci_layout.prepare_laya_oci_layout_plan(
+        plan.oci_evidence, _layout_bytes(), _index_bytes()
+    )
+    with pytest.raises(ValueError, match="plan|identity|foreign") as captured:
+        runtime_oci_layout._seal_laya_oci_layout_capture_authority(
+            second_plan,
+            receipts,
+            controls_captured_from_same_root=True,
+            inventory_captured_from_same_root=True,
+            final_fd_sweep_verified=True,
+        )
+    assert "receipt" not in str(captured.value).lower()
+    assert "blob" not in str(captured.value).lower()
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+def test_opt_in_atomic_capture_order_is_observable_and_exact(monkeypatch):
+    module = _adapter()
+    events = []
+
+    def wrap(owner, name, event):
+        original = getattr(owner, name)
+
+        def observed(*args, **kwargs):
+            result = original(*args, **kwargs)
+            events.append(event)
+            return result
+
+        monkeypatch.setattr(owner, name, observed)
+
+    wrap(module.runtime_oci_layout, "prepare_laya_oci_layout_plan", "controls")
+    wrap(module, "_verify_exact_laya_oci_layout_inventory", "inventory")
+    original_verify = module.verify_laya_oci_blob_chunks
+
+    def verify(*args, **kwargs):
+        result = original_verify(*args, **kwargs)
+        events.append("receipt")
+        return result
+
+    monkeypatch.setattr(module, "verify_laya_oci_blob_chunks", verify)
+    wrap(module, "_verify_laya_oci_layout_final_sweep", "sweep")
+    wrap(module, "_seal_laya_oci_layout_capture_authority", "authority")
+    wrap(module, "_seal_laya_oci_layout_evidence", "evidence")
+    _capture(Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV]))
+    assert events == [
+        "controls",
+        "inventory",
+        *("receipt" for _index in range(12)),
+        "sweep",
+        "authority",
+        "evidence",
+    ]
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+@pytest.mark.parametrize("target_kind", ["oci-layout", "index.json", "manifest"])
+@pytest.mark.parametrize("mutation", ["same-size", "grow", "truncate", "replace"])
+def test_opt_in_file_toctou_after_read_is_rejected_and_restored(monkeypatch, target_kind, mutation):
+    module = _adapter()
+    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    target = (
+        root / target_kind
+        if target_kind != "manifest"
+        else root / "blobs" / "sha256" / MANIFEST_SHA256
+    )
+    original_payload = target.read_bytes()
+    displaced = target.with_name(target.name + ".private-toctou-original")
+    original_read = module.os.read
+    mutated = False
+
+    def mutate_once():
+        nonlocal mutated
+        if mutated:
+            return
+        mutated = True
+        if mutation == "same-size":
+            replacement = bytes([original_payload[0] ^ 1]) + original_payload[1:]
+            target.write_bytes(replacement)
+        elif mutation == "grow":
+            target.write_bytes(original_payload + b"x")
+        elif mutation == "truncate":
+            target.write_bytes(original_payload[:-1])
+        else:
+            target.rename(displaced)
+            target.write_bytes(original_payload)
+
+    def adversarial_read(descriptor, amount):
+        payload = original_read(descriptor, amount)
+        try:
+            captured_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        except OSError:
+            return payload
+        if payload and captured_path == target:
+            mutate_once()
+        return payload
+
+    monkeypatch.setattr(module.os, "read", adversarial_read)
+    _forbid_seal(monkeypatch)
+    try:
+        with pytest.raises(module.OciLayoutCaptureError) as captured:
+            _capture(root)
+        assert mutated is True
+        _private_error(captured.value, str(root), original_payload.decode("ascii", errors="ignore"))
+    finally:
+        if displaced.exists():
+            target.unlink(missing_ok=True)
+            displaced.rename(target)
+        else:
+            target.write_bytes(original_payload)
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+@pytest.mark.parametrize("target_kind", ["index.json", "blobs", "sha256", "root"])
+def test_opt_in_rename_replace_between_last_blob_and_final_sweep_is_rejected(
+    monkeypatch, target_kind
+):
+    module = _adapter()
+    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    target = {
+        "index.json": root / "index.json",
+        "blobs": root / "blobs",
+        "sha256": root / "blobs" / "sha256",
+        "root": root,
+    }[target_kind]
+    displaced = target.with_name(target.name + ".private-toctou-original")
+    original_verify = module.verify_laya_oci_blob_chunks
+    verified = 0
+    mutated = False
+
+    def verify(*args, **kwargs):
+        nonlocal verified, mutated
+        receipt = original_verify(*args, **kwargs)
+        verified += 1
+        if verified == 12:
+            target.rename(displaced)
+            if target_kind == "index.json":
+                target.write_bytes(displaced.read_bytes())
+            else:
+                target.mkdir()
+            mutated = True
+        return receipt
+
+    monkeypatch.setattr(module, "verify_laya_oci_blob_chunks", verify)
+    _forbid_seal(monkeypatch)
+    try:
+        with pytest.raises(module.OciLayoutCaptureError) as captured:
+            _capture(root)
+        assert verified == 12
+        assert mutated is True
+        _private_error(captured.value, str(root))
+    finally:
+        if target_kind == "index.json":
+            target.unlink(missing_ok=True)
+        elif target.exists():
+            target.rmdir()
+        if displaced.exists():
+            displaced.rename(target)
+
+
+def test_full_positive_is_an_external_opt_in_release_gate_not_a_normal_ci_fixture(
     monkeypatch,
 ):
-    """Normal CI may specify failures, but cannot claim the 612 MB image was verified."""
+    """Normal CI does not claim that the external 612 MB image was verified."""
 
     monkeypatch.delenv(REAL_LAYOUT_RELEASE_GATE_ENV, raising=False)
     fixture_root = Path(__file__).parent / "fixtures" / "laya" / "runtime_oci_layout"

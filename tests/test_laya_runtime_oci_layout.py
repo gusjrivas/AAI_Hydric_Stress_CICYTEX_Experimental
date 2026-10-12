@@ -1087,7 +1087,7 @@ def test_authority_and_evidence_sealers_reject_raw_proxy_and_foreign_inputs():
     foreign_receipt = _verify_manifest(foreign_plan)
     mixed_receipts = (foreign_receipt, *raw_receipts[1:])
     assert len(mixed_receipts) == 12
-    with pytest.raises(ValueError, match="receipt|plan|identity|foreign|blob"):
+    with pytest.raises(ValueError, match="plan|identity|foreign") as captured:
         module._seal_laya_oci_layout_capture_authority(
             plan,
             mixed_receipts,
@@ -1095,6 +1095,50 @@ def test_authority_and_evidence_sealers_reject_raw_proxy_and_foreign_inputs():
             inventory_captured_from_same_root=True,
             final_fd_sweep_verified=True,
         )
+    assert "receipt" not in str(captured.value).lower()
+    assert "blob" not in str(captured.value).lower()
+
+
+def test_capture_authority_sealer_rejects_receipt_container_cardinality_and_identity_matrix():
+    from human_feedback import runtime_oci_layout as module
+
+    plan = _prepare()
+    receipt = _verify_manifest(plan)
+    repeated = tuple(receipt for _blob in plan.blobs)
+    proxy = SimpleNamespace(
+        plan=plan,
+        blob=plan.blobs[1],
+        blob_bytes_verified=True,
+    )
+
+    class ReceiptSubclass(module.VerifiedLayaOciBlob):
+        pass
+
+    subclass = object.__new__(ReceiptSubclass)
+    object.__setattr__(subclass, "plan", plan)
+    object.__setattr__(subclass, "blob", plan.blobs[1])
+    object.__setattr__(subclass, "blob_bytes_verified", True)
+    cases = (
+        list(repeated),
+        repeated[:-1],
+        repeated + (receipt,),
+        repeated,
+        (receipt, receipt, *repeated[2:]),
+        (receipt, *reversed(repeated[1:])),
+        (receipt, proxy, *repeated[2:]),
+        (receipt, subclass, *repeated[2:]),
+    )
+    for invalid in cases:
+        with pytest.raises(
+            (TypeError, ValueError), match="tuple|complete|count|order|duplicate|type"
+        ):
+            module._seal_laya_oci_layout_capture_authority(
+                plan,
+                invalid,
+                controls_captured_from_same_root=True,
+                inventory_captured_from_same_root=True,
+                final_fd_sweep_verified=True,
+            )
 
 
 def test_layout_evidence_direct_construction_replace_proxy_and_summary_fail_closed():
@@ -1240,13 +1284,7 @@ def test_runtime_oci_layout_module_is_pure_and_depends_only_on_pr19_contract():
         "LAYOUT_PROFILE_ID",
         "LAYOUT_EVIDENCE_SCHEMA",
     }
-    forbidden_elevation_methods = {
-        "finalize",
-        "as_evidence",
-        "from_receipts",
-        "from_digest",
-        "seal",
-    }
+    exact_explicit_methods = {"__post_init__", "__repr__"}
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and node.name in {
             "VerifiedLayaOciBlob",
@@ -1257,7 +1295,21 @@ def test_runtime_oci_layout_module_is_pure_and_depends_only_on_pr19_contract():
                 for child in node.body
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
             }
-            assert methods.isdisjoint(forbidden_elevation_methods)
+            methods.update(
+                target.id
+                for child in node.body
+                if isinstance(child, ast.Assign)
+                for target in child.targets
+                if isinstance(target, ast.Name) and target.id == "__repr__"
+            )
+            assert methods == exact_explicit_methods
+        if isinstance(node, ast.ClassDef) and node.name == "_LayaOciLayoutCaptureAuthority":
+            assert not {
+                child.name
+                for child in node.body
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and not child.name.startswith("_")
+            }
     assert not {
         node.func.attr
         for node in ast.walk(tree)
