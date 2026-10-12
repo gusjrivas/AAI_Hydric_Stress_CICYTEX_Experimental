@@ -1,17 +1,18 @@
-"""Sealed contract for an independently adjudicated human evaluation corpus.
+"""Fail-closed contract for a private, adjudicated human evaluation corpus.
 
-This module deliberately has no connection to readiness or operational flows.  It
-only verifies and materializes a private corpus contract; scientific sufficiency
-is established by a later protocol.
+The validated object is deliberately provisional. It attests structural integrity
+and provenance, never scientific sufficiency or production readiness.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 EvaluationCategory = Literal[
     "data_quality",
@@ -22,7 +23,7 @@ EvaluationCategory = Literal[
 ]
 
 SCHEMA_VERSION = "laya-human-evaluation-corpus-v1"
-EVIDENCE_ROLE = "human_cross_site"
+EVIDENCE_ROLE = "human_corpus_candidate"
 REQUIRED_SITES = ("cicytex", "melchor-romero", "pergamino")
 CATEGORIES: tuple[EvaluationCategory, ...] = (
     "data_quality",
@@ -33,7 +34,9 @@ CATEGORIES: tuple[EvaluationCategory, ...] = (
 )
 MINIMUM_ANNOTATORS_PER_EXAMPLE = 2
 ADJUDICATION_POLICY = "agreement_or_explicit_adjudication"
+DECLARED_SOURCE_KIND = "human_field"
 
+_UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 _MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -44,6 +47,20 @@ _MANIFEST_FIELDS = frozenset(
         "required_sites",
         "minimum_annotators_per_example",
         "adjudication_policy",
+        "rubric_version",
+        "sampling_protocol_id",
+        "sampling_protocol_sha256",
+        "annotation_guide_id",
+        "annotation_guide_sha256",
+        "adjudication_protocol_id",
+        "adjudication_protocol_sha256",
+        "deidentification_protocol_id",
+        "deidentification_protocol_sha256",
+        "custody_digest",
+        "frozen_at",
+        "declared_source_kind",
+        "deidentified",
+        "privacy_reviewed",
     }
 )
 _RECORD_FIELDS = frozenset(
@@ -53,17 +70,66 @@ _RECORD_FIELDS = frozenset(
         "group_id",
         "comment",
         "annotations",
-        "adjudicated_category",
+        "adjudication",
         "gold_category",
     }
 )
 _ANNOTATION_FIELDS = frozenset({"annotator_id", "category"})
+_ADJUDICATION_FIELDS = frozenset({"adjudicator_id", "category", "decision_ref"})
+
+
+def _require_string(value: Any, *, label: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{label} must be a non-empty canonical string")
+    return value
+
+
+def _require_category(value: Any) -> EvaluationCategory:
+    if not isinstance(value, str) or value not in CATEGORIES:
+        raise ValueError("evaluation category is invalid")
+    return cast(EvaluationCategory, value)
+
+
+def _require_digest(value: Any, *, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _require_utc_timestamp(value: Any) -> str:
+    if not isinstance(value, str) or _UTC_TIMESTAMP.fullmatch(value) is None:
+        raise ValueError("frozen at must be a canonical UTC timestamp ending in Z")
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as error:
+        raise ValueError("frozen at must be a valid canonical UTC timestamp") from error
+    return value
 
 
 @dataclass(frozen=True, slots=True)
 class HumanAnnotation:
     annotator_id: str = field(repr=False)
     category: EvaluationCategory
+
+    def __post_init__(self) -> None:
+        _require_string(self.annotator_id, label="annotator id")
+        _require_category(self.category)
+
+
+@dataclass(frozen=True, slots=True)
+class HumanAdjudication:
+    adjudicator_id: str = field(repr=False)
+    category: EvaluationCategory
+    decision_ref: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        _require_string(self.adjudicator_id, label="adjudicator id")
+        _require_category(self.category)
+        _require_string(self.decision_ref, label="adjudication decision ref")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,8 +139,22 @@ class EvaluationRecord:
     group_id: str = field(repr=False)
     comment: str = field(repr=False)
     annotations: tuple[HumanAnnotation, ...] = field(repr=False)
-    adjudicated_category: EvaluationCategory | None
+    adjudication: HumanAdjudication | None = field(repr=False)
     gold_category: EvaluationCategory
+
+    def __post_init__(self) -> None:
+        _require_string(self.example_id, label="example id")
+        if _require_string(self.site_id, label="site id") not in REQUIRED_SITES:
+            raise ValueError("record site must be one of the required sites")
+        _require_string(self.group_id, label="group id")
+        _require_string(self.comment, label="comment")
+        if not isinstance(self.annotations, tuple) or not self.annotations:
+            raise ValueError("record annotations must be a non-empty tuple")
+        if any(not isinstance(annotation, HumanAnnotation) for annotation in self.annotations):
+            raise ValueError("record annotations are invalid")
+        if self.adjudication is not None and not isinstance(self.adjudication, HumanAdjudication):
+            raise ValueError("record adjudication is invalid")
+        _require_category(self.gold_category)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,10 +167,39 @@ class EvaluationCorpus:
     required_sites: tuple[str, ...]
     minimum_annotators_per_example: int
     adjudication_policy: str
+    rubric_version: str
+    sampling_protocol_id: str
+    sampling_protocol_sha256: str
+    annotation_guide_id: str
+    annotation_guide_sha256: str
+    adjudication_protocol_id: str
+    adjudication_protocol_sha256: str
+    deidentification_protocol_id: str
+    deidentification_protocol_sha256: str
+    custody_digest: str
+    frozen_at: str
+    declared_source_kind: str
+    deidentified: bool
+    privacy_reviewed: bool
     records: tuple[EvaluationRecord, ...] = field(repr=False)
     structurally_valid: bool = field(default=True, init=False)
     scientifically_sufficient: bool = field(default=False, init=False)
     production_enablement_authorized: bool = field(default=False, init=False)
+
+    def __post_init__(self) -> None:
+        """Prevent direct construction or ``replace`` from self-attesting invalid data."""
+
+        _validate_corpus_metadata(self)
+        if not isinstance(self.records, tuple) or not self.records:
+            raise ValueError("structurally valid corpus requires validated loader records")
+        if any(not isinstance(record, EvaluationRecord) for record in self.records):
+            raise ValueError("structurally valid corpus records are invalid")
+        if self.records_count != len(self.records):
+            raise ValueError("structurally valid corpus records count mismatch")
+        _validate_cohort(self.records)
+        actual_digest = hashlib.sha256(_canonical_record_objects_bytes(self.records)).hexdigest()
+        if self.records_sha256 != actual_digest:
+            raise ValueError("structurally valid corpus records digest mismatch")
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -102,14 +211,16 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _reject_non_finite(_value: str) -> None:
+    raise ValueError("JSON non-finite numbers are not permitted")
+
+
 def _load_json(path: Path, *, expected: str) -> Any:
     try:
         return json.loads(
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=lambda _value: (_ for _ in ()).throw(
-                ValueError("JSON non-finite numbers are not permitted")
-            ),
+            parse_constant=_reject_non_finite,
         )
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError(f"{expected} JSON could not be read") from error
@@ -121,18 +232,14 @@ def _require_object(value: Any, fields: frozenset[str], *, kind: str) -> dict[st
     return value
 
 
-def _require_string(value: Any, *, label: str) -> str:
-    if not isinstance(value, str) or not value or value != value.strip():
-        raise ValueError(f"{label} must be a non-empty canonical string")
-    return value
-
-
-def _require_category(value: Any, *, optional: bool = False) -> EvaluationCategory | None:
-    if optional and value is None:
-        return None
-    if not isinstance(value, str) or value not in CATEGORIES:
-        raise ValueError("evaluation category is invalid")
-    return value  # type: ignore[return-value]
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 def _canonical_raw_records(records: list[dict[str, Any]]) -> bytes:
@@ -145,13 +252,52 @@ def _canonical_raw_records(records: list[dict[str, Any]]) -> bytes:
         )
         normalized.append(record)
     normalized.sort(key=lambda record: record["example_id"])
-    return json.dumps(
-        normalized,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
+    return _canonical_json_bytes(normalized)
+
+
+def _record_payload(record: EvaluationRecord) -> dict[str, Any]:
+    adjudication = record.adjudication
+    return {
+        "example_id": record.example_id,
+        "site_id": record.site_id,
+        "group_id": record.group_id,
+        "comment": record.comment,
+        "annotations": [
+            {"annotator_id": annotation.annotator_id, "category": annotation.category}
+            for annotation in sorted(
+                record.annotations, key=lambda annotation: annotation.annotator_id
+            )
+        ],
+        "adjudication": (
+            None
+            if adjudication is None
+            else {
+                "adjudicator_id": adjudication.adjudicator_id,
+                "category": adjudication.category,
+                "decision_ref": adjudication.decision_ref,
+            }
+        ),
+        "gold_category": record.gold_category,
+    }
+
+
+def _canonical_record_objects_bytes(records: tuple[EvaluationRecord, ...]) -> bytes:
+    return _canonical_json_bytes(
+        [_record_payload(record) for record in sorted(records, key=lambda item: item.example_id)]
+    )
+
+
+def _parse_adjudication(value: Any) -> HumanAdjudication | None:
+    if value is None:
+        return None
+    adjudication = _require_object(value, _ADJUDICATION_FIELDS, kind="adjudication")
+    return HumanAdjudication(
+        adjudicator_id=_require_string(adjudication["adjudicator_id"], label="adjudicator id"),
+        category=_require_category(adjudication["category"]),
+        decision_ref=_require_string(
+            adjudication["decision_ref"], label="adjudication decision ref"
+        ),
+    )
 
 
 def _parse_records(raw: Any) -> tuple[list[dict[str, Any]], tuple[EvaluationRecord, ...]]:
@@ -161,8 +307,8 @@ def _parse_records(raw: Any) -> tuple[list[dict[str, Any]], tuple[EvaluationReco
     canonical_inputs: list[dict[str, Any]] = []
     records: list[EvaluationRecord] = []
     for item in raw:
-        record = _require_object(item, _RECORD_FIELDS, kind="record")
-        annotations_raw = record["annotations"]
+        raw_record = _require_object(item, _RECORD_FIELDS, kind="record")
+        annotations_raw = raw_record["annotations"]
         if not isinstance(annotations_raw, list) or not annotations_raw:
             raise ValueError("each record requires annotations")
 
@@ -172,29 +318,33 @@ def _parse_records(raw: Any) -> tuple[list[dict[str, Any]], tuple[EvaluationReco
             annotation = _require_object(item_annotation, _ANNOTATION_FIELDS, kind="annotation")
             annotator_id = _require_string(annotation["annotator_id"], label="annotator id")
             category = _require_category(annotation["category"])
-            assert category is not None
             annotations.append(HumanAnnotation(annotator_id=annotator_id, category=category))
             canonical_annotations.append({"annotator_id": annotator_id, "category": category})
 
-        example_id = _require_string(record["example_id"], label="example id")
-        site_id = _require_string(record["site_id"], label="site id")
-        group_id = _require_string(record["group_id"], label="group id")
-        comment = _require_string(record["comment"], label="comment")
-        adjudicated = _require_category(record["adjudicated_category"], optional=True)
-        gold = _require_category(record["gold_category"])
-        assert gold is not None
-
-        canonical_inputs.append(
-            {
-                "example_id": example_id,
-                "site_id": site_id,
-                "group_id": group_id,
-                "comment": comment,
-                "annotations": canonical_annotations,
-                "adjudicated_category": adjudicated,
-                "gold_category": gold,
-            }
-        )
+        example_id = _require_string(raw_record["example_id"], label="example id")
+        site_id = _require_string(raw_record["site_id"], label="site id")
+        group_id = _require_string(raw_record["group_id"], label="group id")
+        comment = _require_string(raw_record["comment"], label="comment")
+        adjudication = _parse_adjudication(raw_record["adjudication"])
+        gold = _require_category(raw_record["gold_category"])
+        canonical_record = {
+            "example_id": example_id,
+            "site_id": site_id,
+            "group_id": group_id,
+            "comment": comment,
+            "annotations": canonical_annotations,
+            "adjudication": (
+                None
+                if adjudication is None
+                else {
+                    "adjudicator_id": adjudication.adjudicator_id,
+                    "category": adjudication.category,
+                    "decision_ref": adjudication.decision_ref,
+                }
+            ),
+            "gold_category": gold,
+        }
+        canonical_inputs.append(canonical_record)
         records.append(
             EvaluationRecord(
                 example_id=example_id,
@@ -204,7 +354,7 @@ def _parse_records(raw: Any) -> tuple[list[dict[str, Any]], tuple[EvaluationReco
                 annotations=tuple(
                     sorted(annotations, key=lambda annotation: annotation.annotator_id)
                 ),
-                adjudicated_category=adjudicated,
+                adjudication=adjudication,
                 gold_category=gold,
             )
         )
@@ -220,13 +370,7 @@ def _validate_manifest(raw: Any) -> dict[str, Any]:
         raise ValueError("manifest evidence role is invalid")
     if type(manifest["records_count"]) is not int or manifest["records_count"] <= 0:
         raise ValueError("manifest records count must be a positive integer")
-    digest = manifest["records_sha256"]
-    if (
-        not isinstance(digest, str)
-        or len(digest) != 64
-        or any(character not in "0123456789abcdef" for character in digest)
-    ):
-        raise ValueError("manifest records digest must be lowercase SHA-256")
+    _require_digest(manifest["records_sha256"], label="manifest records digest")
     required_sites = manifest["required_sites"]
     if not isinstance(required_sites, list) or tuple(required_sites) != REQUIRED_SITES:
         raise ValueError("manifest required sites are invalid")
@@ -237,7 +381,67 @@ def _validate_manifest(raw: Any) -> dict[str, Any]:
         raise ValueError("manifest annotator minimum is invalid")
     if manifest["adjudication_policy"] != ADJUDICATION_POLICY:
         raise ValueError("manifest adjudication policy is invalid")
+
+    for field_name, label in (
+        ("rubric_version", "rubric version"),
+        ("sampling_protocol_id", "sampling protocol id"),
+        ("annotation_guide_id", "annotation guide id"),
+        ("adjudication_protocol_id", "adjudication protocol id"),
+        ("deidentification_protocol_id", "deidentification protocol id"),
+    ):
+        _require_string(manifest[field_name], label=label)
+    for field_name, label in (
+        ("sampling_protocol_sha256", "sampling protocol digest"),
+        ("annotation_guide_sha256", "annotation guide digest"),
+        ("adjudication_protocol_sha256", "adjudication protocol digest"),
+        ("deidentification_protocol_sha256", "deidentification protocol digest"),
+        ("custody_digest", "custody digest"),
+    ):
+        _require_digest(manifest[field_name], label=label)
+    _require_utc_timestamp(manifest["frozen_at"])
+    if manifest["declared_source_kind"] != DECLARED_SOURCE_KIND:
+        raise ValueError("manifest source kind must be human field data")
+    if manifest["deidentified"] is not True:
+        raise ValueError("manifest must attest that records are deidentified")
+    if manifest["privacy_reviewed"] is not True:
+        raise ValueError("manifest must attest that privacy reviewed is true")
     return manifest
+
+
+def _validate_corpus_metadata(corpus: EvaluationCorpus) -> None:
+    if corpus.schema_version != SCHEMA_VERSION:
+        raise ValueError("structurally valid corpus schema version is invalid")
+    _require_string(corpus.corpus_id, label="corpus id")
+    if corpus.evidence_role != EVIDENCE_ROLE:
+        raise ValueError("structurally valid corpus evidence role is invalid")
+    if corpus.required_sites != REQUIRED_SITES:
+        raise ValueError("structurally valid corpus required sites are invalid")
+    if corpus.minimum_annotators_per_example != MINIMUM_ANNOTATORS_PER_EXAMPLE:
+        raise ValueError("structurally valid corpus annotator minimum is invalid")
+    if corpus.adjudication_policy != ADJUDICATION_POLICY:
+        raise ValueError("structurally valid corpus adjudication policy is invalid")
+    _require_digest(corpus.records_sha256, label="records digest")
+    for value, label in (
+        (corpus.rubric_version, "rubric version"),
+        (corpus.sampling_protocol_id, "sampling protocol id"),
+        (corpus.annotation_guide_id, "annotation guide id"),
+        (corpus.adjudication_protocol_id, "adjudication protocol id"),
+        (corpus.deidentification_protocol_id, "deidentification protocol id"),
+    ):
+        _require_string(value, label=label)
+    for value, label in (
+        (corpus.sampling_protocol_sha256, "sampling protocol digest"),
+        (corpus.annotation_guide_sha256, "annotation guide digest"),
+        (corpus.adjudication_protocol_sha256, "adjudication protocol digest"),
+        (corpus.deidentification_protocol_sha256, "deidentification protocol digest"),
+        (corpus.custody_digest, "custody digest"),
+    ):
+        _require_digest(value, label=label)
+    _require_utc_timestamp(corpus.frozen_at)
+    if corpus.declared_source_kind != DECLARED_SOURCE_KIND:
+        raise ValueError("structurally valid corpus source kind is invalid")
+    if corpus.deidentified is not True or corpus.privacy_reviewed is not True:
+        raise ValueError("structurally valid corpus requires privacy attestations")
 
 
 def _validate_cohort(records: tuple[EvaluationRecord, ...]) -> None:
@@ -265,23 +469,24 @@ def _validate_cohort(records: tuple[EvaluationRecord, ...]) -> None:
         categories = {annotation.category for annotation in record.annotations}
         if len(categories) == 1:
             consensus = next(iter(categories))
-            if record.adjudicated_category is not None:
+            if record.adjudication is not None:
                 raise ValueError("adjudication is invalid when annotations agree")
             if record.gold_category != consensus:
                 raise ValueError("gold category must match annotation consensus")
         else:
-            if record.adjudicated_category is None:
+            if record.adjudication is None:
                 raise ValueError("annotation disagreement requires explicit adjudication")
-            if record.gold_category != record.adjudicated_category:
+            if record.adjudication.adjudicator_id in annotator_ids:
+                raise ValueError("adjudicator must be a distinct third reviewer")
+            if record.gold_category != record.adjudication.category:
                 raise ValueError("gold category must match explicit adjudication")
 
 
 def load_evaluation_corpus(manifest_path: str | Path, records_path: str | Path) -> EvaluationCorpus:
-    """Load a private corpus only after its sealed contract validates completely."""
+    """Load the private corpus only after all structural checks succeed."""
 
     manifest = _validate_manifest(_load_json(Path(manifest_path), expected="manifest"))
     canonical_inputs, records = _parse_records(_load_json(Path(records_path), expected="records"))
-
     if manifest["records_count"] != len(records):
         raise ValueError("records count mismatch")
     actual_digest = hashlib.sha256(_canonical_raw_records(canonical_inputs)).hexdigest()
@@ -302,12 +507,26 @@ def load_evaluation_corpus(manifest_path: str | Path, records_path: str | Path) 
         required_sites=REQUIRED_SITES,
         minimum_annotators_per_example=MINIMUM_ANNOTATORS_PER_EXAMPLE,
         adjudication_policy=ADJUDICATION_POLICY,
+        rubric_version=manifest["rubric_version"],
+        sampling_protocol_id=manifest["sampling_protocol_id"],
+        sampling_protocol_sha256=manifest["sampling_protocol_sha256"],
+        annotation_guide_id=manifest["annotation_guide_id"],
+        annotation_guide_sha256=manifest["annotation_guide_sha256"],
+        adjudication_protocol_id=manifest["adjudication_protocol_id"],
+        adjudication_protocol_sha256=manifest["adjudication_protocol_sha256"],
+        deidentification_protocol_id=manifest["deidentification_protocol_id"],
+        deidentification_protocol_sha256=manifest["deidentification_protocol_sha256"],
+        custody_digest=manifest["custody_digest"],
+        frozen_at=manifest["frozen_at"],
+        declared_source_kind=DECLARED_SOURCE_KIND,
+        deidentified=True,
+        privacy_reviewed=True,
         records=ordered_records,
     )
 
 
-def canonical_corpus_bytes(corpus: EvaluationCorpus) -> bytes:
-    """Return the deterministic, sealed representation used for corpus identity."""
+def canonical_corpus_summary_bytes(corpus: EvaluationCorpus) -> bytes:
+    """Return deterministic public metadata without private record payloads."""
 
     payload = {
         "schema_version": corpus.schema_version,
@@ -318,35 +537,28 @@ def canonical_corpus_bytes(corpus: EvaluationCorpus) -> bytes:
         "required_sites": list(corpus.required_sites),
         "minimum_annotators_per_example": corpus.minimum_annotators_per_example,
         "adjudication_policy": corpus.adjudication_policy,
-        "records": [
-            {
-                "example_id": record.example_id,
-                "site_id": record.site_id,
-                "group_id": record.group_id,
-                "comment": record.comment,
-                "annotations": [
-                    {
-                        "annotator_id": annotation.annotator_id,
-                        "category": annotation.category,
-                    }
-                    for annotation in sorted(record.annotations, key=lambda item: item.annotator_id)
-                ],
-                "adjudicated_category": record.adjudicated_category,
-                "gold_category": record.gold_category,
-            }
-            for record in sorted(corpus.records, key=lambda item: item.example_id)
-        ],
+        "rubric_version": corpus.rubric_version,
+        "sampling_protocol_id": corpus.sampling_protocol_id,
+        "sampling_protocol_sha256": corpus.sampling_protocol_sha256,
+        "annotation_guide_id": corpus.annotation_guide_id,
+        "annotation_guide_sha256": corpus.annotation_guide_sha256,
+        "adjudication_protocol_id": corpus.adjudication_protocol_id,
+        "adjudication_protocol_sha256": corpus.adjudication_protocol_sha256,
+        "deidentification_protocol_id": corpus.deidentification_protocol_id,
+        "deidentification_protocol_sha256": corpus.deidentification_protocol_sha256,
+        "custody_digest": corpus.custody_digest,
+        "frozen_at": corpus.frozen_at,
+        "declared_source_kind": corpus.declared_source_kind,
+        "deidentified": corpus.deidentified,
+        "privacy_reviewed": corpus.privacy_reviewed,
+        "structurally_valid": corpus.structurally_valid,
+        "scientifically_sufficient": corpus.scientifically_sufficient,
+        "production_enablement_authorized": corpus.production_enablement_authorized,
     }
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
+    return _canonical_json_bytes(payload)
 
 
 def evaluation_corpus_digest(corpus: EvaluationCorpus) -> str:
-    """Return the SHA-256 identity of a validated corpus contract."""
+    """Return the SHA-256 identity of the public summary and sealed private digest."""
 
-    return hashlib.sha256(canonical_corpus_bytes(corpus)).hexdigest()
+    return hashlib.sha256(canonical_corpus_summary_bytes(corpus)).hexdigest()
