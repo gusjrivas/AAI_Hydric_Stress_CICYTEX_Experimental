@@ -1,6 +1,6 @@
 ## 1. TDD del lock uv
 
-- [x] 1.1 Registrar RED `be61983` para perfil exacto, parser fail-closed, límites, privacidad y flags.
+- [x] 1.1 Registrar RED `be61983` para perfil exacto, parser fail-closed, límites y privacidad.
 - [x] 1.2 Añadir compatibilidad de parser de tests Python 3.10 en `99c60fb` sin relajar producción.
 - [x] 1.3 Implementar GREEN `5f98930` para el perfil inicial de lock.
 - [x] 1.4 Registrar RED `8d76ff5` para semántica completa, fuentes, hashes y aristas.
@@ -24,7 +24,7 @@
 - [x] 3.5 Verificar 45 identidades y 70 aristas activadas dentro del perfil.
 - [x] 3.6 Limitar la excepción sin size al único wheel Torch URL/hash exacto, sin descarga.
 - [x] 3.7 Mantener falsos todos los claims externos, de seguridad y operación.
-- [ ] 3.8 Completar auditoría independiente final del board y merge gate.
+- [x] 3.8 Completar auditoría independiente final del board y merge gate.
 
 ## 4. Reconciliación y próximos slices
 
