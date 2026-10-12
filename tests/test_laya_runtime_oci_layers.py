@@ -1,5 +1,6 @@
 import ast
 import gzip
+import inspect
 import os
 import traceback
 from dataclasses import FrozenInstanceError, fields, replace
@@ -274,6 +275,40 @@ def test_layer_streaming_caps_are_public_positive_plain_integers():
     assert module.MAX_OCI_LAYER_CHUNKS == MAX_LAYER_CHUNKS
     assert module.MAX_OCI_LAYER_UNCOMPRESSED_BYTES == MAX_LAYER_UNCOMPRESSED_BYTES
     assert module.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES == MAX_ROOTFS_UNCOMPRESSED_BYTES
+
+
+def test_layer_verifier_budget_is_keyword_only_bounded_and_fail_fast():
+    from human_feedback import runtime_oci_layers as module
+
+    parameter = inspect.signature(module.verify_laya_oci_layer_diff_id_chunks).parameters[
+        "max_uncompressed_bytes"
+    ]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is None
+    consumed = 0
+
+    def hostile_chunks():
+        nonlocal consumed
+        consumed += 1
+        raise AssertionError("private-budget-consumed")
+        yield b"unreachable"
+
+    limit = min(
+        module.MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
+        module.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES,
+    )
+    for invalid in (True, False, 0, -1, 1.0, limit + 1):
+        with pytest.raises(
+            (TypeError, ValueError), match="budget|uncompressed|limit|integer"
+        ) as error:
+            module.verify_laya_oci_layer_diff_id_chunks(
+                None,
+                "private-invalid-budget-digest",
+                hostile_chunks(),
+                max_uncompressed_bytes=invalid,
+            )
+        _private_error(error.value, "private-budget-consumed", "private-invalid-budget-digest")
+    assert consumed == 0
 
 
 def test_incremental_decompression_bounds_each_output_call():
@@ -591,6 +626,25 @@ def test_real_single_member_layer_streams_to_an_identity_bound_diff_id_receipt(m
     expansion_bomb = gzip.compress(b"x" * 65, mtime=0)
     with pytest.raises((TypeError, ValueError), match="expand|uncompressed|size|limit|layer"):
         verify_laya_oci_layer_diff_id_chunks(plan, blob.digest, iter((expansion_bomb,)))
+    consumed = 0
+
+    def budget_exhaustion_stream():
+        nonlocal consumed
+        consumed += 1
+        yield expansion_bomb
+        raise AssertionError("private-budget-trailing-sentinel")
+
+    with pytest.raises(
+        (TypeError, ValueError), match="budget|expand|uncompressed|size|limit|layer"
+    ) as captured:
+        verify_laya_oci_layer_diff_id_chunks(
+            plan,
+            blob.digest,
+            budget_exhaustion_stream(),
+            max_uncompressed_bytes=64,
+        )
+    assert consumed == 1
+    _private_error(captured.value, "private-budget-trailing-sentinel")
     monkeypatch.setattr(
         module.runtime_oci_layout,
         "verify_laya_oci_blob_chunks",

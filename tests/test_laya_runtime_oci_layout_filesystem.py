@@ -1456,6 +1456,7 @@ def test_opt_in_same_root_layer_diff_ids_are_all_or_nothing_and_conservative(mon
     module = _adapter()
     blob_calls = []
     layer_calls = []
+    layer_budgets = []
     original_blob_verifier = module.runtime_oci_layout.verify_laya_oci_blob_chunks
     original_layer_verifier = runtime_oci_layers.verify_laya_oci_layer_diff_id_chunks
 
@@ -1463,9 +1464,15 @@ def test_opt_in_same_root_layer_diff_ids_are_all_or_nothing_and_conservative(mon
         blob_calls.append(digest)
         return original_blob_verifier(plan, digest, chunks)
 
-    def layer_spy(plan, digest, chunks):
+    def layer_spy(plan, digest, chunks, *, max_uncompressed_bytes=None):
         layer_calls.append(digest)
-        return original_layer_verifier(plan, digest, chunks)
+        layer_budgets.append(max_uncompressed_bytes)
+        return original_layer_verifier(
+            plan,
+            digest,
+            chunks,
+            max_uncompressed_bytes=max_uncompressed_bytes,
+        )
 
     monkeypatch.setattr(module.runtime_oci_layout, "verify_laya_oci_blob_chunks", blob_spy)
     monkeypatch.setattr(
@@ -1485,6 +1492,22 @@ def test_opt_in_same_root_layer_diff_ids_are_all_or_nothing_and_conservative(mon
     assert len(evidence.receipts) == 10
     expected_layer_digests = tuple(blob.digest for blob in evidence.plan.layer_blobs)
     assert tuple(layer_calls) == expected_layer_digests
+    cumulative = 0
+    expected_budgets = []
+    remaining_before_each = []
+    for receipt in evidence.receipts:
+        remaining = runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES - cumulative
+        assert remaining > 0
+        remaining_before_each.append(remaining)
+        expected_budgets.append(min(runtime_oci_layers.MAX_OCI_LAYER_UNCOMPRESSED_BYTES, remaining))
+        cumulative += receipt.uncompressed_size_bytes
+    assert tuple(layer_budgets) == tuple(expected_budgets)
+    assert all(
+        later < earlier for earlier, later in zip(remaining_before_each, remaining_before_each[1:])
+    )
+    assert all(later <= earlier for earlier, later in zip(layer_budgets, layer_budgets[1:]))
+    assert cumulative < runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+    assert layer_budgets[-1] > 0
     expected_blob_calls = Counter(blob.digest for blob in evidence.layout_plan.blobs)
     expected_blob_calls.update(expected_layer_digests)
     assert Counter(blob_calls) == expected_blob_calls
