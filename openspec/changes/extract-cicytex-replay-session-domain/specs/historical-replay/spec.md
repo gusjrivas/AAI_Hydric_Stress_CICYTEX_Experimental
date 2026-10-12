@@ -18,6 +18,7 @@ existente.
 - **GIVEN** una sesión existente
 - **WHEN** se avanza o reinicia
 - **THEN** el avance suma un día sin superar `2023-07-25`
+- **AND** rechaza un límite que no sea una fecha exacta o que sea anterior al reloj revelado
 - **AND** reset vuelve a la fecha de emisión y oculta nuevamente el futuro.
 
 #### Scenario: Sesión ausente

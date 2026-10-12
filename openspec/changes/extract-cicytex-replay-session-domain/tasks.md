@@ -5,6 +5,7 @@
 - [x] 1.3 Registrar RED que prohíbe estado de sesiones en el router.
 - [x] 1.4 Registrar RED de avance atómico, colisión de ID y validaciones del dominio.
 - [x] 1.5 Registrar RED de pureza respecto de transporte, datos y filesystem.
+- [x] 1.6 Registrar RED P2 para tipo y orden de `last_observation` sin retroceso del reloj.
 
 ## 2. Dominio y aplicación
 

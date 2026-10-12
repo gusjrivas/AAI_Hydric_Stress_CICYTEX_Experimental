@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 
@@ -25,7 +25,6 @@ def _session_contract():
 
 def test_session_repository_boundary_is_explicit_and_in_memory_adapter_conforms():
     from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
-
     from historical_replay.ports import SessionRepository
 
     repository = InMemorySessionRepository()
@@ -184,6 +183,72 @@ def test_service_rejects_emission_after_last_observation():
             emission_date=date(2023, 7, 26),
             horizon_days=1,
         )
+
+
+@pytest.mark.parametrize(
+    "invalid_last_observation",
+    [None, True, "2023-07-25", datetime(2023, 7, 25, 0, 0)],
+)
+def test_session_advance_rejects_non_exact_date_last_observation(
+    invalid_last_observation,
+):
+    from historical_replay.sessions import ReplaySession
+
+    session = ReplaySession(
+        session_id="a" * 32,
+        sensor_id="CP1_S1",
+        start_date=date(2023, 7, 6),
+        emission_date=date(2023, 7, 6),
+        horizon_days=1,
+        revealed_through=date(2023, 7, 10),
+    )
+
+    with pytest.raises(ValueError, match="last|observation|date"):
+        session.advance(invalid_last_observation)
+
+
+@pytest.mark.parametrize(
+    "invalid_last_observation",
+    [date(2023, 7, 5), date(2023, 7, 8)],
+)
+def test_session_advance_rejects_last_observation_before_its_clock(
+    invalid_last_observation,
+):
+    from historical_replay.sessions import ReplaySession
+
+    session = ReplaySession(
+        session_id="a" * 32,
+        sensor_id="CP1_S1",
+        start_date=date(2023, 7, 6),
+        emission_date=date(2023, 7, 6),
+        horizon_days=1,
+        revealed_through=date(2023, 7, 10),
+    )
+
+    with pytest.raises(ValueError, match="last|observation|clock|revealed"):
+        session.advance(invalid_last_observation)
+    assert session.revealed_through == date(2023, 7, 10)
+
+
+def test_session_advance_is_monotonic_at_and_beyond_the_current_clock():
+    from historical_replay.sessions import ReplaySession
+
+    session = ReplaySession(
+        session_id="a" * 32,
+        sensor_id="CP1_S1",
+        start_date=date(2023, 7, 6),
+        emission_date=date(2023, 7, 6),
+        horizon_days=1,
+        revealed_through=date(2023, 7, 10),
+    )
+
+    bounded = session.advance(date(2023, 7, 10))
+    advanced = session.advance(date(2023, 7, 25))
+
+    assert bounded.revealed_through == session.revealed_through
+    assert advanced.revealed_through == session.revealed_through + timedelta(days=1)
+    assert bounded.revealed_through >= session.revealed_through
+    assert advanced.revealed_through >= session.revealed_through
 
 
 def test_session_boundary_modules_are_transport_and_io_free():
