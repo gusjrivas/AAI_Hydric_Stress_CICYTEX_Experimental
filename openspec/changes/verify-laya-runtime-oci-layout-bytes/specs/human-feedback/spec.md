@@ -128,7 +128,7 @@ permisos/mount de la fuente ni que el gate sea obligatorio en CI.
 - **GIVEN** una fuente externa declarada por el operador y capacidades Linux disponibles
 - **WHEN** se ejecutan serialmente ambos módulos de tests con la variable definida
 - **THEN** el clon descartable absoluto/no-root/canónico recibe toda mutación adversarial y la fuente conserva su fingerprint
-- **AND** la corrida real registra `217 passed, 1 skipped`, únicamente el test de fail-closed Windows
+- **AND** la corrida real registra `224 passed, 1 skipped`, incluido el hardening posterior del cap de traversal y únicamente el test de fail-closed Windows
 - **AND** ese resultado es evidencia manual de release, no evidencia de CI obligatorio.
 
 #### Scenario: Suite ordinaria sin imagen externa

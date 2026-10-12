@@ -47,9 +47,9 @@ dos controles pequeños; por eso una suite ordinaria sin la variable opt-in no p
 presentarse como evidencia positiva de los 612 MB.
 
 El release gate real se ejecutó serialmente sobre Linux con la evidencia externa y
-dio `217 passed, 1 skipped`; el único skip fue el test específico de Windows. Ese
-resultado es evidencia manual/opt-in de PR20, no ejecución de CI ni prueba de que
-exista un job obligatorio.
+dio `224 passed, 1 skipped`, incluyendo el hardening del cap de traversal agregado
+después; el único skip fue el test específico de Windows. Ese resultado es evidencia
+manual/opt-in de PR20, no ejecución de CI ni prueba de que exista un job obligatorio.
 
 ## Reconciliación
 

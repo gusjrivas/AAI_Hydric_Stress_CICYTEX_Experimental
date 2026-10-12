@@ -20,7 +20,7 @@
 ## 4. Gate y alcance
 
 - [x] 4.1 Tratar la fuente externa como input read-only, no modificarla, verificar preservación de fingerprint y ejecutar sobre clon temporal descartable; sin afirmar enforcement de permisos/mount.
-- [x] 4.2 Ejecutar el gate manual serial con `LAYA_RUNTIME_OCI_LAYOUT_ROOT`, sin xdist: `217 passed, 1 skipped`, únicamente el test Windows; no presentarlo como CI.
+- [x] 4.2 Ejecutar el gate manual serial con `LAYA_RUNTIME_OCI_LAYOUT_ROOT`, sin xdist: `224 passed, 1 skipped`, incluido el hardening posterior del cap de traversal y únicamente el test Windows como skip; no presentarlo como CI.
 - [x] 4.3 Elevar sólo claims de bytes, inventario y same-root; mantener falsos semántica config/diffIDs/rootfs y todos los claims de origen/operación.
 - [x] 4.4 Mantener cinco roles de artefactos sin cambios y ningún caller productivo.
 - [ ] 4.5 Completar auditoría independiente final del board y merge gate.

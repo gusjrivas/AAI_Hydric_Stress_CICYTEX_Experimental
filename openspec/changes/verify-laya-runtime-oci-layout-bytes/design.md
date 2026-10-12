@@ -151,10 +151,10 @@ variable válida y todas las capacidades Linux disponibles, el único skip esper
 es el test específico que comprueba el fail-closed de Windows. Esta es una orden de
 release manual/opt-in; PR20 no afirma que exista un job CI obligatorio equivalente.
 
-La ejecución real de ese gate serial sobre Linux terminó con `217 passed, 1
-skipped`; el skip único fue precisamente el test específico de Windows. Este
-resultado registra la evidencia externa ejecutada, no una corrida de CI ni una
-política CI mandatory.
+La ejecución real de ese gate serial sobre Linux terminó con `224 passed, 1
+skipped`, incluyendo el hardening del cap de traversal agregado después; el skip
+único fue precisamente el test específico de Windows. Este resultado registra la
+evidencia externa ejecutada, no una corrida de CI ni una política CI mandatory.
 
 ### 7. TDD implementado
 
