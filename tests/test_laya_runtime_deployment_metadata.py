@@ -18,6 +18,8 @@ from tests.test_laya_runtime_artifact_integrity import (
 DEPLOYMENT_SCHEMA_VERSION = "laya-runtime-deployment-evidence-v1"
 RUNTIME_CONFIG_SCHEMA_VERSION = "laya-runtime-config-v1"
 CHECKPOINT_SCHEMA_VERSION = "laya-checkpoint-manifest-v1"
+MAX_RUNTIME_CONFIG_BYTES = 16 * 1024
+MAX_CHECKPOINT_MANIFEST_BYTES = 64 * 1024
 MODEL_REPOSITORY = "convaiinnovations/laya"
 MODEL_REVISION = "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851"
 MODEL_SUBFOLDER = "multilingual"
@@ -205,6 +207,71 @@ def test_metadata_loaders_require_bytes_strict_utf8_and_json(loader):
         loader(b"[]")
 
 
+@pytest.mark.parametrize(
+    ("loader_name", "limit_name", "expected_limit"),
+    [
+        (
+            "validate_laya_runtime_config_bytes",
+            "MAX_RUNTIME_CONFIG_BYTES",
+            MAX_RUNTIME_CONFIG_BYTES,
+        ),
+        (
+            "validate_laya_checkpoint_manifest_bytes",
+            "MAX_CHECKPOINT_MANIFEST_BYTES",
+            MAX_CHECKPOINT_MANIFEST_BYTES,
+        ),
+    ],
+)
+def test_metadata_payload_caps_reject_before_json_loads(
+    monkeypatch, loader_name, limit_name, expected_limit
+):
+    from human_feedback import runtime_deployment_metadata as module
+
+    loader = getattr(module, loader_name)
+    assert getattr(module, limit_name) == expected_limit
+    loads_called = False
+
+    def forbidden_loads(*args, **kwargs):
+        nonlocal loads_called
+        loads_called = True
+        raise AssertionError("oversized metadata must fail before json.loads")
+
+    monkeypatch.setattr(module.json, "loads", forbidden_loads)
+
+    with pytest.raises(ValueError, match="payload|size|limit|large"):
+        loader(b"x" * (expected_limit + 1))
+
+    assert loads_called is False
+
+
+@pytest.mark.parametrize("loader", [_load_config, _load_checkpoint])
+def test_deeply_nested_json_is_rejected_generically_without_private_content(loader):
+    private_key = b"private-nested-key"
+    private_value = b"private-nested-value"
+    depth = 2_000
+    payload = (
+        b'{"'
+        + private_key
+        + b'":'
+        + (b"[" * depth)
+        + b'"'
+        + private_value
+        + b'"'
+        + (b"]" * depth)
+        + b"}"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="JSON|payload|nested|depth|field|key|schema|config|checkpoint",
+    ) as error:
+        loader(payload)
+
+    rendered = str(error.value)
+    assert private_key.decode("ascii") not in rendered
+    assert private_value.decode("ascii") not in rendered
+
+
 @pytest.mark.parametrize("kind", ["config", "checkpoint"])
 def test_metadata_loaders_reject_duplicate_keys_and_nonfinite_numbers(kind):
     _, config_bytes, checkpoint_bytes = _deployment_payloads()
@@ -372,6 +439,28 @@ def test_checkpoint_requires_each_exact_file_role_once(case):
 
     with pytest.raises(ValueError, match="checkpoint|file|role|duplicate|exact"):
         _load_checkpoint(_canonical_json(value))
+
+
+def test_checkpoint_rejects_more_than_five_files_before_parsing_elements(monkeypatch):
+    from human_feedback import runtime_deployment_metadata as module
+
+    value = _checkpoint_object()
+    files = value["files"]
+    assert isinstance(files, list)
+    files.append(deepcopy(files[0]))
+    parser_called = False
+
+    def forbidden_element_parser(*args, **kwargs):
+        nonlocal parser_called
+        parser_called = True
+        raise AssertionError("oversized file arrays must fail before element parsing")
+
+    monkeypatch.setattr(module, "_parse_checkpoint_file", forbidden_element_parser)
+
+    with pytest.raises(ValueError, match="checkpoint|files|count|exact|five"):
+        module.validate_laya_checkpoint_manifest_bytes(_canonical_json(value))
+
+    assert parser_called is False
 
 
 def test_checkpoint_file_input_order_is_normalized_canonically():
