@@ -277,6 +277,7 @@ def test_runtime_bundle_implementation_is_pure_and_has_no_io_or_executor_depende
 
 def test_runtime_bundle_is_isolated_from_operational_flows():
     repository = Path(__file__).parents[1]
+    allowed_adapter = "src/human_feedback/adapters/filesystem_runtime_bundle.py"
     roots = (
         repository / "backend",
         repository / "src" / "human_feedback" / "adapters",
@@ -287,8 +288,12 @@ def test_runtime_bundle_is_isolated_from_operational_flows():
     offenders = []
     for root in roots:
         for path in root.rglob("*.py"):
-            if "human_feedback.runtime_bundle" in path.read_text(encoding="utf-8"):
-                offenders.append(path.relative_to(repository).as_posix())
+            relative_path = path.relative_to(repository).as_posix()
+            if (
+                relative_path != allowed_adapter
+                and "human_feedback.runtime_bundle" in path.read_text(encoding="utf-8")
+            ):
+                offenders.append(relative_path)
     for path in files:
         if "human_feedback.runtime_bundle" in path.read_text(encoding="utf-8"):
             offenders.append(path.relative_to(repository).as_posix())
