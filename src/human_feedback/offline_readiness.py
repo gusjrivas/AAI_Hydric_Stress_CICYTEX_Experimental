@@ -551,8 +551,7 @@ def load_predictions(path: Path) -> tuple[OfflinePrediction, ...]:
             raise ValueError("prediction probabilities must be numeric and not booleans")
         answer_confidence = item.get("answer_confidence")
         if answer_confidence is not None and (
-            isinstance(answer_confidence, bool)
-            or not isinstance(answer_confidence, (int, float))
+            isinstance(answer_confidence, bool) or not isinstance(answer_confidence, (int, float))
         ):
             raise ValueError("prediction answer confidence must be numeric and not boolean")
         latency = item["latency_ms"]
@@ -563,11 +562,7 @@ def load_predictions(path: Path) -> tuple[OfflinePrediction, ...]:
                 example_id=item["example_id"],
                 category=item["category"],
                 probabilities=tuple((name, float(value)) for name, value in item["probabilities"]),
-                answer_confidence=(
-                    None
-                    if answer_confidence is None
-                    else float(answer_confidence)
-                ),
+                answer_confidence=(None if answer_confidence is None else float(answer_confidence)),
                 latency_ms=float(latency),
                 provider=item["provider"],
                 model_revision=item["model_revision"],
