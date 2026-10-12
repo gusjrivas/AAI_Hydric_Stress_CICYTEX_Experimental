@@ -50,3 +50,15 @@ existente.
 - **WHEN** se inspeccionan dominio, caso de uso, puerto y adaptador in-memory
 - **THEN** no dependen de FastAPI, pandas, JSON, variables de entorno, paths ni filesystem
 - **AND** la serialización y sincronización del feedback permanecen fuera de esa frontera.
+
+#### Scenario: Feedback concurrente con reset
+
+- **GIVEN** un request de feedback que obtuvo una sesión con el objetivo revelado
+- **WHEN** la misma sesión se reinicia antes de validar y persistir el feedback
+- **THEN** el request revalida el reloj actual, responde 409 y no persiste feedback obsoleto.
+
+#### Scenario: Límite de avance inyectado
+
+- **GIVEN** un `ReplaySessionService` inyectado con un límite de observación distinto
+- **WHEN** se renderiza una sesión que ya alcanzó ese límite
+- **THEN** `can_advance` es falso y usa el mismo límite que gobierna `advance`.

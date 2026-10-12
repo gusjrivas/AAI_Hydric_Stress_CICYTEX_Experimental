@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
+from threading import Barrier
 
 import pandas as pd
+from app.dependencies import get_cicytex_replay_sessions
 from app.main import app
 from fastapi.testclient import TestClient
+
+from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
+from historical_replay.sessions import ReplaySessionService
 
 
 def _package(root: Path) -> None:
@@ -262,3 +269,83 @@ def test_missing_session_http_errors_are_unchanged(tmp_path, monkeypatch):
         assert error["message"] == "Sesion inexistente"
         assert error["details"] == {}
         assert error["request_id"]
+
+
+def test_feedback_revalidates_the_session_after_a_concurrent_reset(tmp_path, monkeypatch):
+    _package(tmp_path)
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+    feedback_dir = tmp_path / "feedback"
+    monkeypatch.setenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(feedback_dir))
+
+    repository = InMemorySessionRepository()
+    sessions = ReplaySessionService(
+        repository,
+        id_factory=lambda: "coordinated-session",
+        last_observation=date(2023, 7, 7),
+    )
+    sessions.create(
+        sensor_id="CP1_S1",
+        emission_date=date(2023, 7, 6),
+        horizon_days=1,
+    )
+    sessions.advance("coordinated-session")
+    interleaving = Barrier(2, timeout=5)
+    first_get = True
+
+    class CoordinatedSessions:
+        def get(self, session_id):
+            nonlocal first_get
+            snapshot = sessions.get(session_id)
+            if first_get:
+                first_get = False
+                interleaving.wait()
+                interleaving.wait()
+            return snapshot
+
+    app.dependency_overrides[get_cicytex_replay_sessions] = CoordinatedSessions
+    try:
+        with TestClient(app) as client, ThreadPoolExecutor(max_workers=1) as pool:
+            response_future = pool.submit(
+                client.post,
+                "/api/v2/cicytex/replay/sessions/coordinated-session/feedback",
+                json={"estado_validacion": "confirmada"},
+            )
+            interleaving.wait()
+            reset = sessions.reset("coordinated-session")
+            assert reset.revealed_through == date(2023, 7, 6)
+            interleaving.wait()
+            response = response_future.result(timeout=5)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json()["error"]["message"] == ("La observacion todavia no fue revelada")
+    assert not (feedback_dir / "feedback.json").exists()
+
+
+def test_can_advance_uses_the_injected_session_service_observation_limit(tmp_path, monkeypatch):
+    _package(tmp_path)
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+    monkeypatch.setenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(tmp_path / "feedback"))
+
+    sessions = ReplaySessionService(
+        InMemorySessionRepository(),
+        id_factory=lambda: "bounded-session",
+        last_observation=date(2023, 7, 7),
+    )
+    sessions.create(
+        sensor_id="CP1_S1",
+        emission_date=date(2023, 7, 6),
+        horizon_days=1,
+    )
+    sessions.advance("bounded-session")
+    app.dependency_overrides[get_cicytex_replay_sessions] = lambda: sessions
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v2/cicytex/replay/sessions/bounded-session")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["revealed_through"] == "2023-07-07"
+    assert response.json()["can_advance"] is False
