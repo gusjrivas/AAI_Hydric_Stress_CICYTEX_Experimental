@@ -21,6 +21,7 @@ from human_feedback.evaluation_split import (
 
 SCHEMA_VERSION = "laya-loso-execution-contract-v1"
 RUNTIME_IDENTITY_SCHEMA_VERSION = "laya-runtime-identity-v1"
+LAYA_PROVIDER = "laya-http"
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
@@ -55,7 +56,18 @@ def _require_finite_number(value: object, *, label: str) -> float:
     number = float(value)
     if not math.isfinite(number):
         raise ValueError(f"{label} must be finite")
-    return number
+    return 0.0 if number == 0.0 else number
+
+
+def _require_model_revision(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 40
+        or any(character not in "0123456789abcdef" for character in value)
+        or value == "0" * 40
+    ):
+        raise ValueError("model revision must be a non-null lowercase SHA-1 digest")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +81,8 @@ class RuntimeIdentityRef:
         if self.schema_version != RUNTIME_IDENTITY_SCHEMA_VERSION:
             raise ValueError("runtime identity schema version is invalid")
         _require_digest(self.sha256, label="runtime identity digest")
+        if self.sha256 == "0" * 64:
+            raise ValueError("runtime identity digest cannot use the null sentinel")
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +103,10 @@ class LosoExecutionContract:
     scientifically_sufficient: bool = field(default=False, init=False)
     eligible_for_shadow_review: bool = field(default=False, init=False)
     production_enablement_authorized: bool = field(default=False, init=False)
+    runtime_identity_verified: bool = field(default=False, init=False)
+    origin_verified: bool = field(default=False, init=False)
+    gold_blind_execution_attested: bool = field(default=False, init=False)
+    supply_identity_verified: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         if self.schema_version != SCHEMA_VERSION:
@@ -110,8 +128,9 @@ class LosoExecutionContract:
         _require_digest(self.execution_protocol_sha256, label="execution protocol digest")
         if self.execution_protocol_sha256 == "0" * 64:
             raise ValueError("execution protocol digest cannot use the null sentinel")
-        _require_string(self.model_revision, label="model revision")
-        _require_string(self.provider, label="provider")
+        _require_model_revision(self.model_revision)
+        if self.provider != LAYA_PROVIDER:
+            raise ValueError("execution provider must be laya-http")
 
 
 def build_loso_execution_contract(
@@ -140,7 +159,7 @@ def build_loso_execution_contract(
     )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class RawLosoPrediction:
     """One private prediction row whose identity and values stay out of repr."""
 
@@ -186,17 +205,26 @@ class RawLosoPrediction:
         if len(winners) != 1 or winners[0] != self.category:
             raise ValueError("prediction category must be the unique probability argmax")
 
+        object.__setattr__(
+            self,
+            "probabilities",
+            tuple(zip(CATEGORIES, probability_values, strict=True)),
+        )
+
         if self.answer_confidence is not None:
             confidence = _require_finite_number(
                 self.answer_confidence, label="prediction confidence"
             )
             if confidence < 0.0 or confidence > 1.0:
                 raise ValueError("prediction confidence must be between zero and one")
+            object.__setattr__(self, "answer_confidence", confidence)
         latency = _require_finite_number(self.latency_ms, label="prediction latency")
         if latency < 0.0:
             raise ValueError("prediction latency must not be negative")
-        _require_string(self.provider, label="prediction provider")
-        _require_string(self.model_revision, label="prediction model revision")
+        object.__setattr__(self, "latency_ms", latency)
+        if self.provider != LAYA_PROVIDER:
+            raise ValueError("prediction provider must be laya-http")
+        _require_model_revision(self.model_revision)
 
 
 def _canonical_prediction_order(
@@ -255,6 +283,10 @@ class ValidatedLosoPredictionSet:
     scientifically_sufficient: bool = field(default=False, init=False)
     eligible_for_shadow_review: bool = field(default=False, init=False)
     production_enablement_authorized: bool = field(default=False, init=False)
+    runtime_identity_verified: bool = field(default=False, init=False)
+    origin_verified: bool = field(default=False, init=False)
+    gold_blind_execution_attested: bool = field(default=False, init=False)
+    supply_identity_verified: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         canonical = _validate_predictions(self.contract, self.predictions)
@@ -272,27 +304,6 @@ def validate_loso_prediction_set(
     return ValidatedLosoPredictionSet(contract=contract, predictions=canonical)
 
 
-def _prediction_content_digest(evidence: ValidatedLosoPredictionSet) -> str:
-    """Commit to ordered prediction content without serializing private row IDs."""
-
-    payload = {
-        "domain": "laya-loso-prediction-content-v1",
-        "rows": [
-            {
-                "fold": prediction.held_out_site,
-                "category": prediction.category,
-                "scores": [value for _, value in prediction.probabilities],
-                "answer_confidence": prediction.answer_confidence,
-                "latency_ms": prediction.latency_ms,
-                "provider": prediction.provider,
-                "model_revision": prediction.model_revision,
-            }
-            for prediction in evidence.predictions
-        ],
-    }
-    return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
-
-
 def canonical_loso_execution_summary_bytes(
     evidence: ValidatedLosoPredictionSet,
 ) -> bytes:
@@ -300,6 +311,7 @@ def canonical_loso_execution_summary_bytes(
 
     if not isinstance(evidence, ValidatedLosoPredictionSet):
         raise ValueError("execution evidence is invalid")
+    latencies = [prediction.latency_ms for prediction in evidence.predictions]
     payload = {
         "schema_version": evidence.contract.schema_version,
         "loso_plan_sha256": evidence.contract.loso_plan_sha256,
@@ -310,14 +322,23 @@ def canonical_loso_execution_summary_bytes(
         "execution_protocol_sha256": evidence.contract.execution_protocol_sha256,
         "model_revision": evidence.contract.model_revision,
         "provider": evidence.contract.provider,
-        "prediction_content_sha256": _prediction_content_digest(evidence),
         "predictions_count": len(evidence.predictions),
+        "latency_ms_summary": {
+            "count": len(latencies),
+            "minimum": min(latencies),
+            "maximum": max(latencies),
+            "mean": sum(latencies) / len(latencies),
+        },
         "structurally_valid": evidence.contract.structurally_valid,
         "execution_evidence_validated": evidence.execution_evidence_validated,
         "execution_completed": evidence.execution_completed,
         "scientifically_sufficient": evidence.scientifically_sufficient,
         "eligible_for_shadow_review": evidence.eligible_for_shadow_review,
         "production_enablement_authorized": evidence.production_enablement_authorized,
+        "runtime_identity_verified": evidence.runtime_identity_verified,
+        "origin_verified": evidence.origin_verified,
+        "gold_blind_execution_attested": evidence.gold_blind_execution_attested,
+        "supply_identity_verified": evidence.supply_identity_verified,
     }
     return _canonical_json_bytes(payload)
 
