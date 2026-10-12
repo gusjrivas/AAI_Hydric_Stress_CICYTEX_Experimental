@@ -17,7 +17,7 @@ from human_feedback.runtime_identity import (
 SCHEMA_VERSION = "laya-runtime-bundle-snapshot-v1"
 
 _VERIFICATION_TOKEN = object()
-_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1\n"
+_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
