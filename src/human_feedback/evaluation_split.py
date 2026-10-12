@@ -163,9 +163,12 @@ class LosoEvaluationPlan:
     calibration_policy_id: str
     corpus: EvaluationCorpus = field(repr=False)
     folds: tuple[LosoEvaluationFold, ...]
-    assignment_sha256: str
+    assignment_sha256: str = field(repr=False)
     structurally_valid: bool = field(default=True, init=False)
+    evaluation_executed: bool = field(default=False, init=False)
+    calibration_fitted: bool = field(default=False, init=False)
     scientifically_sufficient: bool = field(default=False, init=False)
+    eligible_for_shadow_review: bool = field(default=False, init=False)
     production_enablement_authorized: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -307,10 +310,16 @@ def canonical_loso_plan_summary_bytes(plan: LosoEvaluationPlan) -> bytes:
     payload = {
         "schema_version": plan.schema_version,
         "calibration_policy_id": plan.calibration_policy_id,
+        "corpus_id": plan.corpus.corpus_id,
         "evaluation_corpus_digest": evaluation_corpus_digest(plan.corpus),
         "sampling_protocol_id": plan.corpus.sampling_protocol_id,
         "sampling_protocol_sha256": plan.corpus.sampling_protocol_sha256,
-        "assignment_sha256": plan.assignment_sha256,
+        "structurally_valid": plan.structurally_valid,
+        "evaluation_executed": plan.evaluation_executed,
+        "calibration_fitted": plan.calibration_fitted,
+        "scientifically_sufficient": plan.scientifically_sufficient,
+        "eligible_for_shadow_review": plan.eligible_for_shadow_review,
+        "production_enablement_authorized": plan.production_enablement_authorized,
         "folds": [
             {
                 "held_out_site": fold.held_out_site,
