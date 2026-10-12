@@ -91,6 +91,9 @@ _EXPECTED_SEMANTICS_SHA256 = "c4e1d2876569217c106d9a32fdfacb5a88c1fbd4808fe90c82
 _EXPECTED_SBOM_SEMANTICS_SHA256 = "c2feadbd7103a8b27a435a682ee7ba4a9fdc90e4ebbf358b2f0b892bb73721fe"
 _CYCLONEDX_SCHEMA = "https://cyclonedx.org/schema/bom-1.6.schema.json"
 _LOCK_SHA256 = "e968771680b9c6e683163230ebd98b43541325ccb36d6959d1f9ed5565bd5526"
+_LOCK_SIZE_BYTES = 37_599
+_SBOM_SHA256 = "f2fde1a342990e3b5b4d74d4930bf37f6d2229768b509a27f34edffc009a03b2"
+_SBOM_SIZE_BYTES = 65_198
 _PACKAGE_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _FACTORY_TOKEN = object()
@@ -1034,6 +1037,21 @@ def _captured_dependency_payload(
     return artifact.content
 
 
+def _require_exact_dependency_bytes(payload: bytes, *, kind: str) -> None:
+    if kind == "dependency_lock":
+        expected_size = _LOCK_SIZE_BYTES
+        expected_sha256 = _LOCK_SHA256
+        label = "dependency lock"
+    elif kind == "sbom":
+        expected_size = _SBOM_SIZE_BYTES
+        expected_sha256 = _SBOM_SHA256
+        label = "dependency SBOM"
+    else:
+        raise ValueError("dependency artifact kind is invalid")
+    if len(payload) != expected_size or hashlib.sha256(payload).hexdigest() != expected_sha256:
+        raise ValueError(f"{label} artifact exact byte profile is invalid")
+
+
 def _cross_check_runtime_profile(
     snapshot: _runtime_bundle.LayaRuntimeBundleSnapshot,
     dependency_lock: ValidatedLayaUvLock,
@@ -1126,6 +1144,8 @@ def _validate_laya_runtime_dependency_metadata(
         raise ValueError("runtime bundle artifact integrity is not verified")
     lock_payload = _captured_dependency_payload(snapshot, "dependency_lock")
     sbom_payload = _captured_dependency_payload(snapshot, "sbom")
+    _require_exact_dependency_bytes(lock_payload, kind="dependency_lock")
+    _require_exact_dependency_bytes(sbom_payload, kind="sbom")
     dependency_lock = validate_laya_uv_lock_bytes(lock_payload)
     sbom = validate_laya_cyclonedx_sbom_bytes(sbom_payload)
     if hashlib.sha256(lock_payload).hexdigest() != sbom.lock_sha256:
