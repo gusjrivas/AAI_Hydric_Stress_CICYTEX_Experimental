@@ -430,6 +430,24 @@ def test_direct_construction_cannot_auto_attest_invalid_corpus_as_structurally_v
         replace(corpus, records=())
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    (
+        ("records_count", 3.0),
+        ("minimum_annotators_per_example", 2.0),
+    ),
+)
+def test_direct_construction_rejects_numeric_type_coercion(
+    tmp_path: Path,
+    field: str,
+    invalid_value: float,
+):
+    corpus = _load(tmp_path, _records())
+
+    with pytest.raises(ValueError, match="integer"):
+        replace(corpus, **{field: invalid_value})
+
+
 def test_evaluation_corpus_is_not_imported_by_operational_or_scientific_flows():
     repository = Path(__file__).parents[1]
     forbidden_roots = (
