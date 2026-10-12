@@ -70,7 +70,7 @@ runtime manifest fijado.
 - **THEN** la operación falla de forma cerrada
 - **AND** no se acepta una mezcla de snapshots.
 
-### Requirement: Generación reproducible no amplía el claim runtime
+### Requirement: Generación repetida no amplía el claim runtime
 
 La documentación MUST registrar inputs pinneados, generación repetida y validación
 externa del layout. MUST tratar esos datos como evidencia de generación del fixture,
@@ -81,7 +81,7 @@ no como un claim runtime de PR19.
 - **GIVEN** Laya 0.4.2 commit `68804629e8ccd9d616d48a40e87de9fabbeae069` sin firma, base Python digest `840e180ebcc6e5c8efab209c43f5e40fd2af98cb49db5c7103c90539c56bb30e`, uv 0.12.3 digest `2d890623d310b57771ce840f0da5eed5fc6d657da05ffaa45d82797b53fa3abc` y Debian snapshot `20261010T000000Z`
 - **AND** dos generaciones del perfil fijado
 - **WHEN** repiten el digest del manifest y umoci acepta ambos layouts
-- **THEN** se registra reproducibilidad del artefacto capturado
+- **THEN** se registra repetibilidad bajo el perfil fijado para el artefacto capturado
 - **AND** umoci 0.6.0 queda fijado por SHA-256 `b51c267ec394499e42c6fde47f240b7b7dba57ea49df0b5acd304378b82a3b71`
 - **AND** el resultado de umoci no se presenta como validación runtime de PR19.
 

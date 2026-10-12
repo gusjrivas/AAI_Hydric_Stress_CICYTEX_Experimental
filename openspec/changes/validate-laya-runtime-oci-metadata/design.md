@@ -30,7 +30,7 @@ semántico canónico también debe coincidir.
 Esto es un parser del perfil local conocido, no compatibilidad genérica con todo
 manifest OCI válido.
 
-### 2. Generación reproducible registrada por separado
+### 2. Generación repetida registrada por separado
 
 El manifest fue obtenido construyendo el perfil real con:
 
@@ -46,9 +46,9 @@ El manifest fue obtenido construyendo el perfil real con:
 
 Durante esa generación umoci 0.6.0, binario SHA-256
 `b51c267ec394499e42c6fde47f240b7b7dba57ea49df0b5acd304378b82a3b71`,
-aceptó ambos layouts. Es evidencia de generación externa y reproducibilidad del
-fixture; no forma parte del validador, no se repite al emitir evidencia PR19 y no
-demuestra un claim runtime.
+aceptó ambos layouts. Es evidencia de generación externa y repetibilidad bajo el
+perfil fijado; no forma parte del validador, no se repite al emitir evidencia PR19
+y no demuestra un claim runtime.
 
 ### 3. Evidencia ligada al mismo snapshot
 
