@@ -149,6 +149,13 @@ def test_future_is_blocked_until_session_clock_advances(tmp_path, monkeypatch):
         assert all(row["observed_soil_moisture"] == 0.18 for row in advanced["predictions"])
         assert advanced["metrics"]["ensemble"]["tp"] == 1
         assert advanced["metrics"]["persistence"]["fn"] == 1
+        reset = client.post(f"/api/v2/cicytex/replay/sessions/{before['session_id']}/reset")
+        assert reset.status_code == 200
+        assert reset.json() == before
+        assert all(row["observed_soil_moisture"] is None for row in reset.json()["predictions"])
+        advanced = client.post(
+            f"/api/v2/cicytex/replay/sessions/{before['session_id']}/advance"
+        ).json()
         registered = client.post(
             f"/api/v2/cicytex/replay/sessions/{before['session_id']}/feedback",
             json={"estado_validacion": "confirmada", "observacion": "Revisado en defensa"},
@@ -173,3 +180,85 @@ def test_rejects_non_archived_selection(tmp_path, monkeypatch):
             },
         )
     assert response.status_code == 422
+
+
+def test_session_http_payload_and_status_contract_is_unchanged(tmp_path, monkeypatch):
+    _package(tmp_path)
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+    monkeypatch.setenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(tmp_path / "feedback"))
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v2/cicytex/replay/sessions",
+            json={
+                "sensor_id": "CP1_S1",
+                "emission_date": "2023-07-06",
+                "horizon_days": 1,
+            },
+        )
+        assert created.status_code == 201
+        session_id = created.json()["session_id"]
+        assert created.json() == {
+            "session_id": session_id,
+            "sensor_id": "CP1_S1",
+            "emission_date": "2023-07-06",
+            "horizon_days": 1,
+            "revealed_through": "2023-07-06",
+            "threshold": 0.21,
+            "proxy_notice": (
+                "P20 estimado solo con entrenamiento; no es estres fisiologico observado."
+            ),
+            "predictions": [
+                {
+                    "method": method,
+                    "score": score,
+                    "alert": alert,
+                    "target_date": "2023-07-07",
+                    "observed_soil_moisture": None,
+                    "observed_label": None,
+                    "outcome": None,
+                }
+                for method, score, alert in (
+                    ("logistic_regression", 0.8, True),
+                    ("random_forest", 0.4, False),
+                    ("hist_gradient_boosting_classifier", 0.7, True),
+                    ("ensemble", 0.633333333333, True),
+                    ("persistence", 0.0, False),
+                )
+            ],
+            "readings": [{"date": "2023-07-06", "soil_moisture": 0.25}],
+            "metrics": {},
+            "feedback": None,
+            "can_advance": True,
+        }
+
+        fetched = client.get(f"/api/v2/cicytex/replay/sessions/{session_id}")
+        advanced = client.post(f"/api/v2/cicytex/replay/sessions/{session_id}/advance")
+        reset = client.post(f"/api/v2/cicytex/replay/sessions/{session_id}/reset")
+
+    assert fetched.status_code == 200
+    assert fetched.json() == created.json()
+    assert advanced.status_code == 200
+    assert advanced.json()["revealed_through"] == "2023-07-07"
+    assert reset.status_code == 200
+    assert reset.json() == created.json()
+
+
+def test_missing_session_http_errors_are_unchanged(tmp_path, monkeypatch):
+    _package(tmp_path)
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+
+    with TestClient(app) as client:
+        responses = (
+            client.get("/api/v2/cicytex/replay/sessions/missing-session"),
+            client.post("/api/v2/cicytex/replay/sessions/missing-session/advance"),
+            client.post("/api/v2/cicytex/replay/sessions/missing-session/reset"),
+        )
+
+    for response in responses:
+        assert response.status_code == 404
+        error = response.json()["error"]
+        assert error["code"] == "resource_not_found"
+        assert error["message"] == "Sesion inexistente"
+        assert error["details"] == {}
+        assert error["request_id"]
