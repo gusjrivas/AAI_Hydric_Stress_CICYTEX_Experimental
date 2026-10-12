@@ -24,10 +24,14 @@ repositorio ni ampliar los cinco roles de artefactos del runtime.
   evidencia.
 - Eleva los flags de bytes/inventario/same-root exactos y mantiene falsos todos los
   claims semánticos u operativos no demostrados.
-- Conserva la raíz canónica de evidencia externa read-only y usa un clon descartable
-  distinto para el gate positivo y las pruebas adversariales.
+- Trata la fuente externa canónica como input read-only: el gate no la modifica,
+  verifica que su fingerprint se preserve y usa un clon descartable distinto para
+  la captura positiva y las pruebas adversariales. PR20 no acredita ni impone
+  permisos o mount read-only del host.
 - Mantiene el adaptador sin caller productivo; el gate se activa manualmente mediante
   `LAYA_RUNTIME_OCI_LAYOUT_ROOT` y no se declara como job obligatorio de CI.
+- Mantiene privados paths y digests de controles/blobs en el summary, pero publica
+  deliberadamente `runtime_identity_sha256` como commitment de identidad.
 
 ## Impact
 
@@ -41,6 +45,11 @@ probados, ni que la imagen haya sido desempaquetada, materializada o ejecutada.
 El layout completo vive fuera de Git. Los fixtures versionados contienen sólo los
 dos controles pequeños; por eso una suite ordinaria sin la variable opt-in no puede
 presentarse como evidencia positiva de los 612 MB.
+
+El release gate real se ejecutó serialmente sobre Linux con la evidencia externa y
+dio `217 passed, 1 skipped`; el único skip fue el test específico de Windows. Ese
+resultado es evidencia manual/opt-in de PR20, no ejecución de CI ni prueba de que
+exista un job obligatorio.
 
 ## Reconciliación
 

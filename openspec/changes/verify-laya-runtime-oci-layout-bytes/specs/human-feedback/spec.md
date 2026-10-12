@@ -116,17 +116,20 @@ u operativos.
 
 ### Requirement: Gate externo serial preserva la raíz canónica
 
-El gate MUST recibir una raíz absoluta mediante `LAYA_RUNTIME_OCI_LAYOUT_ROOT`, MUST
-mantener la raíz canónica externa read-only y MUST ejecutar captura/pruebas
-adversariales sobre un clon temporal distinto. MUST ejecutarse serialmente sin
-xdist. PR20 MUST NOT afirmar que este gate sea obligatorio en CI.
+El operador SHOULD proveer mediante `LAYA_RUNTIME_OCI_LAYOUT_ROOT` una fuente
+externa absoluta/canónica y SHOULD custodiarla con permisos o mount read-only. El
+gate MUST tratarla como input read-only, MUST NOT modificarla, MUST verificar que su
+fingerprint se preserve y MUST ejecutar la captura/adversariales serialmente y sin
+xdist sobre un clon temporal distinto. PR20 MUST NOT afirmar enforcement de los
+permisos/mount de la fuente ni que el gate sea obligatorio en CI.
 
 #### Scenario: Gate Linux opt-in
 
-- **GIVEN** una raíz externa canónica read-only y capacidades Linux disponibles
+- **GIVEN** una fuente externa declarada por el operador y capacidades Linux disponibles
 - **WHEN** se ejecutan serialmente ambos módulos de tests con la variable definida
-- **THEN** el clon descartable recibe toda mutación adversarial y la raíz conserva su fingerprint
-- **AND** el único skip esperado es el test específico de fail-closed Windows.
+- **THEN** el clon descartable absoluto/no-root/canónico recibe toda mutación adversarial y la fuente conserva su fingerprint
+- **AND** la corrida real registra `217 passed, 1 skipped`, únicamente el test de fail-closed Windows
+- **AND** ese resultado es evidencia manual de release, no evidencia de CI obligatorio.
 
 #### Scenario: Suite ordinaria sin imagen externa
 
@@ -138,15 +141,17 @@ xdist. PR20 MUST NOT afirmar que este gate sea obligatorio en CI.
 ### Requirement: Evidencia privada y sin caller productivo
 
 El sistema MUST mantener plan, receipts, autoridad y evidencia inmutables y sellados;
-MUST ocultar raíz, paths, digests, sizes, inventario y bytes en summary, `repr` y
-errores; y MUST mantener el adaptador sin caller productivo.
+MUST ocultar raíz, paths, sizes, inventario, bytes y digests privados de
+controles/blobs en summary, `repr` y errores; MUST conservar
+`runtime_identity_sha256` como commitment público; y MUST mantener el adaptador sin
+caller productivo.
 
 #### Scenario: Summary conservador
 
 - **GIVEN** evidencia layout válida
 - **WHEN** se serializa el summary canónico
-- **THEN** contiene sólo schemas/profile, runtime identity y flags
-- **AND** no contiene evidencia externa privada.
+- **THEN** contiene schemas/profile, flags y runtime identity con su commitment público `runtime_identity_sha256`
+- **AND** no contiene paths, bytes, sizes ni digests privados de controles/blobs.
 
 #### Scenario: Sin integración operativa
 

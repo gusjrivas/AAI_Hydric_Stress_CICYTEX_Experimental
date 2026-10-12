@@ -118,8 +118,10 @@ licencia, ancestry, seguridad o ejecutabilidad.
 ### 5. Summary privado y aislamiento
 
 Plan, receipts, autoridad y evidencia son frozen/slotted/factory-sealed. `repr`,
-errores y summary no exponen raíz, paths, digests, sizes, bytes ni inventario. El
-summary canónico contiene schemas/profile, `RuntimeIdentityRef` y flags.
+errores y summary no exponen raíz, paths, bytes, inventario, sizes ni digests
+privados de controles/blobs. El summary canónico contiene schemas/profile,
+`RuntimeIdentityRef` —incluido el commitment público `runtime_identity_sha256`— y
+flags.
 
 El adaptador es el único módulo autorizado a usar ambos sealers privados. Ningún
 backend, runner, script o flujo de readiness lo invoca todavía; por tanto PR20 no
@@ -127,11 +129,14 @@ habilita un caller productivo.
 
 ### 6. Gate externo serial y custodia de la raíz
 
-La raíz canónica completa se custodia read-only fuera del repositorio. El gate toma
-su path absoluto/canónico desde `LAYA_RUNTIME_OCI_LAYOUT_ROOT`, calcula un
-fingerprint antes/después y copia o reflinkea todo a una raíz temporal distinta. La
-captura positiva y las pruebas adversariales operan sólo sobre ese clon descartable;
-la raíz canónica no se modifica.
+El operador SHOULD proveer en `LAYA_RUNTIME_OCI_LAYOUT_ROOT` el path absoluto y
+canónico de la fuente externa y SHOULD custodiarla con permisos o mount read-only.
+El gate trata esa fuente como input read-only: MUST NOT modificarla, calcula su
+fingerprint antes/después y copia o reflinkea todo a una raíz temporal distinta.
+PR20 demuestra preservación del fingerprint, pero no inspecciona ni acredita los
+permisos/mount read-only de la fuente. La captura positiva y las pruebas adversariales
+operan sólo sobre el clon descartable; es ese clon el que el adaptador valida como
+raíz absoluta, no-root y sintácticamente canónica.
 
 Comando de release gate sobre Linux, ejecutado serialmente y sin xdist:
 
@@ -145,6 +150,11 @@ No se debe agregar `-n`, activar xdist ni compartir el clon entre workers. Con l
 variable válida y todas las capacidades Linux disponibles, el único skip esperado
 es el test específico que comprueba el fail-closed de Windows. Esta es una orden de
 release manual/opt-in; PR20 no afirma que exista un job CI obligatorio equivalente.
+
+La ejecución real de ese gate serial sobre Linux terminó con `217 passed, 1
+skipped`; el skip único fue precisamente el test específico de Windows. Este
+resultado registra la evidencia externa ejecutada, no una corrida de CI ni una
+política CI mandatory.
 
 ### 7. TDD implementado
 
@@ -163,5 +173,6 @@ La cadena versionada fue:
 La evidencia externa ahora puede afirmar integridad exacta del layout sin confundir
 bytes con semántica u operación. Como no hay caller productivo ni estado persistido,
 el rollback elimina core/adaptador/tests/change y deja intactos los cinco roles y
-summaries PR15-PR19. La raíz externa canónica no requiere cleanup porque el gate no
-la modifica; los clones temporales son descartables.
+summaries PR15-PR19. La fuente externa no requiere cleanup porque el gate verifica
+que no la modificó; los clones temporales son descartables. Esto no acredita sus
+permisos ni un mount read-only.
