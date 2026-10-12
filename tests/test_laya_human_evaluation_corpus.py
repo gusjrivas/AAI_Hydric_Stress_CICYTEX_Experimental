@@ -1,12 +1,14 @@
 import hashlib
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 SCHEMA_VERSION = "laya-human-evaluation-corpus-v1"
 REQUIRED_SITES = ("cicytex", "melchor-romero", "pergamino")
+PROTOCOL_DIGEST = "a" * 64
 
 
 def _records() -> list[dict[str, object]]:
@@ -20,7 +22,7 @@ def _records() -> list[dict[str, object]]:
                 {"annotator_id": "private-reviewer-a", "category": "data_quality"},
                 {"annotator_id": "private-reviewer-b", "category": "data_quality"},
             ],
-            "adjudicated_category": None,
+            "adjudication": None,
             "gold_category": "data_quality",
         },
         {
@@ -32,7 +34,7 @@ def _records() -> list[dict[str, object]]:
                 {"annotator_id": "private-reviewer-c", "category": "model_behavior"},
                 {"annotator_id": "private-reviewer-d", "category": "model_behavior"},
             ],
-            "adjudicated_category": None,
+            "adjudication": None,
             "gold_category": "model_behavior",
         },
         {
@@ -44,10 +46,29 @@ def _records() -> list[dict[str, object]]:
                 {"annotator_id": "private-reviewer-e", "category": "agronomic_context"},
                 {"annotator_id": "private-reviewer-f", "category": "other"},
             ],
-            "adjudicated_category": "agronomic_context",
+            "adjudication": {
+                "adjudicator_id": "private-reviewer-g",
+                "category": "agronomic_context",
+                "decision_ref": "private-adjudication-ref-003",
+            },
             "gold_category": "agronomic_context",
         },
     ]
+
+
+def _private_values(records: list[dict[str, object]]) -> set[str]:
+    values = (
+        {record["example_id"] for record in records}
+        | {record["group_id"] for record in records}
+        | {record["comment"] for record in records}
+        | {annotation["annotator_id"] for record in records for annotation in record["annotations"]}
+    )
+    for record in records:
+        adjudication = record["adjudication"]
+        if adjudication is not None:
+            values.add(adjudication["adjudicator_id"])
+            values.add(adjudication["decision_ref"])
+    return values
 
 
 def _canonical_records_bytes(records: list[dict[str, object]]) -> bytes:
@@ -70,12 +91,26 @@ def _manifest(records: list[dict[str, object]]) -> dict[str, object]:
     return {
         "schema_version": SCHEMA_VERSION,
         "corpus_id": "human-cross-site-v1",
-        "evidence_role": "human_cross_site",
+        "evidence_role": "human_corpus_candidate",
         "records_count": len(records),
         "records_sha256": hashlib.sha256(_canonical_records_bytes(records)).hexdigest(),
         "required_sites": list(REQUIRED_SITES),
         "minimum_annotators_per_example": 2,
         "adjudication_policy": "agreement_or_explicit_adjudication",
+        "rubric_version": "feedback-rubric-v1",
+        "sampling_protocol_id": "sampling-cross-site-v1",
+        "sampling_protocol_sha256": PROTOCOL_DIGEST,
+        "annotation_guide_id": "annotation-guide-v1",
+        "annotation_guide_sha256": "b" * 64,
+        "adjudication_protocol_id": "adjudication-v1",
+        "adjudication_protocol_sha256": "c" * 64,
+        "deidentification_protocol_id": "deidentification-v1",
+        "deidentification_protocol_sha256": "d" * 64,
+        "custody_digest": "e" * 64,
+        "frozen_at": "2026-10-11T12:00:00Z",
+        "declared_source_kind": "human_field",
+        "deidentified": True,
+        "privacy_reviewed": True,
     }
 
 
@@ -107,7 +142,7 @@ def test_sealed_human_corpus_has_deterministic_digest_independent_of_input_order
     tmp_path: Path,
 ):
     from human_feedback.evaluation_corpus import (
-        canonical_corpus_bytes,
+        canonical_corpus_summary_bytes,
         evaluation_corpus_digest,
         load_evaluation_corpus,
     )
@@ -124,16 +159,26 @@ def test_sealed_human_corpus_has_deterministic_digest_independent_of_input_order
 
     assert corpus_a.schema_version == SCHEMA_VERSION
     assert corpus_a.corpus_id == "human-cross-site-v1"
-    assert corpus_a.evidence_role == "human_cross_site"
+    assert corpus_a.evidence_role == "human_corpus_candidate"
     assert corpus_a.records_count == 3
     assert corpus_a.records_sha256 == _manifest(records_a)["records_sha256"]
     assert tuple(record.site_id for record in corpus_a.records) == REQUIRED_SITES
-    assert canonical_corpus_bytes(corpus_a) == canonical_corpus_bytes(corpus_b)
+    assert corpus_a.rubric_version == "feedback-rubric-v1"
+    assert corpus_a.sampling_protocol_id == "sampling-cross-site-v1"
+    assert corpus_a.sampling_protocol_sha256 == PROTOCOL_DIGEST
+    assert corpus_a.annotation_guide_id == "annotation-guide-v1"
+    assert corpus_a.annotation_guide_sha256 == "b" * 64
+    assert corpus_a.adjudication_protocol_id == "adjudication-v1"
+    assert corpus_a.adjudication_protocol_sha256 == "c" * 64
+    assert corpus_a.deidentification_protocol_id == "deidentification-v1"
+    assert corpus_a.deidentification_protocol_sha256 == "d" * 64
+    assert corpus_a.custody_digest == "e" * 64
+    assert corpus_a.frozen_at == "2026-10-11T12:00:00Z"
+    assert corpus_a.declared_source_kind == "human_field"
+    assert corpus_a.deidentified is True
+    assert corpus_a.privacy_reviewed is True
+    assert canonical_corpus_summary_bytes(corpus_a) == canonical_corpus_summary_bytes(corpus_b)
     assert evaluation_corpus_digest(corpus_a) == evaluation_corpus_digest(corpus_b)
-    assert (
-        evaluation_corpus_digest(corpus_a)
-        == hashlib.sha256(canonical_corpus_bytes(corpus_a)).hexdigest()
-    )
 
 
 def test_corpus_and_nested_records_are_immutable(tmp_path: Path):
@@ -147,6 +192,31 @@ def test_corpus_and_nested_records_are_immutable(tmp_path: Path):
         corpus.records[0].annotations[0].category = "other"
     assert isinstance(corpus.records, tuple)
     assert isinstance(corpus.records[0].annotations, tuple)
+
+
+def test_public_summary_is_canonical_but_private_content_only_affects_identity(
+    tmp_path: Path,
+):
+    import human_feedback.evaluation_corpus as corpus_module
+    from human_feedback.evaluation_corpus import (
+        canonical_corpus_summary_bytes,
+        evaluation_corpus_digest,
+    )
+
+    records_a = _records()
+    records_b = deepcopy(records_a)
+    records_b[0]["comment"] = "Contenido humano privado corregido."
+    corpus_a = _load(tmp_path, records_a, stem="private-a")
+    corpus_b = _load(tmp_path, records_b, stem="private-b")
+
+    assert not hasattr(corpus_module, "canonical_corpus_bytes")
+    assert evaluation_corpus_digest(corpus_a) != evaluation_corpus_digest(corpus_b)
+    for corpus, records in ((corpus_a, records_a), (corpus_b, records_b)):
+        summary = canonical_corpus_summary_bytes(corpus)
+        decoded = json.loads(summary)
+        assert decoded["records_count"] == 3
+        private_values = _private_values(records)
+        assert all(value.encode("utf-8") not in summary for value in private_values)
 
 
 def test_duplicate_example_is_rejected_without_leaking_private_ids(tmp_path: Path):
@@ -208,10 +278,45 @@ def test_disagreement_requires_explicit_adjudication(tmp_path: Path):
     from human_feedback.evaluation_corpus import load_evaluation_corpus
 
     records = _records()
-    records[2]["adjudicated_category"] = None
+    records[2]["adjudication"] = None
     manifest_path, records_path = _write_contract(tmp_path, records)
 
     with pytest.raises(ValueError, match="disagreement.*adjudication"):
+        load_evaluation_corpus(manifest_path, records_path)
+
+
+@pytest.mark.parametrize("invalid_case", ("annotator_reused", "empty_decision_ref"))
+def test_disagreement_requires_independent_traceable_adjudication(
+    tmp_path: Path,
+    invalid_case: str,
+):
+    from human_feedback.evaluation_corpus import load_evaluation_corpus
+
+    records = _records()
+    adjudication = records[2]["adjudication"]
+    assert isinstance(adjudication, dict)
+    if invalid_case == "annotator_reused":
+        adjudication["adjudicator_id"] = records[2]["annotations"][0]["annotator_id"]
+    else:
+        adjudication["decision_ref"] = ""
+    manifest_path, records_path = _write_contract(tmp_path, records)
+
+    with pytest.raises(ValueError, match="adjudicat.*(?:third|distinct|decision ref)"):
+        load_evaluation_corpus(manifest_path, records_path)
+
+
+def test_consensus_forbids_redundant_adjudication(tmp_path: Path):
+    from human_feedback.evaluation_corpus import load_evaluation_corpus
+
+    records = _records()
+    records[0]["adjudication"] = {
+        "adjudicator_id": "private-reviewer-h",
+        "category": "data_quality",
+        "decision_ref": "private-adjudication-ref-001",
+    }
+    manifest_path, records_path = _write_contract(tmp_path, records)
+
+    with pytest.raises(ValueError, match="adjudication.*annotations agree"):
         load_evaluation_corpus(manifest_path, records_path)
 
 
@@ -253,17 +358,49 @@ def test_manifest_count_and_digest_are_verified_before_acceptance(
         load_evaluation_corpus(manifest_path, records_path)
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_value", "message"),
+    (
+        ("evidence_role", "human_cross_site", "evidence role"),
+        ("rubric_version", "", "rubric version"),
+        ("sampling_protocol_id", "", "sampling protocol id"),
+        ("annotation_guide_id", "", "annotation guide id"),
+        ("adjudication_protocol_id", "", "adjudication protocol id"),
+        ("deidentification_protocol_id", "", "deidentification protocol id"),
+        ("sampling_protocol_sha256", "A" * 64, "sampling protocol digest"),
+        ("annotation_guide_sha256", "short", "annotation guide digest"),
+        ("adjudication_protocol_sha256", "g" * 64, "adjudication protocol digest"),
+        ("deidentification_protocol_sha256", 7, "deidentification protocol digest"),
+        ("custody_digest", "E" * 64, "custody digest"),
+        ("frozen_at", "2026-10-11T12:00:00+00:00", "frozen at.*UTC"),
+        ("declared_source_kind", "synthetic", "source kind"),
+        ("deidentified", False, "deidentified"),
+        ("privacy_reviewed", False, "privacy reviewed"),
+    ),
+)
+def test_candidate_manifest_provenance_and_privacy_attestations_fail_closed(
+    tmp_path: Path,
+    field: str,
+    invalid_value: object,
+    message: str,
+):
+    from human_feedback.evaluation_corpus import load_evaluation_corpus
+
+    records = _records()
+    manifest = _manifest(records)
+    manifest[field] = invalid_value
+    manifest_path, records_path = _write_contract(tmp_path, records, manifest=manifest)
+
+    with pytest.raises(ValueError, match=message):
+        load_evaluation_corpus(manifest_path, records_path)
+
+
 def test_errors_and_repr_never_expose_comments_or_private_identifiers(tmp_path: Path):
     from human_feedback.evaluation_corpus import load_evaluation_corpus
 
     records = _records()
     corpus = _load(tmp_path, records, stem="valid")
-    private_values = (
-        {record["example_id"] for record in records}
-        | {record["group_id"] for record in records}
-        | {record["comment"] for record in records}
-        | {annotation["annotator_id"] for record in records for annotation in record["annotations"]}
-    )
+    private_values = _private_values(records)
     rendered = repr(corpus)
     assert all(value not in rendered for value in private_values)
 
@@ -284,6 +421,15 @@ def test_structural_validity_is_not_scientific_sufficiency_or_readiness_authorit
     assert corpus.production_enablement_authorized is False
 
 
+def test_direct_construction_cannot_auto_attest_invalid_corpus_as_structurally_valid(
+    tmp_path: Path,
+):
+    corpus = _load(tmp_path, _records())
+
+    with pytest.raises(ValueError, match="validated loader|structurally valid|records"):
+        replace(corpus, records=())
+
+
 def test_evaluation_corpus_is_not_imported_by_operational_or_scientific_flows():
     repository = Path(__file__).parents[1]
     forbidden_roots = (
@@ -291,10 +437,16 @@ def test_evaluation_corpus_is_not_imported_by_operational_or_scientific_flows():
         repository / "src" / "data_ingestion",
         repository / "src" / "predictive_modeling",
         repository / "src" / "experiment_runner",
+        repository / "src" / "human_feedback" / "adapters",
+        repository / "scripts",
     )
+    forbidden_files = (repository / "src" / "human_feedback" / "offline_readiness.py",)
     offenders = []
     for root in forbidden_roots:
         for path in root.rglob("*.py"):
             if "human_feedback.evaluation_corpus" in path.read_text(encoding="utf-8"):
                 offenders.append(path.relative_to(repository).as_posix())
+    for path in forbidden_files:
+        if "human_feedback.evaluation_corpus" in path.read_text(encoding="utf-8"):
+            offenders.append(path.relative_to(repository).as_posix())
     assert offenders == []
