@@ -12,6 +12,7 @@
 - [x] 2.4 Desglosar por sitio y bloquear una degradación local.
 - [x] 2.5 Mantener siempre desautorizada la activación productiva.
 - [x] 2.6 Bloquear también la elegibilidad en sombra mientras falte el protocolo científico.
+- [x] 2.7 Ligar el reporte al digest de supply y compartir la precedencia de confianza con el adaptador.
 
 ## 3. Aislamiento y regresión
 

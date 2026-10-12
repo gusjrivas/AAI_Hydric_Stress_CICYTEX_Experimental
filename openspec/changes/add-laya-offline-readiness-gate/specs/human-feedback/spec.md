@@ -31,7 +31,15 @@ determinista que nunca autorice activación productiva.
 - **GIVEN** una predicción grabada cuya categoría es válida pero su confianza es menor a 0.85
 - **WHEN** se calculan cobertura, exactitud selectiva y costo
 - **THEN** la predicción cuenta como abstención
+- **AND** `answer_confidence` tiene precedencia sobre la probabilidad de la categoría
 - **AND** una confianza exactamente igual a 0.85 permanece aceptada.
+
+#### Scenario: Trazabilidad de supply en el reporte
+
+- **GIVEN** dos identidades de supply verificadas con cualquier commit, hash o tamaño diferente
+- **WHEN** se serializan sus reportes canónicos
+- **THEN** cada reporte contiene su `supply_digest`
+- **AND** los digests son diferentes.
 
 #### Scenario: Métricas puntuales aprobadas sin protocolo científico completo
 

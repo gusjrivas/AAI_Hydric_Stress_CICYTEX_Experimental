@@ -19,9 +19,13 @@ habilitar sugerencias visibles.
 5. Todo sitio científico se evalúa por separado y un fallo local bloquea el gate.
 6. La evidencia sintética jamás puede cambiar el estado a elegible.
 7. La serialización canónica excluye el texto del comentario y cualquier dato de
-   ejecución no determinista.
+   ejecución no determinista, e incluye el digest de la identidad de supply
+   efectivamente verificada.
 8. La verificación de artefactos opera sobre bytes locales y rechaza punteros LFS; no
    descarga pesos ni consulta servicios externos.
+9. La confianza de decisión replica el adaptador: usa `answer_confidence` cuando está
+   presente y sólo recurre a `probabilities[choice]` cuando aquella falta. Adaptador y
+   evaluador comparten la misma función pura para evitar divergencias.
 
 ## Política V1 preregistrada
 
