@@ -486,6 +486,45 @@ def test_layout_plan_is_frozen_slotted_factory_sealed_and_opaque():
     assert all(path not in rendered for _role, path, _media, _digest, _size in _expected_blobs())
 
 
+def test_layout_plan_blob_graph_is_a_deeply_immutable_factory_sealed_tuple():
+    plan = _prepare()
+
+    assert type(plan.blobs) is tuple
+    assert plan.index_manifest is plan.blobs[0]
+    with pytest.raises(AttributeError):
+        plan.blobs.append(plan.blobs[0])  # type: ignore[attr-defined]
+    with pytest.raises(TypeError):
+        plan.blobs[0] = plan.blobs[1]  # type: ignore[index]
+
+    original_manifest = plan.index_manifest
+    for blob in plan.blobs:
+        assert is_dataclass(blob)
+        assert not hasattr(blob, "__dict__")
+        for field_name in ("role", "path", "digest", "size_bytes"):
+            with pytest.raises(FrozenInstanceError):
+                setattr(blob, field_name, getattr(blob, field_name))
+        with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+            replace(blob, size_bytes=blob.size_bytes)
+        with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+            type(blob)(
+                **{field.name: getattr(blob, field.name) for field in fields(blob) if field.init}
+            )
+
+    assert plan.index_manifest is original_manifest
+    assert plan.index_manifest is plan.blobs[0]
+
+
+def test_semantic_profile_error_does_not_expose_private_mutation_or_exception_chain():
+    marker = "private-layout-ref-mutation"
+    value = _index_object()
+    value["manifests"][0]["annotations"]["org.opencontainers.image.ref.name"] = marker
+
+    with pytest.raises(ValueError) as captured:
+        _prepare(index_bytes=_encoded(value))
+
+    _assert_private_error(captured.value, marker)
+
+
 def test_prepare_does_not_mutate_prior_evidence_or_prior_canonical_summaries():
     from human_feedback.runtime_oci_metadata import canonical_laya_runtime_oci_summary_bytes
 
@@ -559,11 +598,17 @@ def test_runtime_oci_layout_module_is_pure_and_depends_only_on_pr19_contract():
     "source",
     [
         "import human_feedback.runtime_oci_layout",
+        "import human_feedback.runtime_oci_layout as layout",
         "from human_feedback import runtime_oci_layout",
+        "from human_feedback import runtime_oci_layout as layout",
         "from human_feedback.runtime_oci_layout import LayaOciLayoutPlan",
+        "from human_feedback.runtime_oci_layout import *",
+        "from . import runtime_oci_layout as layout",
         "from .runtime_oci_layout import prepare_laya_oci_layout_plan",
+        "from .runtime_oci_layout import *",
         "runtime_oci_layout.prepare_laya_oci_layout_plan(evidence, marker, index)",
         "name = 'human_feedback.runtime_oci_layout'",
+        "module = import_module('human_feedback.runtime_oci_layout')",
     ],
 )
 def test_layout_plan_isolation_detector_recognizes_import_and_usage_forms(source):
@@ -583,12 +628,16 @@ def test_layout_plan_isolation_detector_avoids_unrelated_false_positives(source)
 
 
 def test_no_existing_product_module_imports_or_uses_layout_plan_api():
-    source_root = Path(__file__).parents[1] / "src"
-    target = source_root / "human_feedback" / "runtime_oci_layout.py"
+    repository_root = Path(__file__).parents[1]
+    target = repository_root / "src" / "human_feedback" / "runtime_oci_layout.py"
     offenders = []
-    for path in source_root.rglob("*.py"):
-        if path == target:
+    for relative_root in ("backend", "src", "scripts"):
+        product_root = repository_root / relative_root
+        if not product_root.is_dir():
             continue
-        if _uses_layout_plan_api(path.read_text(encoding="utf-8")):
-            offenders.append(path.relative_to(source_root).as_posix())
+        for path in product_root.rglob("*.py"):
+            if path == target:
+                continue
+            if _uses_layout_plan_api(path.read_text(encoding="utf-8")):
+                offenders.append(path.relative_to(repository_root).as_posix())
     assert offenders == []
