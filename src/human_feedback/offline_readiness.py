@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import unicodedata
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -21,9 +21,9 @@ EvidenceRole = Literal["characterization_only", "human_cross_site"]
 ReadinessDecision = Literal[
     "CHARACTERIZATION_ONLY",
     "BLOCKED_INSUFFICIENT_EVIDENCE",
+    "BLOCKED_SCIENTIFIC_METHOD_PENDING",
     "FAIL_SUPPLY",
     "FAIL_QUALITY",
-    "ELIGIBLE_FOR_SHADOW_REVIEW",
 ]
 
 CATEGORIES: tuple[EvaluationCategory, ...] = (
@@ -58,6 +58,13 @@ class SupplyArtifact:
 class SupplyVerification:
     verified: bool
     failures: tuple[str, ...]
+    supply_digest: str
+
+    def __post_init__(self) -> None:
+        if len(self.supply_digest) != 64:
+            raise ValueError("supply digest must be a SHA-256 digest")
+        if self.verified == bool(self.failures):
+            raise ValueError("supply verification status contradicts its failures")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +76,20 @@ class SupplyIdentity:
     checkpoint_repository: str
     checkpoint_revision: str
     artifacts: tuple[SupplyArtifact, ...]
+
+    def __post_init__(self) -> None:
+        values = (
+            self.engine_package,
+            self.engine_version,
+            self.source_commit,
+            self.license,
+            self.checkpoint_repository,
+            self.checkpoint_revision,
+        )
+        if any(not value.strip() for value in values):
+            raise ValueError("supply identity fields must not be empty")
+        if not self.artifacts:
+            raise ValueError("supply identity requires artifacts")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +121,8 @@ class CorpusEvidence:
     examples: tuple[OfflineExample, ...]
 
     def __post_init__(self) -> None:
+        if self.evidence_role not in ("characterization_only", "human_cross_site"):
+            raise ValueError("evidence role is invalid")
         identifiers = [example.example_id for example in self.examples]
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("duplicate example id")
@@ -121,6 +144,19 @@ class ReadinessPolicy:
     maximum_p95_latency_ms: float
 
     def __post_init__(self) -> None:
+        all_thresholds = (
+            self.minimum_coverage,
+            self.minimum_accuracy,
+            self.minimum_selective_accuracy,
+            self.minimum_macro_f1,
+            self.maximum_brier,
+            self.maximum_ece,
+            self.maximum_mean_cost,
+            self.minimum_site_macro_f1,
+            self.maximum_p95_latency_ms,
+        )
+        if any(not math.isfinite(value) for value in all_thresholds):
+            raise ValueError("policy thresholds must be finite")
         bounded = (
             self.minimum_coverage,
             self.minimum_accuracy,
@@ -143,22 +179,6 @@ class ReadinessContract:
     supply: SupplyIdentity
     corpus: CorpusEvidence
     policy: ReadinessPolicy
-
-    def as_human_evidence_for_test(self) -> ReadinessContract:
-        """Return an adjudicated variant for deterministic gate verification."""
-        return replace(
-            self,
-            corpus=replace(self.corpus, evidence_role="human_cross_site", adjudicated=True),
-        )
-
-    def perfect_predictions(self) -> tuple[OfflinePrediction, ...]:
-        return tuple(
-            OfflinePrediction.perfect_for(
-                example,
-                model_revision=self.supply.checkpoint_revision,
-            )
-            for example in self.corpus.examples
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,29 +209,15 @@ class OfflinePrediction:
             raise ValueError("latency must be finite and non-negative")
         if not self.provider or not self.model_revision:
             raise ValueError("provider and model revision are required")
+        if self.category != "unclassified":
+            maximum = max(values)
+            winners = [name for name, value in self.probabilities if value == maximum]
+            if winners != [self.category]:
+                raise ValueError("declared category must match the unique probability argmax")
 
     @property
     def abstained(self) -> bool:
         return self.category == "unclassified"
-
-    @classmethod
-    def perfect_for(
-        cls,
-        example: OfflineExample,
-        *,
-        model_revision: str,
-    ) -> OfflinePrediction:
-        return cls(
-            example_id=example.example_id,
-            category=example.gold_category,
-            probabilities=tuple(
-                (category, 1.0 if category == example.gold_category else 0.0)
-                for category in CATEGORIES
-            ),
-            latency_ms=0.0,
-            provider="recorded-contract-fixture",
-            model_revision=model_revision,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,7 +293,7 @@ def verify_supply_artifacts(
     artifacts: tuple[SupplyArtifact, ...],
     root: Path,
 ) -> SupplyVerification:
-    failures: list[str] = []
+    failures: list[str] = [] if artifacts else ["supply_manifest_has_no_artifacts"]
     resolved_root = root.resolve()
     for expected in sorted(artifacts, key=lambda artifact: artifact.path):
         path = (resolved_root / expected.path).resolve()
@@ -305,7 +311,24 @@ def verify_supply_artifacts(
             failures.append(f"artifact_size_mismatch:{expected.path}")
         if hashlib.sha256(payload).hexdigest() != expected.sha256:
             failures.append(f"artifact_digest_mismatch:{expected.path}")
-    return SupplyVerification(verified=not failures, failures=tuple(failures))
+    return SupplyVerification(
+        verified=not failures,
+        failures=tuple(failures),
+        supply_digest=_digest(artifacts),
+    )
+
+
+def verify_supply_identity(identity: SupplyIdentity, root: Path) -> SupplyVerification:
+    artifact_result = verify_supply_artifacts(identity.artifacts, root)
+    return SupplyVerification(
+        verified=artifact_result.verified,
+        failures=artifact_result.failures,
+        supply_digest=supply_identity_digest(identity),
+    )
+
+
+def supply_identity_digest(identity: SupplyIdentity) -> str:
+    return _digest(identity)
 
 
 def compute_metrics(
@@ -401,8 +424,14 @@ def evaluate_readiness(
     contract: ReadinessContract,
     predictions: tuple[OfflinePrediction, ...],
     *,
-    supply_verified: bool,
+    supply_verification: SupplyVerification,
 ) -> ReadinessReport:
+    if not isinstance(supply_verification, SupplyVerification):
+        raise TypeError("supply_verification must be a SupplyVerification")
+    expected_supply_digest = supply_identity_digest(contract.supply)
+    if supply_verification.supply_digest != expected_supply_digest:
+        raise ValueError("supply verification does not match the contract identity")
+    _validate_prediction_evidence(contract, predictions)
     scientific_examples = tuple(
         example for example in contract.corpus.examples if example.site_id in SCIENTIFIC_SITES
     )
@@ -439,12 +468,11 @@ def evaluate_readiness(
         or set(site for site, _ in metrics_by_site) != SCIENTIFIC_SITES
     ):
         decision = "BLOCKED_INSUFFICIENT_EVIDENCE"
-    elif not supply_verified:
+    elif not supply_verification.verified:
         decision = "FAIL_SUPPLY"
-    elif failed_gates:
-        decision = "FAIL_QUALITY"
     else:
-        decision = "ELIGIBLE_FOR_SHADOW_REVIEW"
+        decision = "BLOCKED_SCIENTIFIC_METHOD_PENDING"
+        failed_gates = tuple(sorted((*failed_gates, "human_cross_site_protocol_not_implemented")))
 
     return ReadinessReport(
         schema_version=contract.schema_version,
@@ -453,7 +481,7 @@ def evaluate_readiness(
         corpus_digest=_digest(contract.corpus),
         policy_id=contract.policy.policy_id,
         policy_digest=_digest(contract.policy),
-        supply_verified=supply_verified,
+        supply_verified=supply_verification.verified,
         model_revision=contract.supply.checkpoint_revision,
         metrics=metrics,
         metrics_by_site=metrics_by_site,
@@ -492,6 +520,42 @@ def load_contract(path: Path) -> ReadinessContract:
         corpus=corpus,
         policy=ReadinessPolicy(**raw["policy"]),
     )
+
+
+def load_predictions(path: Path) -> tuple[OfflinePrediction, ...]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError("predictions must be a JSON array")
+    return tuple(
+        OfflinePrediction(
+            example_id=item["example_id"],
+            category=item["category"],
+            probabilities=tuple((name, float(value)) for name, value in item["probabilities"]),
+            latency_ms=float(item["latency_ms"]),
+            provider=item["provider"],
+            model_revision=item["model_revision"],
+        )
+        for item in raw
+    )
+
+
+def _validate_prediction_evidence(
+    contract: ReadinessContract,
+    predictions: tuple[OfflinePrediction, ...],
+) -> None:
+    prediction_ids = [prediction.example_id for prediction in predictions]
+    if len(prediction_ids) != len(set(prediction_ids)):
+        raise ValueError("duplicate prediction id")
+    example_ids = {example.example_id for example in contract.corpus.examples}
+    if set(prediction_ids) != example_ids:
+        raise ValueError("prediction ids must match all corpus example ids exactly")
+    if any(
+        prediction.model_revision != contract.supply.checkpoint_revision
+        for prediction in predictions
+    ):
+        raise ValueError("prediction model revision does not match the pinned checkpoint")
+    if any(prediction.provider != "laya-http" for prediction in predictions):
+        raise ValueError("prediction provider must be laya-http")
 
 
 def _failed_quality_gates(
@@ -536,7 +600,11 @@ def _nearest_rank(values: list[float], quantile: float) -> float:
 
 
 def _digest(value: object) -> str:
-    return hashlib.sha256(_canonical_bytes(asdict(value))).hexdigest()
+    if isinstance(value, tuple):
+        serializable: object = [asdict(item) for item in value]
+    else:
+        serializable = asdict(value)
+    return hashlib.sha256(_canonical_bytes(serializable)).hexdigest()
 
 
 def _canonical_bytes(value: object) -> bytes:

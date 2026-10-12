@@ -8,27 +8,26 @@ from human_feedback.offline_readiness import (
     canonical_report_bytes,
     evaluate_readiness,
     load_contract,
+    load_predictions,
+    verify_supply_identity,
 )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluate the offline Laya readiness contract")
     parser.add_argument("--contract", type=Path, required=True)
-    parser.add_argument(
-        "--use-perfect-fixture-predictions",
-        action="store_true",
-        help="Exercise evaluator deterministically; never counts as scientific evidence.",
-    )
+    parser.add_argument("--predictions", type=Path, required=True)
+    parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--require-shadow-eligible", action="store_true")
     args = parser.parse_args(argv)
 
     contract = load_contract(args.contract)
-    if not args.use_perfect_fixture_predictions:
-        parser.error("an offline predictions input is required")
+    predictions = load_predictions(args.predictions)
+    supply_verification = verify_supply_identity(contract.supply, args.artifact_root)
     report = evaluate_readiness(
         contract,
-        contract.perfect_predictions(),
-        supply_verified=False,
+        predictions,
+        supply_verification=supply_verification,
     )
     sys.stdout.buffer.write(canonical_report_bytes(report))
     if args.require_shadow_eligible and report.decision != "ELIGIBLE_FOR_SHADOW_REVIEW":
