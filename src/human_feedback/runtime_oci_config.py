@@ -79,10 +79,6 @@ _EXPECTED_DIFF_IDS = (
 )
 
 
-class _ConfigTypeError(TypeError):
-    pass
-
-
 class _ConfigValueError(ValueError):
     pass
 
@@ -177,7 +173,16 @@ def _validate_json_limits(value: object, *, depth: int = 0, nodes: list[int]) ->
 
 
 def _is_rfc3339_utc(value: object) -> bool:
-    return type(value) is str and re.fullmatch(_RFC3339_UTC, value) is not None
+    if type(value) is not str or re.fullmatch(_RFC3339_UTC, value) is None:
+        return False
+    year = int(value[0:4])
+    month = int(value[5:7])
+    day = int(value[8:10])
+    if year < 1:
+        return False
+    leap_year = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    days_by_month = (31, 29 if leap_year else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    return day <= days_by_month[month - 1]
 
 
 def _validate_history(value: object) -> tuple[int, int]:
@@ -295,19 +300,14 @@ def _parse_laya_runtime_oci_config_bytes(payload: bytes) -> ValidatedLayaRuntime
     if parse_failed:
         _raise_private(ValueError, "OCI config payload is not valid strict JSON")
 
-    error_type: type[Exception] | None = None
     error_message = ""
     try:
         _validate_json_limits(value, nodes=[0])
         return _validate_profile(value)
-    except _ConfigTypeError as error:
-        error_type = TypeError
-        error_message = str(error)
     except (_ConfigValueError, RecursionError) as error:
-        error_type = ValueError
         error_message = (
             str(error)
             if isinstance(error, _ConfigValueError)
             else "OCI config JSON depth limit exceeded"
         )
-    _raise_private(error_type or ValueError, error_message or "OCI config validation failed")
+    _raise_private(ValueError, error_message or "OCI config validation failed")
