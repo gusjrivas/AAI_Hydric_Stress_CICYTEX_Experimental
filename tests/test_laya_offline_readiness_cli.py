@@ -8,15 +8,56 @@ FIXTURE = Path(__file__).parent / "fixtures" / "laya" / "readiness_contract_v1.j
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check_laya_readiness.py"
 
 
-def test_cli_is_offline_and_reports_characterization_without_enabling_laya(monkeypatch, capsys):
+def _write_predictions(tmp_path: Path) -> Path:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    revision = raw["supply"]["checkpoint"]["revision"]
+    categories = (
+        "data_quality",
+        "model_behavior",
+        "agronomic_context",
+        "usability",
+        "other",
+    )
+    predictions = []
+    for example in raw["corpus"]["examples"]:
+        gold = example["gold_category"]
+        predictions.append(
+            {
+                "example_id": example["example_id"],
+                "category": gold,
+                "probabilities": [
+                    [category, 1.0 if category == gold else 0.0] for category in categories
+                ],
+                "latency_ms": 1.0,
+                "provider": "laya-http",
+                "model_revision": revision,
+            }
+        )
+    path = tmp_path / "predictions.json"
+    path.write_text(json.dumps(predictions), encoding="utf-8")
+    return path
+
+
+def test_cli_is_offline_and_reports_characterization_without_enabling_laya(
+    monkeypatch, capsys, tmp_path
+):
     def block_network(*args, **kwargs):
         raise AssertionError("offline readiness must never open a socket")
 
     monkeypatch.setattr(socket, "create_connection", block_network)
+    predictions = _write_predictions(tmp_path)
     monkeypatch.setattr(
         sys,
         "argv",
-        [str(SCRIPT), "--contract", str(FIXTURE), "--use-perfect-fixture-predictions"],
+        [
+            str(SCRIPT),
+            "--contract",
+            str(FIXTURE),
+            "--predictions",
+            str(predictions),
+            "--artifact-root",
+            str(tmp_path),
+        ],
     )
 
     try:
@@ -29,7 +70,8 @@ def test_cli_is_offline_and_reports_characterization_without_enabling_laya(monke
     assert report["production_enablement_authorized"] is False
 
 
-def test_cli_require_shadow_eligibility_fails_for_synthetic_evidence(monkeypatch, capsys):
+def test_cli_require_shadow_eligibility_fails_for_synthetic_evidence(monkeypatch, capsys, tmp_path):
+    predictions = _write_predictions(tmp_path)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -37,7 +79,10 @@ def test_cli_require_shadow_eligibility_fails_for_synthetic_evidence(monkeypatch
             str(SCRIPT),
             "--contract",
             str(FIXTURE),
-            "--use-perfect-fixture-predictions",
+            "--predictions",
+            str(predictions),
+            "--artifact-root",
+            str(tmp_path),
             "--require-shadow-eligible",
         ],
     )

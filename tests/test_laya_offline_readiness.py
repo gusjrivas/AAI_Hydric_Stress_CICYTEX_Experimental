@@ -15,6 +15,35 @@ CATEGORIES = (
 )
 
 
+def _supply_verification(contract):
+    from human_feedback.offline_readiness import SupplyVerification, supply_identity_digest
+
+    return SupplyVerification(
+        verified=True,
+        failures=(),
+        supply_digest=supply_identity_digest(contract.supply),
+    )
+
+
+def _perfect_predictions(contract):
+    from human_feedback.offline_readiness import OfflinePrediction
+
+    return tuple(
+        OfflinePrediction(
+            example_id=example.example_id,
+            category=example.gold_category,
+            probabilities=tuple(
+                (category, 1.0 if category == example.gold_category else 0.0)
+                for category in CATEGORIES
+            ),
+            latency_ms=1.0,
+            provider="laya-http",
+            model_revision=contract.supply.checkpoint_revision,
+        )
+        for example in contract.corpus.examples
+    )
+
+
 def _example(example_id: str, gold: str, site: str = "cicytex"):
     from human_feedback.offline_readiness import OfflineExample
 
@@ -154,20 +183,21 @@ def test_predictions_fail_closed_on_missing_extra_duplicate_or_invalid_probabili
 
 def test_synthetic_contract_is_only_characterization_and_report_is_canonical():
     from human_feedback.offline_readiness import (
-        OfflinePrediction,
         canonical_report_bytes,
         evaluate_readiness,
         load_contract,
     )
 
     contract = load_contract(FIXTURE)
-    predictions = tuple(
-        OfflinePrediction.perfect_for(example, model_revision=contract.supply.checkpoint_revision)
-        for example in contract.corpus.examples
-    )
+    predictions = _perfect_predictions(contract)
+    verification = _supply_verification(contract)
 
-    report_a = evaluate_readiness(contract, predictions, supply_verified=True)
-    report_b = evaluate_readiness(contract, tuple(reversed(predictions)), supply_verified=True)
+    report_a = evaluate_readiness(contract, predictions, supply_verification=verification)
+    report_b = evaluate_readiness(
+        contract,
+        tuple(reversed(predictions)),
+        supply_verification=verification,
+    )
 
     assert report_a.decision == "CHARACTERIZATION_ONLY"
     assert report_a.production_enablement_authorized is False
@@ -181,20 +211,35 @@ def test_synthetic_contract_is_only_characterization_and_report_is_canonical():
 def test_human_evidence_cannot_hide_a_failed_site_behind_the_global_average():
     from human_feedback.offline_readiness import evaluate_readiness, load_contract
 
-    contract = load_contract(FIXTURE).as_human_evidence_for_test()
-    predictions = contract.perfect_predictions()
+    contract = load_contract(FIXTURE)
+    contract = replace(
+        contract,
+        corpus=replace(contract.corpus, evidence_role="human_cross_site", adjudicated=True),
+    )
+    predictions = _perfect_predictions(contract)
     predictions = tuple(
         (
-            replace(prediction, category="other")
+            replace(
+                prediction,
+                category="other",
+                probabilities=tuple(
+                    (category, 1.0 if category == "other" else 0.0)
+                    for category in CATEGORIES
+                ),
+            )
             if prediction.example_id.startswith("m-")
             else prediction
         )
         for prediction in predictions
     )
 
-    report = evaluate_readiness(contract, predictions, supply_verified=True)
+    report = evaluate_readiness(
+        contract,
+        predictions,
+        supply_verification=_supply_verification(contract),
+    )
 
-    assert report.decision == "FAIL_QUALITY"
+    assert report.decision == "BLOCKED_SCIENTIFIC_METHOD_PENDING"
     assert "minimum_site_macro_f1:melchor-romero" in report.failed_gates
     assert report.production_enablement_authorized is False
 
