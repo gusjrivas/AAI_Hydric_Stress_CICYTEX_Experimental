@@ -22,6 +22,7 @@ OCI_EVIDENCE_SYMBOLS = {
     "canonical_laya_runtime_oci_summary_bytes",
     "validate_laya_runtime_oci_metadata",
 }
+OCI_METADATA_MODULE = "human_feedback.runtime_oci_metadata"
 MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
 LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar+gzip"
@@ -171,7 +172,7 @@ def _uses_oci_evidence_aggregate(source: str) -> bool:
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import) and any(
-            alias.name == "human_feedback.runtime_oci_metadata" for alias in node.names
+            alias.name == OCI_METADATA_MODULE for alias in node.names
         ):
             return True
         if isinstance(node, ast.ImportFrom):
@@ -179,8 +180,19 @@ def _uses_oci_evidence_aggregate(source: str) -> bool:
                 alias.name == "runtime_oci_metadata" for alias in node.names
             ):
                 return True
-            if node.module == "human_feedback.runtime_oci_metadata" and any(
-                alias.name in OCI_EVIDENCE_SYMBOLS for alias in node.names
+            if (
+                node.level > 0
+                and node.module in {None, ""}
+                and any(alias.name == "runtime_oci_metadata" for alias in node.names)
+            ):
+                return True
+            resolved_module = (
+                OCI_METADATA_MODULE
+                if node.level > 0 and node.module == "runtime_oci_metadata"
+                else node.module
+            )
+            if resolved_module == OCI_METADATA_MODULE and any(
+                alias.name == "*" or alias.name in OCI_EVIDENCE_SYMBOLS for alias in node.names
             ):
                 return True
         if isinstance(node, ast.Name) and node.id in OCI_EVIDENCE_SYMBOLS:
@@ -190,7 +202,7 @@ def _uses_oci_evidence_aggregate(source: str) -> bool:
         if (
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)
-            and node.value in OCI_EVIDENCE_SYMBOLS
+            and (node.value == OCI_METADATA_MODULE or node.value in OCI_EVIDENCE_SYMBOLS)
         ):
             return True
     return False
@@ -965,9 +977,13 @@ def test_oci_aggregate_errors_hide_private_captured_content_and_context():
         "import human_feedback.runtime_oci_metadata",
         "import human_feedback.runtime_oci_metadata as oci",
         "from human_feedback import runtime_oci_metadata",
+        "from . import runtime_oci_metadata",
+        "from .runtime_oci_metadata import validate_laya_runtime_oci_metadata",
+        "from human_feedback.runtime_oci_metadata import *",
         ("from human_feedback.runtime_oci_metadata import " "validate_laya_runtime_oci_metadata"),
         "runtime_oci_metadata.validate_laya_runtime_oci_metadata(snapshot)",
         "name = 'canonical_laya_runtime_oci_summary_bytes'",
+        "module_name = 'human_feedback.runtime_oci_metadata'",
     ],
 )
 def test_oci_evidence_isolation_detector_recognizes_module_and_symbol_usage(source):
@@ -979,8 +995,10 @@ def test_oci_evidence_isolation_detector_recognizes_module_and_symbol_usage(sour
     [
         "import json",
         "from human_feedback.runtime_oci_metadata import validate_laya_oci_manifest_bytes",
+        "from .runtime_oci_metadata import validate_laya_oci_manifest_bytes",
         "# import human_feedback.runtime_oci_metadata",
         "message = 'validate_laya_oci_manifest_bytes'",
+        "message = 'human_feedback.runtime_oci_metadata.parser'",
     ],
 )
 def test_oci_evidence_isolation_detector_ignores_unrelated_parser_usage(source):
