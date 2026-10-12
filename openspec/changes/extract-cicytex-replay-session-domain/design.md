@@ -7,9 +7,16 @@ caso de uso es el único dueño de las transiciones create/get/advance/reset y l
 el avance a `2023-07-25`, preservando el comportamiento actual.
 
 `SessionRepository` es un puerto de aplicación. Este slice provee sólo un adaptador
-in-memory sincronizado y una dependencia singleton controlada por FastAPI. El router
+in-memory sincronizado con creación y transiciones atómicas, y una dependencia
+singleton controlada por FastAPI. Un ID generado duplicado falla sin reemplazar la
+sesión existente. El router
 traduce el error de sesión ausente al mismo HTTP 404 y continúa siendo dueño del
 render de CSV, métricas y feedback.
+
+Dominio, caso de uso, puerto y adaptador in-memory no importan FastAPI, pandas,
+JSON, variables de entorno, paths ni filesystem. La serialización del JSON de
+feedback permanece en el router y puede conservar un `_feedback_lock` explícito;
+ese lock no administra sesiones y su extracción queda fuera de alcance.
 
 ## Compatibilidad
 

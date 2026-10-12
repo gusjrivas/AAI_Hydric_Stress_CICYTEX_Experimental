@@ -25,9 +25,11 @@ def test_cicytex_router_has_no_session_store_or_domain_model():
     }
 
     assert "_sessions" not in top_level_assignments
-    assert "_lock" not in top_level_assignments
+    assert top_level_assignments.isdisjoint({"_lock", "_session_lock", "_sessions_lock"})
+    assert {name for name in top_level_assignments if name.endswith("_lock")} <= {"_feedback_lock"}
     assert "Session" not in local_classes
-    assert "Lock" not in imported_names
+    if "Lock" in imported_names:
+        assert "_feedback_lock" in top_level_assignments
     assert "uuid4" not in imported_names
     assert "ReplaySession" in imported_names
     assert "ReplaySessionService" in imported_names
