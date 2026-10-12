@@ -15,11 +15,20 @@ except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.10 j
 FIXTURE_SHA256 = "e968771680b9c6e683163230ebd98b43541325ccb36d6959d1f9ed5565bd5526"
 FIXTURE_SIZE_BYTES = 37_599
 EXPECTED_LOCK_SEMANTICS_SHA256 = "c4e1d2876569217c106d9a32fdfacb5a88c1fbd4808fe90c828ba8073a9ab45e"
+SBOM_FIXTURE_SHA256 = "f2fde1a342990e3b5b4d74d4930bf37f6d2229768b509a27f34edffc009a03b2"
+SBOM_FIXTURE_SIZE_BYTES = 65_198
+EXPECTED_SBOM_SEMANTICS_SHA256 = "c2feadbd7103a8b27a435a682ee7ba4a9fdc90e4ebbf358b2f0b892bb73721fe"
 MAX_UV_LOCK_BYTES = 2 * 1024 * 1024
 MAX_UV_LOCK_PACKAGES = 512
 MAX_DISTRIBUTIONS_PER_PACKAGE = 256
 MAX_UV_LOCK_STRING_LENGTH = 1_024
 MAX_UV_LOCK_URL_LENGTH = 4_096
+MAX_CYCLONEDX_SBOM_BYTES = 2 * 1024 * 1024
+MAX_SBOM_COMPONENTS = 512
+MAX_SBOM_DEPENDENCY_NODES = 512
+MAX_SBOM_DEPENDENCY_EDGES = 4_096
+MAX_SBOM_STRING_LENGTH = 1_024
+MAX_SBOM_URL_LENGTH = 4_096
 MARKER = (
     "implementation_name == 'cpython' and platform_machine == 'x86_64' "
     "and sys_platform == 'linux'"
@@ -28,6 +37,7 @@ EXCLUDE_NEWER = "2026-10-10T09:19:05Z"
 LAYA_COMMIT = "68804629e8ccd9d616d48a40e87de9fabbeae069"
 LAYA_GIT = "https://github.com/NandhaKishorM/laya?rev=" f"{LAYA_COMMIT}#{LAYA_COMMIT}"
 PYTORCH_INDEX = "https://download.pytorch.org/whl/cpu"
+CYCLONEDX_SCHEMA = "https://cyclonedx.org/schema/bom-1.6.schema.json"
 ALLOWED_REGISTRIES = {"https://pypi.org/simple", PYTORCH_INDEX}
 ALLOWED_ARTIFACT_HOSTS = {"files.pythonhosted.org", "download-r2.pytorch.org"}
 
@@ -38,6 +48,18 @@ def _fixture_path() -> Path:
 
 def _fixture_bytes() -> bytes:
     return _fixture_path().read_bytes()
+
+
+def _sbom_fixture_path() -> Path:
+    return _fixture_path().with_name("laya-runtime.cdx.json")
+
+
+def _sbom_fixture_bytes() -> bytes:
+    return _sbom_fixture_path().read_bytes()
+
+
+def _sbom_fixture_object() -> dict[str, object]:
+    return json.loads(_sbom_fixture_bytes())
 
 
 def _fixture_object() -> dict[str, object]:
@@ -78,6 +100,41 @@ def _canonical_lock_semantics_sha256(value: dict[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _canonical_sbom_semantics_sha256(value: dict[str, object]) -> str:
+    unordered_arrays = {
+        "authors",
+        "components",
+        "dependencies",
+        "dependsOn",
+        "externalReferences",
+        "identity",
+        "lifecycles",
+        "methods",
+        "properties",
+    }
+
+    def normalize(current, *, parent_key: str | None = None):
+        if isinstance(current, dict):
+            return {key: normalize(item, parent_key=key) for key, item in sorted(current.items())}
+        if isinstance(current, list):
+            result = [normalize(item) for item in current]
+            if parent_key in unordered_arrays:
+                result.sort(
+                    key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"))
+                )
+            return result
+        return current
+
+    encoded = json.dumps(
+        normalize(value),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _mutated(old: bytes, new: bytes) -> bytes:
     payload = _fixture_bytes()
     assert old in payload
@@ -95,6 +152,19 @@ def _validate_parsed(monkeypatch, value: dict[str, object]):
 
     monkeypatch.setattr(module.tomllib, "loads", lambda _text: value)
     return module.validate_laya_uv_lock_bytes(b"synthetic-valid-size")
+
+
+def _validate_sbom(payload: bytes | None = None):
+    from human_feedback.runtime_dependency_metadata import validate_laya_cyclonedx_sbom_bytes
+
+    return validate_laya_cyclonedx_sbom_bytes(_sbom_fixture_bytes() if payload is None else payload)
+
+
+def _validate_sbom_parsed(monkeypatch, value: dict[str, object]):
+    from human_feedback import runtime_dependency_metadata as module
+
+    monkeypatch.setattr(module.json, "loads", lambda _text: value)
+    return module.validate_laya_cyclonedx_sbom_bytes(b'{"synthetic":"valid-size"}')
 
 
 def _package(lock, name: str):
@@ -602,3 +672,401 @@ def test_dependency_metadata_module_is_pure_and_operationally_isolated():
         )
         for path in root.rglob("*.py")
     )
+
+
+def test_committed_sbom_fixture_is_exact_deterministic_cyclonedx_evidence():
+    payload = _sbom_fixture_bytes()
+    value = _sbom_fixture_object()
+
+    assert len(payload) == SBOM_FIXTURE_SIZE_BYTES
+    assert hashlib.sha256(payload).hexdigest() == SBOM_FIXTURE_SHA256
+    assert value["$schema"] == CYCLONEDX_SCHEMA
+    assert len(value["components"]) == 44
+    assert len(value["dependencies"]) == 45
+    assert sum(len(node["dependsOn"]) for node in value["dependencies"]) == 70
+    assert _canonical_sbom_semantics_sha256(value) == EXPECTED_SBOM_SEMANTICS_SHA256
+
+
+def test_exact_cyclonedx_sbom_profile_loads_and_normalizes_45_identities():
+    from human_feedback.runtime_dependency_metadata import (
+        SbomComponent,
+        SbomDependency,
+        ValidatedLayaCycloneDxSbom,
+    )
+
+    sbom = _validate_sbom()
+
+    assert isinstance(sbom, ValidatedLayaCycloneDxSbom)
+    assert sbom.bom_format == "CycloneDX"
+    assert sbom.spec_version == "1.6"
+    assert sbom.version == 1
+    assert sbom.schema == CYCLONEDX_SCHEMA
+    assert sbom.semantics_sha256 == EXPECTED_SBOM_SEMANTICS_SHA256
+    assert len(sbom.components) == 44
+    assert len(sbom.dependencies) == 45
+    assert sbom.identity_count == 45
+    assert isinstance(sbom.root_component, SbomComponent)
+    assert all(isinstance(component, SbomComponent) for component in sbom.components)
+    assert all(isinstance(node, SbomDependency) for node in sbom.dependencies)
+    identities = (sbom.root_component, *sbom.components)
+    assert len({component.bom_ref for component in identities}) == 45
+    assert len({component.purl for component in identities}) == 45
+    assert all(component.bom_ref == component.purl for component in identities)
+
+
+def test_sbom_metadata_generator_lifecycle_and_lock_binding_are_exact():
+    sbom = _validate_sbom()
+
+    assert sbom.tool_name == "cdxgen"
+    assert sbom.tool_version == "13.3.0"
+    assert sbom.lifecycle == "pre-build"
+    assert sbom.lock_sha256 == FIXTURE_SHA256
+    assert sbom.uv_version == "0.12.3"
+    assert sbom.root_component.name == "laya-runtime-supply"
+    assert sbom.root_component.version == "0.0.0"
+    assert sbom.root_component.component_type == "application"
+    assert sbom.root_component.purl == "pkg:pypi/laya-runtime-supply@0.0.0"
+
+
+def test_sbom_laya_vcs_reference_is_the_exact_immutable_commit():
+    sbom = _validate_sbom()
+    laya = next(component for component in sbom.components if component.name == "laya")
+
+    assert laya.version == "0.4.2"
+    assert laya.bom_ref == "pkg:pypi/laya@0.4.2"
+    assert laya.external_references == (
+        (
+            "vcs",
+            "git+https://github.com/NandhaKishorM/laya?rev=" f"{LAYA_COMMIT}#{LAYA_COMMIT}",
+            "vcs",
+        ),
+    )
+
+
+def test_sbom_dependencies_are_unique_closed_and_have_exact_cardinality():
+    sbom = _validate_sbom()
+    identities = {component.bom_ref for component in (sbom.root_component, *sbom.components)}
+
+    assert len(sbom.dependencies) == 45
+    assert len({node.ref for node in sbom.dependencies}) == 45
+    assert {node.ref for node in sbom.dependencies} == identities
+    assert sum(len(node.depends_on) for node in sbom.dependencies) == 70
+    assert all(len(node.depends_on) == len(set(node.depends_on)) for node in sbom.dependencies)
+    assert all(
+        reference in identities for node in sbom.dependencies for reference in node.depends_on
+    )
+
+
+def test_sbom_components_make_no_selected_installed_artifact_hash_claim():
+    sbom = _validate_sbom()
+
+    assert all(component.hashes == () for component in sbom.components)
+    value = _sbom_fixture_object()
+    value["components"][0]["hashes"] = [  # type: ignore[index]
+        {"alg": "SHA-256", "content": "f" * 64}
+    ]
+    with pytest.raises(ValueError, match="component|hash|profile|exact"):
+        _validate_sbom(json.dumps(value).encode("utf-8"))
+
+
+def test_sbom_validator_requires_bytes_strict_utf8_and_strict_json():
+    with pytest.raises((TypeError, ValueError), match="bytes|payload"):
+        _validate_sbom("not-bytes")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="UTF-8|JSON|payload"):
+        _validate_sbom(b"\xff")
+    with pytest.raises(ValueError, match="JSON|payload"):
+        _validate_sbom(b'{"unterminated":[')
+    duplicate = _sbom_fixture_bytes().replace(
+        b'"bomFormat": "CycloneDX",',
+        b'"bomFormat":"private","bomFormat":"CycloneDX",',
+        1,
+    )
+    nonfinite = _sbom_fixture_bytes().replace(b'"confidence": 1', b'"confidence": NaN', 1)
+    with pytest.raises(ValueError, match="duplicate|key|JSON"):
+        _validate_sbom(duplicate)
+    with pytest.raises(ValueError, match="finite|number|JSON"):
+        _validate_sbom(nonfinite)
+
+
+def test_public_sbom_cap_rejects_before_json_parser(monkeypatch):
+    from human_feedback import runtime_dependency_metadata as module
+
+    assert module.MAX_CYCLONEDX_SBOM_BYTES == MAX_CYCLONEDX_SBOM_BYTES
+    parsed = False
+
+    def forbidden_loads(*args, **kwargs):
+        nonlocal parsed
+        parsed = True
+        raise AssertionError("oversized SBOM must fail before JSON parsing")
+
+    monkeypatch.setattr(module.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="SBOM|payload|size|limit|large"):
+        module.validate_laya_cyclonedx_sbom_bytes(b"x" * (MAX_CYCLONEDX_SBOM_BYTES + 1))
+
+    assert parsed is False
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("MAX_SBOM_COMPONENTS", MAX_SBOM_COMPONENTS),
+        ("MAX_SBOM_DEPENDENCY_NODES", MAX_SBOM_DEPENDENCY_NODES),
+        ("MAX_SBOM_DEPENDENCY_EDGES", MAX_SBOM_DEPENDENCY_EDGES),
+        ("MAX_SBOM_STRING_LENGTH", MAX_SBOM_STRING_LENGTH),
+        ("MAX_SBOM_URL_LENGTH", MAX_SBOM_URL_LENGTH),
+    ],
+)
+def test_public_sbom_structural_caps_are_explicit(name, expected):
+    from human_feedback import runtime_dependency_metadata as module
+
+    assert getattr(module, name) == expected
+
+
+@pytest.mark.parametrize("collection", ["components", "dependencies", "edges"])
+def test_sbom_cardinality_limits_precede_element_parsing(monkeypatch, collection):
+    from human_feedback import runtime_dependency_metadata as module
+
+    value = _sbom_fixture_object()
+    parsed = False
+
+    def forbidden_parser(*args, **kwargs):
+        nonlocal parsed
+        parsed = True
+        raise AssertionError("SBOM amplification must fail before element parsing")
+
+    if collection == "components":
+        value["components"] = [
+            deepcopy(value["components"][0]) for _ in range(MAX_SBOM_COMPONENTS + 1)
+        ]
+        monkeypatch.setattr(module, "_parse_sbom_component", forbidden_parser)
+    elif collection == "dependencies":
+        value["dependencies"] = [
+            deepcopy(value["dependencies"][0]) for _ in range(MAX_SBOM_DEPENDENCY_NODES + 1)
+        ]
+        monkeypatch.setattr(module, "_parse_sbom_dependency", forbidden_parser)
+    else:
+        value["dependencies"][0]["dependsOn"] = [  # type: ignore[index]
+            "pkg:pypi/idna@3.20" for _ in range(MAX_SBOM_DEPENDENCY_EDGES + 1)
+        ]
+        monkeypatch.setattr(module, "_parse_sbom_dependency", forbidden_parser)
+
+    with pytest.raises(ValueError, match="SBOM|component|dependency|edge|count|limit"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+    assert parsed is False
+
+
+@pytest.mark.parametrize("kind", ["string", "url"])
+def test_sbom_strings_and_urls_are_bounded(monkeypatch, kind):
+    value = _sbom_fixture_object()
+    component = value["components"][0]  # type: ignore[index]
+    if kind == "string":
+        component["name"] = "a" * (MAX_SBOM_STRING_LENGTH + 1)
+    else:
+        component["externalReferences"][0]["url"] = (  # type: ignore[index]
+            "https://files.pythonhosted.org/" + "a" * MAX_SBOM_URL_LENGTH
+        )
+
+    with pytest.raises(ValueError, match="SBOM|string|name|URL|length|limit"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("bomFormat", "Other"),
+        ("specVersion", "1.5"),
+        ("version", 2),
+        ("$schema", "https://example.invalid/schema.json"),
+    ],
+)
+def test_sbom_header_and_official_schema_are_exact(monkeypatch, field, invalid):
+    value = _sbom_fixture_object()
+    value[field] = invalid
+
+    with pytest.raises(ValueError, match="SBOM|CycloneDX|version|schema|profile|exact"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+
+def test_sbom_version_is_plain_integer_not_boolean(monkeypatch):
+    value = _sbom_fixture_object()
+    value["version"] = True
+
+    with pytest.raises((TypeError, ValueError), match="version|integer|SBOM"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+
+@pytest.mark.parametrize("prohibited", ["serialNumber", "timestamp", "annotations"])
+def test_sbom_prohibits_nondeterministic_or_annotation_fields(monkeypatch, prohibited):
+    value = _sbom_fixture_object()
+    value[prohibited] = "private-forbidden"
+
+    with pytest.raises(ValueError, match="SBOM|field|key|exact|deterministic"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+
+@pytest.mark.parametrize("case", ["missing", "unknown", "duplicate"])
+def test_sbom_components_are_exact_unique_and_complete(monkeypatch, case):
+    value = _sbom_fixture_object()
+    components = value["components"]
+    assert isinstance(components, list)
+    if case == "missing":
+        components.pop()
+    elif case == "unknown":
+        components[0]["private-extra"] = "forbidden"
+    else:
+        components[-1] = deepcopy(components[0])
+
+    with pytest.raises(ValueError, match="component|duplicate|count|field|key|exact"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+
+@pytest.mark.parametrize("case", ["missing", "duplicate", "unknown-ref", "unknown-edge"])
+def test_sbom_dependency_graph_is_exact_unique_and_closed(monkeypatch, case):
+    value = _sbom_fixture_object()
+    dependencies = value["dependencies"]
+    assert isinstance(dependencies, list)
+    if case == "missing":
+        dependencies.pop()
+    elif case == "duplicate":
+        dependencies[-1] = deepcopy(dependencies[0])
+    elif case == "unknown-ref":
+        dependencies[0]["ref"] = "pkg:pypi/private-missing@1.0.0"
+    else:
+        dependencies[0]["dependsOn"] = ["pkg:pypi/private-missing@1.0.0"]
+
+    with pytest.raises(ValueError, match="dependency|reference|duplicate|count|closed|exact"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+
+def _replace_all_string_values(value, old: str, new: str) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if item == old:
+                value[key] = new
+            else:
+                _replace_all_string_values(item, old, new)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            if item == old:
+                value[index] = new
+            else:
+                _replace_all_string_values(item, old, new)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["component", "purl-ref", "edge", "tool", "property", "url"],
+)
+def test_semantically_valid_but_different_sbom_is_rejected(monkeypatch, case):
+    value = _sbom_fixture_object()
+    if case == "component":
+        component = value["components"][0]  # type: ignore[index]
+        old_ref = component["bom-ref"]
+        new_ref = old_ref.replace("@0.0.5", "@0.0.6")
+        component["version"] = "0.0.6"
+        _replace_all_string_values(value, old_ref, new_ref)
+    elif case == "purl-ref":
+        component = value["components"][0]  # type: ignore[index]
+        old_ref = component["bom-ref"]
+        new_ref = "pkg:pypi/annotated-doc-renamed@0.0.5"
+        component["name"] = "annotated-doc-renamed"
+        _replace_all_string_values(value, old_ref, new_ref)
+    elif case == "edge":
+        node = next(
+            item for item in value["dependencies"] if "pkg:pypi/idna@3.20" in item["dependsOn"]
+        )
+        node["dependsOn"][node["dependsOn"].index("pkg:pypi/idna@3.20")] = "pkg:pypi/h11@0.16.0"
+    elif case == "tool":
+        tool = value["metadata"]["tools"]["components"][0]  # type: ignore[index]
+        tool["version"] = "13.3.1"
+        tool["purl"] = "pkg:npm/%40cdxgen/cdxgen@13.3.1"
+        tool["bom-ref"] = "pkg:npm/@cdxgen/cdxgen@13.3.1"
+    elif case == "property":
+        prop = next(
+            item
+            for item in value["metadata"]["properties"]  # type: ignore[index]
+            if item["name"] == "aai:uv-generator"
+        )
+        prop["value"] = "uv==0.12.4"
+    else:
+        reference = value["components"][0]["externalReferences"][0]  # type: ignore[index]
+        reference["url"] = "https://files.pythonhosted.org/packages/other-valid-file.whl"
+
+    with pytest.raises(ValueError, match="SBOM|semantic|profile|exact"):
+        _validate_sbom_parsed(monkeypatch, value)
+
+
+def test_sbom_representational_array_order_is_canonicalized(monkeypatch):
+    original = _validate_sbom()
+    value = _sbom_fixture_object()
+    value["components"].reverse()  # type: ignore[union-attr]
+    value["dependencies"].reverse()  # type: ignore[union-attr]
+    value["metadata"]["properties"].reverse()  # type: ignore[index]
+    for component in value["components"]:  # type: ignore[union-attr]
+        for key in ("properties", "externalReferences"):
+            if key in component:
+                component[key].reverse()
+    for dependency in value["dependencies"]:  # type: ignore[union-attr]
+        dependency["dependsOn"].reverse()
+
+    reordered = _validate_sbom_parsed(monkeypatch, value)
+
+    assert reordered == original
+    assert reordered.semantics_sha256 == EXPECTED_SBOM_SEMANTICS_SHA256
+
+
+def test_sbom_types_are_frozen_slotted_factory_sealed_and_private():
+    sbom = _validate_sbom()
+    component = sbom.components[0]
+    dependency = sbom.dependencies[0]
+
+    for value in (sbom, component, dependency):
+        assert is_dataclass(value)
+        assert not hasattr(value, "__dict__")
+        with pytest.raises((TypeError, ValueError)):
+            replace(value)
+    with pytest.raises(FrozenInstanceError):
+        sbom.version = 2  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        component.name = "changed"  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        dependency.ref = "changed"  # type: ignore[misc]
+
+    rendered = repr(sbom) + repr(sbom.components) + repr(sbom.dependencies)
+    assert SBOM_FIXTURE_SHA256 not in rendered
+    assert EXPECTED_SBOM_SEMANTICS_SHA256 not in rendered
+    assert "files.pythonhosted.org" not in rendered
+    assert LAYA_COMMIT not in rendered
+
+
+@pytest.mark.parametrize("case", ["utf8", "json", "recursion", "url"])
+def test_sbom_parser_error_chain_is_generic_and_private(case):
+    if case == "utf8":
+        marker = "private-sbom-utf8"
+        payload = marker.encode("ascii") + b"\xff"
+    elif case == "json":
+        marker = "private-sbom-json"
+        payload = f'{{"{marker}":['.encode("ascii")
+    elif case == "recursion":
+        marker = "private-sbom-recursion"
+        payload = (
+            b'{"private":' + b"[" * 2_000 + f'"{marker}"'.encode("ascii") + b"]" * 2_000 + b"}"
+        )
+    else:
+        marker = "private-sbom-port"
+        value = _sbom_fixture_object()
+        value["components"][0]["externalReferences"][0]["url"] = (  # type: ignore[index]
+            f"https://files.pythonhosted.org:{marker}/artifact.whl"
+        )
+        payload = json.dumps(value).encode("utf-8")
+
+    with pytest.raises(ValueError) as captured:
+        _validate_sbom(payload)
+
+    error = captured.value
+    rendered_chain = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
+    assert marker not in str(error)
+    assert marker not in rendered_chain
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True

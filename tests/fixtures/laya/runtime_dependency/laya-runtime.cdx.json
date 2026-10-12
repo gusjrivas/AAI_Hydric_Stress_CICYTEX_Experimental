@@ -1,0 +1,2290 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "tools": {
+      "components": [
+        {
+          "group": "@cdxgen",
+          "name": "cdxgen",
+          "version": "13.3.0",
+          "purl": "pkg:npm/%40cdxgen/cdxgen@13.3.0",
+          "type": "application",
+          "bom-ref": "pkg:npm/@cdxgen/cdxgen@13.3.0",
+          "publisher": "OWASP Foundation",
+          "authors": [
+            {
+              "name": "OWASP Foundation"
+            }
+          ]
+        }
+      ]
+    },
+    "authors": [
+      {
+        "name": "OWASP Foundation"
+      }
+    ],
+    "lifecycles": [
+      {
+        "phase": "pre-build"
+      }
+    ],
+    "component": {
+      "name": "laya-runtime-supply",
+      "version": "0.0.0",
+      "properties": [
+        {
+          "name": "cdx:pypi:requiresPython",
+          "value": "==3.11.10"
+        },
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "type": "application",
+      "bom-ref": "pkg:pypi/laya-runtime-supply@0.0.0",
+      "purl": "pkg:pypi/laya-runtime-supply@0.0.0"
+    },
+    "properties": [
+      {
+        "name": "cdx:bom:componentSrcFiles",
+        "value": "pyproject.toml\\nuv.lock"
+      },
+      {
+        "name": "cdx:bom:componentTypes",
+        "value": "pypi"
+      },
+      {
+        "name": "aai:uv-lock:sha256",
+        "value": "e968771680b9c6e683163230ebd98b43541325ccb36d6959d1f9ed5565bd5526"
+      },
+      {
+        "name": "aai:uv-generator",
+        "value": "uv==0.12.3"
+      }
+    ]
+  },
+  "components": [
+    {
+      "group": "",
+      "name": "annotated-doc",
+      "version": "0.0.5",
+      "purl": "pkg:pypi/annotated-doc@0.0.5",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/3e/30/e900b21425a860e195f32e37657aa1f7c7f2b1bfb26f03ca209b90933c06/annotated_doc-0.0.5-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/5a/8e/38aa427ed5402449e226975b649c5dc73ccadfefeb95e6aecb8f8ea4b6b6/annotated_doc-0.0.5.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/annotated-doc@0.0.5",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "annotated-types",
+      "version": "0.8.0",
+      "purl": "pkg:pypi/annotated-types@0.8.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/5f/56/a8120250d128bed162cd73c76d45f6ef9991f3e068f62a8ee060afa3104a/annotated_types-0.8.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/99/91/8acff4f5e50511b911bbccb72b8628a49c68ce14148cd9f6431094859a90/annotated_types-0.8.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/annotated-types@0.8.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "anyio",
+      "version": "4.15.1",
+      "purl": "pkg:pypi/anyio@4.15.1",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/12/b8/4bd346e22b28902df4d651910f5242c28d84e4a5c2435ca5c3f797ed7e2e/anyio-4.15.1-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/a9/d2/f4d173e22df740bc37b1db102b386ba719b66e95b0f0d751f556b387e6d2/anyio-4.15.1.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/anyio@4.15.1",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "click",
+      "version": "8.5.0",
+      "purl": "pkg:pypi/click@8.5.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/c7/0e/7fa0ef50764b67090eca4114772a2abf8b6148198475e54c660b97caeee6/click-8.5.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/click@8.5.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "fastapi",
+      "version": "0.143.0",
+      "purl": "pkg:pypi/fastapi@0.143.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/0b/d7/6a8753ab6c1d432dc53703c3e1b92974a94531b7d047c32bbaae461ea844/fastapi-0.143.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/bd/f4/27e386913417ad32aae42bba48b0c0cce40e9ff2fba1a871ca2702c37324/fastapi-0.143.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/fastapi@0.143.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework"
+      ]
+    },
+    {
+      "group": "",
+      "name": "filelock",
+      "version": "4.1.0",
+      "purl": "pkg:pypi/filelock@4.1.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/4c/58/6fd434bec86eff7c38a3168454cb132b762b2bea9b3ac094101a2f7bc32a/filelock-4.1.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/ee/86/032133892a5de43b5a98200b01aadcad68cc255e274a762f08b8a76d2912/filelock-4.1.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/filelock@4.1.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "fsspec",
+      "version": "2026.9.0",
+      "purl": "pkg:pypi/fsspec@2026.9.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/6c/c0/a98505f18594f1bce828bb159cec0fcf9860562f1a2c85913409fc8f3d9e/fsspec-2026.9.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/77/cd/9be253869fc42e764de7f3dedd6969af7d44ff9c3375214a3442a6f3fc08/fsspec-2026.9.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/fsspec@2026.9.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "h11",
+      "version": "0.16.0",
+      "purl": "pkg:pypi/h11@0.16.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6fb3c75474d40b3052059d95df7e73351460c8588d963/h11-0.16.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/h11@0.16.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "hf-xet",
+      "version": "1.7.0",
+      "purl": "pkg:pypi/hf-xet@1.7.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/6c/dc/03a21b89f118664a0926ff25b0f8e44a519bf22724a6a8fc7a9abbc188b6/hf_xet-1.7.0-cp38-abi3-musllinux_1_2_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/9e/27/06d899ea7bd721d272f84aac98bdb238de98af4cc767a69056d967d68c71/hf_xet-1.7.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/a3/4c/2bf3b66c215d409655f28de1622393dde04c9461280d48c7924bb3b2decd/hf_xet-1.7.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/hf-xet@1.7.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "httpcore2",
+      "version": "2.13.1",
+      "purl": "pkg:pypi/httpcore2@2.13.1",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/09/ba/a4568248771ce81957bfb7cc600264a40fbcda092391ee1c415c50be4bea/httpcore2-2.13.1-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/cb/f3/1db7aa2bc2524062192bb0e0323969492d1883152a232fe36eea65f4e35c/httpcore2-2.13.1.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/httpcore2@2.13.1",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "httpx2",
+      "version": "2.13.1",
+      "purl": "pkg:pypi/httpx2@2.13.1",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/d5/44/474bef2a0e9d90f1715d32cb98b0738695ca17ba324095fb2497ed7fbd59/httpx2-2.13.1.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/d8/9c/6fe8931fd9f381042a9e4c7d5a7b4cbf7016b252bec0c99a49fce42c3326/httpx2-2.13.1-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/httpx2@2.13.1",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "huggingface-hub",
+      "version": "2.2.0",
+      "purl": "pkg:pypi/huggingface-hub@2.2.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/12/47/6858d63643e66fb4f6585c3cfd4029c0b2bc1ae21688cee9b3335f20a10d/huggingface_hub-2.2.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/eb/b0/0f7b430fd100b3a3b037fdbb314878200241082e607b3383c63d91a13a72/huggingface_hub-2.2.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/huggingface-hub@2.2.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework"
+      ]
+    },
+    {
+      "group": "",
+      "name": "idna",
+      "version": "3.20",
+      "purl": "pkg:pypi/idna@3.20",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/f5/08/8eea9d4b8302028f3abb2c0813953f7aec26d33b7a8960ed760e65ff29fa/idna-3.20.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/idna@3.20",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "jinja2",
+      "version": "3.1.6",
+      "purl": "pkg:pypi/jinja2@3.1.6",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c72f3e33cef02e048281fec7ecec5f032d4aac52226b/jinja2-3.1.6.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/jinja2@3.1.6",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework"
+      ]
+    },
+    {
+      "group": "",
+      "name": "laya",
+      "version": "0.4.2",
+      "purl": "pkg:pypi/laya@0.4.2",
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "git+https://github.com/NandhaKishorM/laya?rev=68804629e8ccd9d616d48a40e87de9fabbeae069#68804629e8ccd9d616d48a40e87de9fabbeae069",
+          "comment": "vcs"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/laya@0.4.2",
+      "properties": [
+        {
+          "name": "cdx:pypi:manifestSource",
+          "value": "https://github.com/NandhaKishorM/laya"
+        },
+        {
+          "name": "cdx:pypi:manifestSourceType",
+          "value": "git"
+        },
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "markdown-it-py",
+      "version": "4.2.0",
+      "purl": "pkg:pypi/markdown-it-py@4.2.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/markdown-it-py@4.2.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "markupsafe",
+      "version": "3.0.4",
+      "purl": "pkg:pypi/markupsafe@3.0.4",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/38/9b/e422a865e1d5d57d0e509b4e0bf1c1a70a7f6382c29a5aa428df994c8bc8/markupsafe-3.0.4.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/75/ef/5b824f03ba40c3b3652b6272d083d2fc4fcdd440de519a3a39ba2c3e7262/markupsafe-3.0.4-cp311-cp311-musllinux_1_2_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/81/a5/a513b76c139a3915b43404324e55c0b7979ae4f0d39eb6f075b0282e90a8/markupsafe-3.0.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/markupsafe@3.0.4",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "mdurl",
+      "version": "0.1.2",
+      "purl": "pkg:pypi/mdurl@0.1.2",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/mdurl@0.1.2",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "mpmath",
+      "version": "1.3.0",
+      "purl": "pkg:pypi/mpmath@1.3.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/43/e3/7d92a15f894aa0c9c4b49b8ee9ac9850d6e63b03c9c32c0367a13ae62209/mpmath-1.3.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/e0/47/dd32fa426cc72114383ac549964eecb20ecfd886d1e5ccf5340b55b02f57/mpmath-1.3.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/mpmath@1.3.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "networkx",
+      "version": "3.6.1",
+      "purl": "pkg:pypi/networkx@3.6.1",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/networkx@3.6.1",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "numpy",
+      "version": "2.4.6",
+      "purl": "pkg:pypi/numpy@2.4.6",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/02/03/74fe2a4cb3817d94d86402f2506554130a2f01414e299b5a843e5a8a957f/numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/1a/b0/413077f6b1153ed3cba361401c6783bbad6114804a000cc22eb71c13e190/numpy-2.4.6-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/ca/ac/a691e0fe2675e370d0e08ff905adc49a1c8830e8cae03efe4477e92cd55d/numpy-2.4.6-cp311-cp311-musllinux_1_2_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/d0/ad/fed0499ce6a338d2a03ebae59cd15093910c8875328855781952abf6c2fe/numpy-2.4.6.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/numpy@2.4.6",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework"
+      ]
+    },
+    {
+      "group": "",
+      "name": "opentelemetry-api",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-api@1.45.1",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/2e/02/6e0ae9cc61bd3169d401077b507b3ebc344745171e1051ab430be012dcd9/opentelemetry_api-1.45.1.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/opentelemetry-api@1.45.1",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "telemetry"
+      ]
+    },
+    {
+      "group": "",
+      "name": "packaging",
+      "version": "26.3",
+      "purl": "pkg:pypi/packaging@26.3",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/packaging@26.3",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "pydantic",
+      "version": "2.14.0",
+      "purl": "pkg:pypi/pydantic@2.14.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/2d/eb/9146591cc819d040475bf7f2be786710c7f7eb8083693bf859728da2ca9c/pydantic-2.14.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/6b/fb/6e44b63b26efea1cec48c26d8362313310202ef5ed6e7a52f1669e64e2cd/pydantic-2.14.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/pydantic@2.14.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework"
+      ]
+    },
+    {
+      "group": "",
+      "name": "pydantic-core",
+      "version": "2.50.0",
+      "purl": "pkg:pypi/pydantic-core@2.50.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/4a/84/c0a92f97f9de7f133dfe694d0e8ca033a1c90fdf692dc69dfee3bf8a2e7b/pydantic_core-2.50.0-cp311-cp311-musllinux_1_1_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/4a/da/a4321058eea61f0504366668a09472a4c37514be30cce77967c35ab7ffaa/pydantic_core-2.50.0-graalpy311-graalpy242_311_native-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/61/57/81327752c007834d684b0b7d20ce00087206f512c7347a6236fd89ef0223/pydantic_core-2.50.0-pp311-pypy311_pp73-musllinux_1_1_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/aa/57/c2aea271192d8c4b81afeea9d61de8f5dc8686a1fcd1ace80e70a482fbce/pydantic_core-2.50.0-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/e6/6d/196e8c819e0e934f35a1a33b3530396feadb0af4ca38fe9f995249e55794/pydantic_core-2.50.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/f0/14/7122b78e9915e7dd50f9dcec6041a4e32874907b41b9e0880db2f1c7ae1a/pydantic_core-2.50.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/pydantic-core@2.50.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework"
+      ]
+    },
+    {
+      "group": "",
+      "name": "pygments",
+      "version": "2.21.0",
+      "purl": "pkg:pypi/pygments@2.21.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/49/2e/ced460408999b33da6b31b0021b0f37d329e202d4169aeb164493778f25b/pygments-2.21.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/pygments@2.21.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "python-multipart",
+      "version": "0.0.32",
+      "purl": "pkg:pypi/python-multipart@0.0.32",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/python-multipart@0.0.32",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "pyyaml",
+      "version": "6.0.3",
+      "purl": "pkg:pypi/pyyaml@6.0.3",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/71/60/917329f640924b18ff085ab889a11c763e0b573da888e8404ff486657602/pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/f2/6a/b627b4e0c1dd03718543519ffb2f1deea4a1e6d42fbab8021936a4d22589/pyyaml-6.0.3-cp311-cp311-musllinux_1_2_x86_64.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyyaml@6.0.3",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "regex",
+      "version": "2026.9.29",
+      "purl": "pkg:pypi/regex@2026.9.29",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/26/c7/49d008ff5f741d9a9799d7315556f3a12b983ff0fcd2cdfb62904bedafbf/regex-2026.9.29-cp311-cp311-musllinux_1_2_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/8a/70/aa08d1d2b294894b365e5f8ba5380fe3f8546acdb81f10639dfd74209c37/regex-2026.9.29-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/fc/f2/af1da9d3ceed77bfcdce40427d49ba0be94e4fe84245e3bfef68c10e75b6/regex-2026.9.29.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/regex@2026.9.29",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "rich",
+      "version": "15.0.0",
+      "purl": "pkg:pypi/rich@15.0.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/c0/8f/0722ca900cc807c13a6a0c696dacf35430f72e0ec571c4275d2371fca3e9/rich-15.0.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/rich@15.0.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "safetensors",
+      "version": "0.8.0",
+      "purl": "pkg:pypi/safetensors@0.8.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/27/43/41c1621732edd934d868a00d1b891584c892a7b62a9aab82ea5a0a5623ee/safetensors-0.8.0-cp310-abi3-musllinux_1_2_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/28/50/f203ff3a3ddfe19308efc83c5a3a29ed02bf786732ec35e68bf9162f3365/safetensors-0.8.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/45/06/f955dbbb1859e3bd23c8ac6141af5106e7ad5fedec4a3a6e3d60f94b7001/safetensors-0.8.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/safetensors@0.8.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "setuptools",
+      "version": "84.0.0",
+      "purl": "pkg:pypi/setuptools@84.0.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/6d/44/f5da03a8ef95d369145c5bb53050e7877c9f3d312e128605fd9504829143/setuptools-84.0.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/setuptools@84.0.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "shellingham",
+      "version": "1.5.4",
+      "purl": "pkg:pypi/shellingham@1.5.4",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/shellingham@1.5.4",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "starlette",
+      "version": "1.7.0",
+      "purl": "pkg:pypi/starlette@1.7.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/4e/d6/1ec1b290f9e0fb067899b61e1d37a30c923068bad260b216dbe37a7d2967/starlette-1.7.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/7b/2b/3850dc6bf7ef71b088962eba31dafc6cffd2f96e577ebb0bb316df96da3e/starlette-1.7.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/starlette@1.7.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework"
+      ]
+    },
+    {
+      "group": "",
+      "name": "sympy",
+      "version": "1.14.0",
+      "purl": "pkg:pypi/sympy@1.14.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/sympy@1.14.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "tokenizers",
+      "version": "0.23.3",
+      "purl": "pkg:pypi/tokenizers@0.23.3",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/26/e5/065625317690ea3548d834dad81f48ea1fd32e4964610e658e195d7fe28e/tokenizers-0.23.3-cp310-abi3-musllinux_1_2_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/3a/40/6706b82693715581457c6d5423eaa7faae576bb0526c5738a57085eb4449/tokenizers-0.23.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/e0/7c/2cabb2174e772636683008f2c5621949b645da7d303c596589e84516a184/tokenizers-0.23.3.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/tokenizers@0.23.3",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "torch",
+      "version": "2.14.0+cpu",
+      "purl": "pkg:pypi/torch@2.14.0%2Bcpu",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.14.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/torch@2.14.0+cpu",
+      "properties": [
+        {
+          "name": "cdx:pypi:registry",
+          "value": "https://download.pytorch.org/whl/cpu"
+        },
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "tqdm",
+      "version": "4.70.1",
+      "purl": "pkg:pypi/tqdm@4.70.1",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324dae8211928b2d730b6547500342c7e6c6dea08bd0a485/tqdm-4.70.1.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/tqdm@4.70.1",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "transformers",
+      "version": "5.19.0",
+      "purl": "pkg:pypi/transformers@5.19.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/65/4c/70012ed0795235fb6bd7806fafd4a1842f03e49ebbfa3bb9580e451948ce/transformers-5.19.0.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/b9/59/1e7f1212c215c73690ae6cab4678efe1555ff985953e145d88cc212859b0/transformers-5.19.0-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "framework",
+      "bom-ref": "pkg:pypi/transformers@5.19.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "framework",
+        "transform"
+      ]
+    },
+    {
+      "group": "",
+      "name": "truststore",
+      "version": "0.10.4",
+      "purl": "pkg:pypi/truststore@0.10.4",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/19/97/56608b2249fe206a67cd573bc93cd9896e1efb9e98bce9c163bcdc704b88/truststore-0.10.4-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/53/a3/1585216310e344e8102c22482f6060c7a6ea0322b63e026372e6dcefcfd6/truststore-0.10.4.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/truststore@0.10.4",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "typer",
+      "version": "0.27.3",
+      "purl": "pkg:pypi/typer@0.27.3",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/03/51/d33db42cc72ffd8c30777547b42d01f0cbf9d95a770457698d0174b3ed71/typer-0.27.3.tar.gz",
+          "comment": "sdist"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/07/ea/2e31b67051e91a133189e9c000c222502ddc6969856416de0d095de4c0b0/typer-0.27.3-py3-none-any.whl",
+          "comment": "wheel"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/typer@0.27.3",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    },
+    {
+      "group": "",
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "purl": "pkg:pypi/typing-extensions@4.16.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-extensions@4.16.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "devel"
+      ]
+    },
+    {
+      "group": "",
+      "name": "typing-inspection",
+      "version": "0.4.4",
+      "purl": "pkg:pypi/typing-inspection@0.4.4",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/67/81/4add07e5172b7ac40d8ed5ff580409a7801a4fe26d529bdd915401dabfbe/typing_inspection-0.4.4-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/a3/26/b09b8010994eccc3c09092e6b34058f36a460eea2d4c3e8b910c695975a0/typing_inspection-0.4.4.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-inspection@0.4.4",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      },
+      "tags": [
+        "devel"
+      ]
+    },
+    {
+      "group": "",
+      "name": "uvicorn",
+      "version": "0.54.0",
+      "purl": "pkg:pypi/uvicorn@0.54.0",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl",
+          "comment": "wheel"
+        },
+        {
+          "type": "distribution",
+          "url": "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cfc589dfff3cb796bd07a3aeb1a3e415ba09dd89d7bb4/uvicorn-0.54.0.tar.gz",
+          "comment": "sdist"
+        }
+      ],
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvicorn@0.54.0",
+      "properties": [
+        {
+          "name": "internal:SrcFile",
+          "value": "pyproject.toml"
+        }
+      ],
+      "evidence": {
+        "identity": [
+          {
+            "field": "purl",
+            "confidence": 1,
+            "methods": [
+              {
+                "technique": "manifest-analysis",
+                "confidence": 1,
+                "value": "uv.lock"
+              }
+            ],
+            "concludedValue": "uv.lock"
+          }
+        ]
+      }
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:pypi/annotated-doc@0.0.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/annotated-types@0.8.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/anyio@4.15.1",
+      "dependsOn": [
+        "pkg:pypi/idna@3.20",
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/click@8.5.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/fastapi@0.143.0",
+      "dependsOn": [
+        "pkg:pypi/annotated-doc@0.0.5",
+        "pkg:pypi/opentelemetry-api@1.45.1",
+        "pkg:pypi/pydantic@2.14.0",
+        "pkg:pypi/starlette@1.7.0",
+        "pkg:pypi/typing-extensions@4.16.0",
+        "pkg:pypi/typing-inspection@0.4.4"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/filelock@4.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/fsspec@2026.9.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/h11@0.16.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/hf-xet@1.7.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/httpcore2@2.13.1",
+      "dependsOn": [
+        "pkg:pypi/h11@0.16.0",
+        "pkg:pypi/truststore@0.10.4"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/httpx2@2.13.1",
+      "dependsOn": [
+        "pkg:pypi/anyio@4.15.1",
+        "pkg:pypi/httpcore2@2.13.1",
+        "pkg:pypi/idna@3.20",
+        "pkg:pypi/truststore@0.10.4",
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/huggingface-hub@2.2.0",
+      "dependsOn": [
+        "pkg:pypi/click@8.5.0",
+        "pkg:pypi/filelock@4.1.0",
+        "pkg:pypi/fsspec@2026.9.0",
+        "pkg:pypi/hf-xet@1.7.0",
+        "pkg:pypi/httpx2@2.13.1",
+        "pkg:pypi/packaging@26.3",
+        "pkg:pypi/pyyaml@6.0.3",
+        "pkg:pypi/tqdm@4.70.1",
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/idna@3.20",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/jinja2@3.1.6",
+      "dependsOn": [
+        "pkg:pypi/markupsafe@3.0.4"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/laya@0.4.2",
+      "dependsOn": [
+        "pkg:pypi/fastapi@0.143.0",
+        "pkg:pypi/huggingface-hub@2.2.0",
+        "pkg:pypi/numpy@2.4.6",
+        "pkg:pypi/python-multipart@0.0.32",
+        "pkg:pypi/safetensors@0.8.0",
+        "pkg:pypi/torch@2.14.0+cpu",
+        "pkg:pypi/transformers@5.19.0",
+        "pkg:pypi/uvicorn@0.54.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/markdown-it-py@4.2.0",
+      "dependsOn": [
+        "pkg:pypi/mdurl@0.1.2"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/markupsafe@3.0.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/mdurl@0.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/mpmath@1.3.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/networkx@3.6.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/numpy@2.4.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/opentelemetry-api@1.45.1",
+      "dependsOn": [
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/packaging@26.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/pydantic@2.14.0",
+      "dependsOn": [
+        "pkg:pypi/annotated-types@0.8.0",
+        "pkg:pypi/pydantic-core@2.50.0",
+        "pkg:pypi/typing-extensions@4.16.0",
+        "pkg:pypi/typing-inspection@0.4.4"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/pydantic-core@2.50.0",
+      "dependsOn": [
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/pygments@2.21.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/python-multipart@0.0.32",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/pyyaml@6.0.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/regex@2026.9.29",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/rich@15.0.0",
+      "dependsOn": [
+        "pkg:pypi/markdown-it-py@4.2.0",
+        "pkg:pypi/pygments@2.21.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/safetensors@0.8.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/setuptools@84.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/shellingham@1.5.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/starlette@1.7.0",
+      "dependsOn": [
+        "pkg:pypi/anyio@4.15.1",
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/sympy@1.14.0",
+      "dependsOn": [
+        "pkg:pypi/mpmath@1.3.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/tokenizers@0.23.3",
+      "dependsOn": [
+        "pkg:pypi/huggingface-hub@2.2.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/torch@2.14.0+cpu",
+      "dependsOn": [
+        "pkg:pypi/filelock@4.1.0",
+        "pkg:pypi/fsspec@2026.9.0",
+        "pkg:pypi/jinja2@3.1.6",
+        "pkg:pypi/networkx@3.6.1",
+        "pkg:pypi/setuptools@84.0.0",
+        "pkg:pypi/sympy@1.14.0",
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/tqdm@4.70.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/transformers@5.19.0",
+      "dependsOn": [
+        "pkg:pypi/huggingface-hub@2.2.0",
+        "pkg:pypi/numpy@2.4.6",
+        "pkg:pypi/packaging@26.3",
+        "pkg:pypi/pyyaml@6.0.3",
+        "pkg:pypi/regex@2026.9.29",
+        "pkg:pypi/safetensors@0.8.0",
+        "pkg:pypi/tokenizers@0.23.3",
+        "pkg:pypi/tqdm@4.70.1",
+        "pkg:pypi/typer@0.27.3"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/truststore@0.10.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/typer@0.27.3",
+      "dependsOn": [
+        "pkg:pypi/annotated-doc@0.0.5",
+        "pkg:pypi/rich@15.0.0",
+        "pkg:pypi/shellingham@1.5.4"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/typing-extensions@4.16.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/typing-inspection@0.4.4",
+      "dependsOn": [
+        "pkg:pypi/typing-extensions@4.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/uvicorn@0.54.0",
+      "dependsOn": [
+        "pkg:pypi/click@8.5.0",
+        "pkg:pypi/h11@0.16.0"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/laya-runtime-supply@0.0.0",
+      "dependsOn": [
+        "pkg:pypi/laya@0.4.2",
+        "pkg:pypi/torch@2.14.0+cpu"
+      ]
+    }
+  ],
+  "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json"
+}
