@@ -1,3 +1,4 @@
+import json
 import math
 from dataclasses import replace
 from pathlib import Path
@@ -226,3 +227,47 @@ def test_shared_confidence_resolver_matches_laya_response_precedence():
         )
         == 0.90
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value", "message"),
+    (
+        ("answer_confidence", True, "answer confidence"),
+        ("answer_confidence", "0.90", "answer confidence"),
+        ("choice_probability", "0.90", "probabilities"),
+    ),
+)
+def test_prediction_loader_rejects_values_production_confidence_parser_rejects(
+    tmp_path: Path,
+    field: str,
+    invalid_value: object,
+    message: str,
+):
+    from human_feedback.offline_readiness import load_predictions
+
+    probabilities: list[list[object]] = [
+        [category, value]
+        for category, value in zip(
+            CATEGORIES,
+            (0.90, 0.025, 0.025, 0.025, 0.025),
+            strict=True,
+        )
+    ]
+    prediction = {
+        "example_id": "e1",
+        "category": "data_quality",
+        "probabilities": probabilities,
+        "answer_confidence": 0.90,
+        "latency_ms": 1.0,
+        "provider": "laya-http",
+        "model_revision": "revision",
+    }
+    if field == "choice_probability":
+        probabilities[0][1] = invalid_value
+    else:
+        prediction[field] = invalid_value
+    path = tmp_path / "predictions.json"
+    path.write_text(json.dumps([prediction]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        load_predictions(path)
