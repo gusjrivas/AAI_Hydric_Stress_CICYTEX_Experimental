@@ -411,11 +411,185 @@ def test_execution_objects_repr_and_errors_do_not_disclose_private_inputs(tmp_pa
     contract, records = _contract(tmp_path)
     raw = _predictions(contract)
     validated = validate_loso_prediction_set(contract, raw)
-    rendered = repr(contract) + repr(validated) + repr(validated.predictions)
+    rendered_objects = (repr(raw[0]), repr(raw), repr(validated))
+    rendered = "".join(rendered_objects)
 
     assert all(value not in rendered for value in _private_values(records))
+    for representation in rendered_objects:
+        assert all(prediction.held_out_site not in representation for prediction in raw)
+        assert all(prediction.category not in representation for prediction in raw)
     assert "probabilities" not in rendered
     assert contract.plan.corpus.records_sha256 not in rendered
+
+
+def test_runtime_identity_rejects_null_digest_sentinel():
+    from human_feedback.evaluation_execution import RuntimeIdentityRef
+
+    with pytest.raises(ValueError, match="runtime|digest|null|sentinel"):
+        RuntimeIdentityRef(schema_version=RUNTIME_SCHEMA_VERSION, sha256="0" * 64)
+
+
+def test_canonical_summary_normalizes_equivalent_numeric_representations(tmp_path: Path):
+    from human_feedback.evaluation_execution import (
+        canonical_loso_execution_summary_bytes,
+        loso_execution_evidence_digest,
+        validate_loso_prediction_set,
+    )
+
+    contract, _ = _contract(tmp_path)
+    float_rows = _predictions(contract)
+    integer_rows = tuple(
+        replace(
+            prediction,
+            probabilities=tuple(
+                (category, int(probability)) for category, probability in prediction.probabilities
+            ),
+            answer_confidence=1,
+            latency_ms=12,
+        )
+        for prediction in float_rows
+    )
+    float_rows = tuple(
+        replace(prediction, answer_confidence=1.0, latency_ms=12.0) for prediction in float_rows
+    )
+    integer_evidence = validate_loso_prediction_set(contract, integer_rows)
+    float_evidence = validate_loso_prediction_set(contract, float_rows)
+
+    assert canonical_loso_execution_summary_bytes(
+        integer_evidence
+    ) == canonical_loso_execution_summary_bytes(float_evidence)
+    assert loso_execution_evidence_digest(integer_evidence) == loso_execution_evidence_digest(
+        float_evidence
+    )
+
+
+def test_canonical_summary_normalizes_negative_zero(tmp_path: Path):
+    from human_feedback.evaluation_execution import (
+        canonical_loso_execution_summary_bytes,
+        loso_execution_evidence_digest,
+        validate_loso_prediction_set,
+    )
+
+    contract, _ = _contract(tmp_path)
+    positive_rows = _predictions(contract)
+    negative_rows = tuple(
+        replace(
+            prediction,
+            probabilities=tuple(
+                (category, -0.0 if probability == 0.0 else probability)
+                for category, probability in prediction.probabilities
+            ),
+            latency_ms=-0.0 if prediction is positive_rows[0] else prediction.latency_ms,
+        )
+        for prediction in positive_rows
+    )
+    positive_rows = tuple(
+        replace(prediction, latency_ms=0.0 if prediction is positive_rows[0] else 12.5)
+        for prediction in positive_rows
+    )
+    positive_evidence = validate_loso_prediction_set(contract, positive_rows)
+    negative_evidence = validate_loso_prediction_set(contract, negative_rows)
+
+    assert canonical_loso_execution_summary_bytes(
+        positive_evidence
+    ) == canonical_loso_execution_summary_bytes(negative_evidence)
+    assert loso_execution_evidence_digest(positive_evidence) == loso_execution_evidence_digest(
+        negative_evidence
+    )
+
+
+def test_public_summary_uses_safe_latency_aggregates_not_prediction_content_commitments(
+    tmp_path: Path,
+):
+    from human_feedback.evaluation_execution import (
+        canonical_loso_execution_summary_bytes,
+        validate_loso_prediction_set,
+    )
+
+    contract, _ = _contract(tmp_path)
+    rows_a = _predictions(contract)
+    rows_b = list(rows_a)
+    rows_b[0] = replace(rows_b[0], latency_ms=rows_b[0].latency_ms + 1.0)
+    summary_a = canonical_loso_execution_summary_bytes(
+        validate_loso_prediction_set(contract, rows_a)
+    )
+    summary_b = canonical_loso_execution_summary_bytes(
+        validate_loso_prediction_set(contract, tuple(rows_b))
+    )
+    decoded = json.loads(summary_a)
+    decoded_b = json.loads(summary_b)
+    serialized_keys = json.dumps(decoded, sort_keys=True).lower()
+
+    assert summary_a != summary_b
+    assert "latency_ms_summary" in decoded
+    assert set(decoded["latency_ms_summary"]) == {"count", "minimum", "maximum", "mean"}
+    assert decoded["latency_ms_summary"]["count"] == len(rows_a)
+    assert decoded["latency_ms_summary"] != decoded_b["latency_ms_summary"]
+    assert {key for key in decoded if "latency" in key.lower()} == {"latency_ms_summary"}
+    assert "prediction_content_sha256" not in decoded
+    assert "probabilit" not in serialized_keys
+    assert "score" not in serialized_keys
+    assert "categor" not in serialized_keys
+    assert "prediction_content" not in serialized_keys
+
+
+def test_contract_evidence_and_summary_keep_unverified_attestations_false(tmp_path: Path):
+    from human_feedback.evaluation_execution import (
+        canonical_loso_execution_summary_bytes,
+        validate_loso_prediction_set,
+    )
+
+    contract, _ = _contract(tmp_path)
+    evidence = validate_loso_prediction_set(contract, _predictions(contract))
+    summary = json.loads(canonical_loso_execution_summary_bytes(evidence))
+    expected = {
+        "runtime_identity_verified": False,
+        "origin_verified": False,
+        "gold_blind_execution_attested": False,
+        "supply_identity_verified": False,
+    }
+
+    for field, value in expected.items():
+        assert getattr(contract, field) is value
+        assert getattr(evidence, field) is value
+        assert summary[field] is value
+
+
+@pytest.mark.parametrize("provider", ["other-provider", "Laya-http", "laya_http"])
+def test_execution_contract_and_raw_prediction_reject_non_laya_provider(
+    tmp_path: Path,
+    provider: str,
+):
+    contract, _ = _contract(tmp_path)
+    prediction = _predictions(contract)[0]
+
+    with pytest.raises(ValueError, match="provider|laya-http"):
+        replace(contract, provider=provider)
+    with pytest.raises(ValueError, match="provider|laya-http"):
+        replace(prediction, provider=provider)
+
+
+@pytest.mark.parametrize(
+    "revision",
+    [
+        "0" * 40,
+        "55cf4c4",
+        "55CF4C4EBB4EBE31B2550E8BDF3BD21B99753851",
+        "g" * 40,
+        "55cf4c4ebb4ebe31b2550e8bdf3bd21b997538510",
+    ],
+)
+def test_execution_contract_and_raw_prediction_require_non_null_lowercase_sha1_revision(
+    tmp_path: Path,
+    revision: str,
+):
+    contract, _ = _contract(tmp_path)
+    prediction = _predictions(contract)[0]
+
+    with pytest.raises(ValueError, match="model|revision|SHA-1|null|sentinel"):
+        replace(contract, model_revision=revision)
+    with pytest.raises(ValueError, match="model|revision|SHA-1|null|sentinel"):
+        replace(prediction, model_revision=revision)
 
 
 def test_validated_evidence_does_not_claim_execution_or_scientific_authorization(tmp_path: Path):
