@@ -1,7 +1,6 @@
 import ast
 import hashlib
 import json
-import os
 import traceback
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
@@ -29,8 +28,7 @@ MAX_OCI_INDEX_BYTES = 64 * 1_024
 MAX_OCI_CONTROL_JSON_DEPTH = 32
 MAX_OCI_CONTROL_STRING_LENGTH = 256
 MAX_OCI_BLOB_CHUNK_BYTES = 1_024 * 1_024
-LAYOUT_PROFILE_ID = "laya-runtime-oci-layout-profile-v1"
-LAYOUT_EVIDENCE_SCHEMA = "laya-runtime-oci-layout-evidence-v1"
+MAX_OCI_BLOB_CHUNKS = 1_024
 _UNSET = object()
 
 LAYERS = (
@@ -142,10 +140,7 @@ def _assert_private_error(error: BaseException, marker: str) -> None:
 def _uses_layout_plan_api(source: str) -> bool:
     symbols = {
         "LayaOciLayoutPlan",
-        "LayaRuntimeOciLayoutEvidence",
         "VerifiedLayaOciBlob",
-        "canonical_laya_runtime_oci_layout_summary_bytes",
-        "finalize_laya_oci_layout_evidence",
         "prepare_laya_oci_layout_plan",
         "verify_laya_oci_blob_chunks",
     }
@@ -564,13 +559,14 @@ def test_manifest_blob_is_verified_incrementally_across_multiple_real_chunkings(
     plan = _prepare()
     payload = _captured_manifest_bytes(plan)
     assert module.MAX_OCI_BLOB_CHUNK_BYTES == MAX_OCI_BLOB_CHUNK_BYTES
+    assert module.MAX_OCI_BLOB_CHUNKS == MAX_OCI_BLOB_CHUNKS
     assert len(payload) == MANIFEST_SIZE_BYTES
 
     chunkings = (
         (payload,),
         (payload[:1], payload[1:]),
         (payload[:1_024], payload[1_024:2_048], payload[2_048:]),
-        (b"", payload[:2_000], b"", payload[2_000:], b""),
+        (payload[:2_000], payload[2_000:]),
         (payload[position : position + 17] for position in range(0, len(payload), 17)),
     )
     receipts = tuple(_verify_manifest(plan, chunks) for chunks in chunkings)
@@ -666,6 +662,52 @@ def test_blob_verification_enforces_chunk_cap_and_size_plus_one_cutoff():
     assert chunks_consumed == 2
 
 
+@pytest.mark.parametrize("position", ["first", "middle", "last"])
+def test_blob_verification_rejects_every_zero_length_chunk(position):
+    plan = _prepare()
+    payload = _captured_manifest_bytes(plan)
+    chunks = {
+        "first": (b"", payload),
+        "middle": (payload[:1], b"", payload[1:]),
+        "last": (payload, b""),
+    }[position]
+    with pytest.raises(ValueError, match="chunk|empty|zero|blob"):
+        _verify_blob(plan, plan.index_manifest.digest, chunks)
+
+
+def test_blob_verification_stops_at_bounded_chunk_count_without_consuming_sentinel():
+    plan = _prepare()
+    chunks_consumed = 0
+
+    def hostile_many_chunks():
+        nonlocal chunks_consumed
+        for _index in range(MAX_OCI_BLOB_CHUNKS + 1):
+            chunks_consumed += 1
+            yield b"x"
+        chunks_consumed += 1
+        raise AssertionError("verifier consumed beyond the public chunk-count cap")
+
+    with pytest.raises(ValueError, match="chunk|count|limit|many"):
+        _verify_blob(plan, plan.index_manifest.digest, hostile_many_chunks())
+    assert chunks_consumed == MAX_OCI_BLOB_CHUNKS + 1
+
+
+def test_blob_verification_rejects_empty_chunk_before_resuming_hostile_generator():
+    plan = _prepare()
+    chunks_consumed = 0
+
+    def hostile_empty_chunk():
+        nonlocal chunks_consumed
+        chunks_consumed += 1
+        yield b""
+        chunks_consumed += 1
+        raise AssertionError("verifier resumed after an invalid empty chunk")
+
+    with pytest.raises(ValueError, match="chunk|empty|zero|blob"):
+        _verify_blob(plan, plan.index_manifest.digest, hostile_empty_chunk())
+    assert chunks_consumed == 1
+
+
 @pytest.mark.parametrize("line_ending", [b"\n", b"\r\n"])
 def test_blob_verification_rejects_git_lfs_pointer_content(line_ending):
     plan = _prepare()
@@ -738,15 +780,46 @@ def test_blob_verifier_uses_incremental_hashing_without_materializing_chunks():
 
     source = Path(runtime_oci_layout.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
-    verifier = next(
-        node
+    definitions = {
+        node.name: node
         for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "verify_laya_oci_blob_chunks"
-    )
-    calls = [node for node in ast.walk(verifier) if isinstance(node, ast.Call)]
+    }
+    wrapper = definitions["verify_laya_oci_blob_chunks"]
+    assert "_verify_laya_oci_blob_chunks" in {
+        call.func.id
+        for call in ast.walk(wrapper)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+    }
+
+    reachable_names = {"_verify_laya_oci_blob_chunks"}
+    pending = ["_verify_laya_oci_blob_chunks"]
+    while pending:
+        name = pending.pop()
+        for call in (node for node in ast.walk(definitions[name]) if isinstance(node, ast.Call)):
+            if (
+                isinstance(call.func, ast.Name)
+                and call.func.id in definitions
+                and call.func.id not in reachable_names
+            ):
+                reachable_names.add(call.func.id)
+                pending.append(call.func.id)
+
+    calls = [
+        node
+        for name in reachable_names
+        for node in ast.walk(definitions[name])
+        if isinstance(node, ast.Call)
+    ]
+    private_verifier = definitions["_verify_laya_oci_blob_chunks"]
+    private_calls = [node for node in ast.walk(private_verifier) if isinstance(node, ast.Call)]
     assert any(
-        isinstance(call.func, ast.Attribute) and call.func.attr == "update" for call in calls
+        isinstance(call.func, ast.Attribute) and call.func.attr == "update"
+        for call in private_calls
+    )
+    assert any(
+        isinstance(node, ast.For) and isinstance(node.iter, ast.Name) and node.iter.id == "chunks"
+        for node in ast.walk(private_verifier)
     )
     assert not any(
         isinstance(call.func, ast.Attribute) and call.func.attr == "join" for call in calls
@@ -757,108 +830,59 @@ def test_blob_verifier_uses_incremental_hashing_without_materializing_chunks():
     )
 
 
-def test_duplicate_verification_is_deterministic_but_duplicate_receipts_do_not_finalize():
-    from human_feedback.runtime_oci_layout import finalize_laya_oci_layout_evidence
-
+def test_duplicate_blob_verification_is_deterministic_without_global_evidence_claims():
     plan = _prepare()
     first = _verify_manifest(plan)
     second = _verify_manifest(plan)
     assert first == second
     assert first is not second
+    for receipt in (first, second):
+        assert receipt.blob_bytes_verified is True
+        for forbidden_claim in (
+            "oci_bytes_verified",
+            "oci_config_bytes_verified",
+            "oci_layer_bytes_verified",
+            "oci_layout_semantics_verified",
+            "oci_index_semantics_verified",
+            "origin_verified",
+            "rootfs_materialized",
+            "runtime_materialized",
+        ):
+            assert not hasattr(receipt, forbidden_claim)
 
-    with pytest.raises(ValueError, match="receipt|duplicate|complete|blob|order"):
-        finalize_laya_oci_layout_evidence(plan, (first, second))
+
+def test_individual_receipt_cannot_finalize_or_elevate_layout_evidence():
+    """RED20C owns final evidence via a sealed same-root capture/session."""
+
+    from human_feedback import runtime_oci_layout as module
+
+    receipt = _verify_manifest()
+    assert not hasattr(receipt, "finalize")
+    assert not hasattr(receipt, "as_evidence")
+    assert not hasattr(receipt, "oci_bytes_verified")
+    assert not hasattr(module, "verified_laya_oci_blob_from_digest")
+    assert not hasattr(module, "receipt_from_digest")
 
 
-def test_finalize_requires_exact_complete_ordered_receipt_tuple_without_substitution():
-    from human_feedback.runtime_oci_layout import finalize_laya_oci_layout_evidence
+def test_verified_blob_proxy_and_subclass_cannot_masquerade_as_factory_receipt():
+    from human_feedback.runtime_oci_layout import VerifiedLayaOciBlob
 
-    plan = _prepare()
-    receipt = _verify_manifest(plan)
-    candidates = (
-        [],
-        (),
-        (receipt,),
-        tuple(receipt for _blob in plan.blobs),
-        SimpleNamespace(plan=plan, blob=plan.index_manifest, blob_bytes_verified=True),
-        (
-            SimpleNamespace(
-                plan=plan,
-                blob=plan.index_manifest,
-                blob_bytes_verified=True,
-            ),
-        ),
+    receipt = _verify_manifest()
+    proxy = SimpleNamespace(
+        plan=receipt.plan,
+        blob=receipt.blob,
+        blob_bytes_verified=True,
     )
-    for candidate in candidates:
-        with pytest.raises((TypeError, ValueError), match="receipt|tuple|complete|blob|order"):
-            finalize_laya_oci_layout_evidence(plan, candidate)
+    assert type(receipt) is VerifiedLayaOciBlob
+    assert type(proxy) is not VerifiedLayaOciBlob
 
-    foreign_plan = _prepare()
-    foreign_receipt = _verify_manifest(foreign_plan)
-    with pytest.raises(ValueError, match="receipt|plan|identity|foreign|blob"):
-        finalize_laya_oci_layout_evidence(plan, (foreign_receipt,))
-
-    class ReceiptSubclass(type(receipt)):
+    class ReceiptSubclass(VerifiedLayaOciBlob):
         pass
 
-    subclass = object.__new__(ReceiptSubclass)
-    with pytest.raises((TypeError, ValueError), match="receipt|factory|seal|type"):
-        finalize_laya_oci_layout_evidence(plan, (subclass,))
-
-
-def test_finalize_failure_is_all_or_nothing_private_and_context_suppressed():
-    from human_feedback.runtime_oci_layout import finalize_laya_oci_layout_evidence
-
-    plan = _prepare()
-    marker = "private-forged-receipt-content"
-    forged = SimpleNamespace(
-        plan=plan,
-        blob=plan.index_manifest,
-        blob_bytes_verified=True,
-        private_content=marker,
-    )
-    with pytest.raises((TypeError, ValueError)) as captured:
-        finalize_laya_oci_layout_evidence(plan, (forged,))
-    _assert_private_error(captured.value, marker)
-
-
-def test_finalize_and_summary_reject_proxy_subclass_and_non_evidence_values():
-    from human_feedback.runtime_oci_layout import (
-        canonical_laya_runtime_oci_layout_summary_bytes,
-        finalize_laya_oci_layout_evidence,
-    )
-
-    plan = _prepare()
-    proxy = SimpleNamespace(
-        schema_version=plan.schema_version,
-        oci_evidence=plan.oci_evidence,
-        runtime_identity=plan.runtime_identity,
-        blobs=plan.blobs,
-    )
-    with pytest.raises((TypeError, ValueError), match="plan|factory|seal|type"):
-        finalize_laya_oci_layout_evidence(proxy, ())
-    for invalid in (None, plan, proxy, (), SimpleNamespace()):
-        with pytest.raises((TypeError, ValueError), match="evidence|factory|seal|type"):
-            canonical_laya_runtime_oci_layout_summary_bytes(invalid)
-
-
-def test_final_evidence_type_is_frozen_slotted_and_factory_sealed_without_forgery():
-    from human_feedback.runtime_oci_layout import LayaRuntimeOciLayoutEvidence
-
-    plan = _prepare()
-    assert is_dataclass(LayaRuntimeOciLayoutEvidence)
-    assert "__slots__" in vars(LayaRuntimeOciLayoutEvidence)
-    values = {
-        "schema_version": LAYOUT_EVIDENCE_SCHEMA,
-        "plan": plan,
-        "oci_evidence": plan.oci_evidence,
-        "runtime_identity": plan.runtime_identity,
-        "receipts": (),
-    }
-    init_fields = tuple(field.name for field in fields(LayaRuntimeOciLayoutEvidence) if field.init)
-    assert set(init_fields) <= set(values)
     with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
-        LayaRuntimeOciLayoutEvidence(**{name: values[name] for name in init_fields})
+        ReceiptSubclass(
+            **{field.name: getattr(receipt, field.name) for field in fields(receipt) if field.init}
+        )
 
 
 def test_manifest_verification_does_not_mutate_plan_or_prior_evidence_summaries():
@@ -872,130 +896,6 @@ def test_manifest_verification_does_not_mutate_plan_or_prior_evidence_summaries(
     assert plan.blobs is blobs_before
     assert plan.oci_evidence is evidence
     assert canonical_laya_runtime_oci_summary_bytes(evidence) == summary_before
-
-
-@pytest.mark.skipif(
-    not os.environ.get("LAYA_OCI_LAYOUT_ROOT"),
-    reason="requires opt-in external 612 MB OCI layout",
-)
-def test_opt_in_real_layout_finalizes_conservative_evidence_and_public_summary():
-    from human_feedback.runtime_oci_layout import (
-        canonical_laya_runtime_oci_layout_summary_bytes,
-        finalize_laya_oci_layout_evidence,
-    )
-
-    plan = _prepare()
-    root = Path(os.environ["LAYA_OCI_LAYOUT_ROOT"])
-
-    def chunks(path):
-        with path.open("rb") as stream:
-            while True:
-                chunk = stream.read(MAX_OCI_BLOB_CHUNK_BYTES)
-                if not chunk:
-                    return
-                yield chunk
-
-    receipts = tuple(
-        _verify_blob(plan, blob.digest, chunks(root / blob.path)) for blob in plan.blobs
-    )
-    with pytest.raises(ValueError, match="receipt|order|blob|identity"):
-        finalize_laya_oci_layout_evidence(plan, tuple(reversed(receipts)))
-    with pytest.raises(ValueError, match="receipt|complete|blob|duplicate"):
-        finalize_laya_oci_layout_evidence(plan, (*receipts[:-1], receipts[0]))
-    evidence = finalize_laya_oci_layout_evidence(plan, receipts)
-
-    assert is_dataclass(evidence)
-    assert not hasattr(evidence, "__dict__")
-    assert evidence.plan is plan
-    assert evidence.oci_evidence is plan.oci_evidence
-    assert evidence.runtime_identity is plan.runtime_identity
-    for flag in (
-        "artifact_integrity_verified",
-        "oci_manifest_semantics_verified",
-        "oci_layout_semantics_verified",
-        "oci_index_semantics_verified",
-        "oci_layer_bytes_verified",
-        "oci_config_bytes_verified",
-        "oci_bytes_verified",
-    ):
-        assert getattr(evidence, flag) is True
-    for flag in (
-        "lock_verified",
-        "sbom_verified",
-        "lock_sbom_consistent",
-        "runtime_config_semantics_verified",
-        "checkpoint_manifest_semantics_verified",
-        "checkpoint_bytes_verified",
-        "origin_verified",
-        "license_verified",
-        "base_image_ancestry_verified",
-        "layer_diff_ids_verified",
-        "rootfs_materialized",
-        "runtime_materialized",
-        "executor_available",
-        "inference_executed",
-    ):
-        assert getattr(evidence, flag) is False
-
-    with pytest.raises(FrozenInstanceError):
-        evidence.oci_bytes_verified = False  # type: ignore[misc]
-    with pytest.raises((TypeError, ValueError)):
-        replace(evidence, oci_bytes_verified=False)
-    with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
-        type(evidence)(
-            **{
-                field.name: getattr(evidence, field.name)
-                for field in fields(evidence)
-                if field.init
-            }
-        )
-
-    class EvidenceSubclass(type(evidence)):
-        pass
-
-    subclass = object.__new__(EvidenceSubclass)
-    with pytest.raises((TypeError, ValueError), match="evidence|factory|seal|type"):
-        canonical_laya_runtime_oci_layout_summary_bytes(subclass)
-
-    summary = canonical_laya_runtime_oci_layout_summary_bytes(evidence)
-    decoded = json.loads(summary)
-    assert decoded == {
-        "artifact_integrity_verified": True,
-        "base_image_ancestry_verified": False,
-        "checkpoint_bytes_verified": False,
-        "checkpoint_manifest_semantics_verified": False,
-        "executor_available": False,
-        "inference_executed": False,
-        "layer_diff_ids_verified": False,
-        "license_verified": False,
-        "lock_sbom_consistent": False,
-        "lock_verified": False,
-        "oci_bytes_verified": True,
-        "oci_config_bytes_verified": True,
-        "oci_index_semantics_verified": True,
-        "oci_layer_bytes_verified": True,
-        "oci_layout_semantics_verified": True,
-        "oci_manifest_semantics_verified": True,
-        "origin_verified": False,
-        "plan_schema_version": LAYOUT_PLAN_SCHEMA,
-        "profile_id": LAYOUT_PROFILE_ID,
-        "rootfs_materialized": False,
-        "runtime_config_semantics_verified": False,
-        "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
-        "runtime_identity_sha256": evidence.runtime_identity.sha256,
-        "runtime_materialized": False,
-        "sbom_verified": False,
-        "schema_version": LAYOUT_EVIDENCE_SCHEMA,
-    }
-    assert summary == json.dumps(
-        decoded, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode("ascii")
-    rendered = repr(evidence) + summary.decode("ascii")
-    assert all(blob.path not in rendered for blob in plan.blobs)
-    assert all(blob.digest not in rendered for blob in plan.blobs)
-    assert str(plan.total_size_bytes) not in rendered
-    assert _layout_bytes().decode("ascii") not in rendered
-    assert _index_bytes().decode("ascii") not in rendered
 
 
 def test_prepare_does_not_mutate_prior_evidence_or_prior_canonical_summaries():
