@@ -18,6 +18,7 @@ _CONTROL_LIMITS = {
     "index.json": runtime_oci_layout.MAX_OCI_INDEX_BYTES,
 }
 _NATIVE_OPEN_SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
+_MAX_OCI_LAYOUT_ROOT_COMPONENTS = 128
 
 
 class OciLayoutCaptureError(ValueError):
@@ -66,6 +67,8 @@ def _root_components(root: Any) -> tuple[str, ...]:
     components = tuple(component for component in raw_root.split(os.sep) if component)
     if not components or any(component in {".", ".."} for component in components):
         raise OciLayoutCaptureError("secure OCI layout root is not canonical")
+    if len(components) > _MAX_OCI_LAYOUT_ROOT_COMPONENTS:
+        raise OciLayoutCaptureError("secure OCI layout root component limit exceeded")
     return components
 
 
