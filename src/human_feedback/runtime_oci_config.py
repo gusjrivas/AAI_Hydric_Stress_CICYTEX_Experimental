@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from dataclasses import InitVar, dataclass
+from dataclasses import InitVar, dataclass, field
+
+import human_feedback.runtime_oci_layout as runtime_oci_layout
 
 MAX_OCI_CONFIG_BYTES = 64 * 1_024
 MAX_OCI_CONFIG_JSON_DEPTH = 32
@@ -13,8 +16,15 @@ MAX_OCI_CONFIG_LIST_ITEMS = 256
 MAX_OCI_CONFIG_STRING_LENGTH = 4_096
 MAX_OCI_CONFIG_JSON_NODES = 2_048
 OCI_CONFIG_PROFILE_SCHEMA = "laya-runtime-oci-config-profile-v1"
+OCI_CONFIG_EVIDENCE_SCHEMA = "laya-runtime-oci-config-evidence-v1"
 
 _FACTORY_TOKEN = object()
+_CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
+_CONFIG_SIZE_BYTES = 10_261
+_CONFIG_SHA256 = "bdd27ffe0d14dd637985f09bcdf461e58a64348829a4b3ad3cb7886ff56e20c5"
+_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
+_LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar+gzip"
+_OCI_MANIFEST_SEMANTICS_SHA256 = "e8b3c42b7698c4e821abbb6dca21e3226c8eca59d62983c2ba7ad0b1010539e5"
 _TOP_LEVEL_FIELDS = {"architecture", "config", "created", "history", "os", "rootfs"}
 _CONFIG_FIELDS = {"User", "Env", "Entrypoint", "WorkingDir", "Labels"}
 _HISTORY_REQUIRED_FIELDS = {"created", "created_by", "comment"}
@@ -78,6 +88,110 @@ _EXPECTED_DIFF_IDS = (
     "sha256:1805c5276e5a93fa136190900c0469b491e778b00748a739c78e2698427e0758",
 )
 
+_EXPECTED_BLOBS = (
+    (
+        "manifest",
+        _MANIFEST_MEDIA_TYPE,
+        "sha256:7e46eb4f9e10b81e550b2587d1b12d50e0e9d746e346077e860e702ce169d9f0",
+        3_166,
+    ),
+    ("config", _CONFIG_MEDIA_TYPE, "sha256:" + _CONFIG_SHA256, _CONFIG_SIZE_BYTES),
+    (
+        "layer-00",
+        _LAYER_MEDIA_TYPE,
+        "sha256:bc0965b23a04fe7f2d9fb20f597008fcf89891de1c705ffc1c80483a1f098e4f",
+        28_231_580,
+    ),
+    (
+        "layer-01",
+        _LAYER_MEDIA_TYPE,
+        "sha256:c58b365c3bcb57c930511e3fef962d15491ef2daba1e111fb5a6b41dbdecfc6b",
+        3_317_301,
+    ),
+    (
+        "layer-02",
+        _LAYER_MEDIA_TYPE,
+        "sha256:3bc3f72291794502343f023ab10455e459897b13a73f38b6b56cf266dccb7ec5",
+        16_202_769,
+    ),
+    (
+        "layer-03",
+        _LAYER_MEDIA_TYPE,
+        "sha256:42dacf6a4601de71542906f1be2bca5a78b8f430479b260a7097b9870498af69",
+        251,
+    ),
+    (
+        "layer-04",
+        _LAYER_MEDIA_TYPE,
+        "sha256:418d9aeceb23d76e9191b40d18f9c73816dc849ef0e1111a42343b73c8ccc51c",
+        21_573_096,
+    ),
+    (
+        "layer-05",
+        _LAYER_MEDIA_TYPE,
+        "sha256:ce65de5ef47521f33f7eb5bb76b05d5ff9c5a562e110b077449ff3af802803df",
+        31_693_638,
+    ),
+    (
+        "layer-06",
+        _LAYER_MEDIA_TYPE,
+        "sha256:eb0f362469da4169812e6a645b36eca3678d6aaf06acb0297850b2c525692398",
+        11_510,
+    ),
+    (
+        "layer-07",
+        _LAYER_MEDIA_TYPE,
+        "sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+        32,
+    ),
+    (
+        "layer-08",
+        _LAYER_MEDIA_TYPE,
+        "sha256:890fbe6d21f33111795ef040fe123b712444c40bc1f4e93a940a8baf9a93d339",
+        511_506_914,
+    ),
+    (
+        "layer-09",
+        _LAYER_MEDIA_TYPE,
+        "sha256:f3d008f925e78af5c67f1e8b54aead83de30df814e105ff93e12f02c0d515c14",
+        19_739,
+    ),
+)
+
+_LAYOUT_TRUE_FLAGS = (
+    "artifact_integrity_verified",
+    "oci_manifest_semantics_verified",
+    "oci_layout_controls_bytes_verified",
+    "oci_blob_inventory_verified",
+    "oci_same_root_capture_verified",
+    "oci_manifest_blob_bytes_verified",
+    "oci_config_blob_bytes_verified",
+    "oci_layer_blobs_bytes_verified",
+    "oci_bytes_verified",
+)
+_LAYOUT_FALSE_FLAGS = (
+    "lock_verified",
+    "sbom_verified",
+    "lock_sbom_consistent",
+    "runtime_config_semantics_verified",
+    "checkpoint_manifest_semantics_verified",
+    "checkpoint_bytes_verified",
+    "oci_config_semantics_verified",
+    "oci_layer_diff_ids_verified",
+    "oci_rootfs_verified",
+    "origin_verified",
+    "license_verified",
+    "base_ancestry_verified",
+    "rootfs_materialized",
+    "runtime_materialized",
+    "executor_available",
+    "inference_executed",
+)
+_CONFIG_TRUE_FLAGS = (*_LAYOUT_TRUE_FLAGS, "oci_config_semantics_verified")
+_CONFIG_FALSE_FLAGS = tuple(
+    flag for flag in _LAYOUT_FALSE_FLAGS if flag != "oci_config_semantics_verified"
+)
+
 
 class _ConfigValueError(ValueError):
     pass
@@ -121,6 +235,48 @@ class ValidatedLayaRuntimeOciConfig:
             or self.non_empty_history_count != 10
         ):
             raise ValueError("OCI config projection validation failed")
+
+    __repr__ = _private_repr
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LayaRuntimeOciConfigEvidence:
+    schema_version: str
+    layout_evidence: runtime_oci_layout.LayaRuntimeOciLayoutEvidence = field(repr=False)
+    config_receipt: runtime_oci_layout.VerifiedLayaOciBlob = field(repr=False)
+    config: ValidatedLayaRuntimeOciConfig = field(repr=False)
+    runtime_identity: object = field(repr=False)
+    _factory_token: InitVar[object]
+    artifact_integrity_verified: bool = field(init=False, default=True)
+    oci_manifest_semantics_verified: bool = field(init=False, default=True)
+    oci_layout_controls_bytes_verified: bool = field(init=False, default=True)
+    oci_blob_inventory_verified: bool = field(init=False, default=True)
+    oci_same_root_capture_verified: bool = field(init=False, default=True)
+    oci_manifest_blob_bytes_verified: bool = field(init=False, default=True)
+    oci_config_blob_bytes_verified: bool = field(init=False, default=True)
+    oci_layer_blobs_bytes_verified: bool = field(init=False, default=True)
+    oci_bytes_verified: bool = field(init=False, default=True)
+    oci_config_semantics_verified: bool = field(init=False, default=True)
+    lock_verified: bool = field(init=False, default=False)
+    sbom_verified: bool = field(init=False, default=False)
+    lock_sbom_consistent: bool = field(init=False, default=False)
+    runtime_config_semantics_verified: bool = field(init=False, default=False)
+    checkpoint_manifest_semantics_verified: bool = field(init=False, default=False)
+    checkpoint_bytes_verified: bool = field(init=False, default=False)
+    oci_layer_diff_ids_verified: bool = field(init=False, default=False)
+    oci_rootfs_verified: bool = field(init=False, default=False)
+    origin_verified: bool = field(init=False, default=False)
+    license_verified: bool = field(init=False, default=False)
+    base_ancestry_verified: bool = field(init=False, default=False)
+    rootfs_materialized: bool = field(init=False, default=False)
+    runtime_materialized: bool = field(init=False, default=False)
+    executor_available: bool = field(init=False, default=False)
+    inference_executed: bool = field(init=False, default=False)
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI config evidence construction is factory-sealed")
+        _revalidate_config_evidence(self)
 
     __repr__ = _private_repr
 
@@ -311,3 +467,228 @@ def _parse_laya_runtime_oci_config_bytes(payload: bytes) -> ValidatedLayaRuntime
             else "OCI config JSON depth limit exceeded"
         )
     _raise_private(ValueError, error_message or "OCI config validation failed")
+
+
+def _require_exact_prior_oci_evidence(value: object) -> None:
+    prior = value
+    if prior.schema_version != "laya-runtime-oci-evidence-v1":
+        raise _ConfigValueError("OCI layout nested evidence schema is invalid")
+    for flag in (
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "runtime_config_semantics_verified",
+        "checkpoint_manifest_semantics_verified",
+        "checkpoint_bytes_verified",
+        "oci_bytes_verified",
+        "origin_verified",
+        "runtime_materialized",
+        "executor_available",
+        "inference_executed",
+    ):
+        if getattr(prior, flag, None) is not False:
+            raise _ConfigValueError("OCI layout nested evidence claim is invalid")
+    manifest = prior.oci_manifest
+    if (
+        getattr(manifest, "schema_version", None) != 2
+        or getattr(manifest, "media_type", None) != _MANIFEST_MEDIA_TYPE
+        or getattr(manifest, "semantics_sha256", None) != _OCI_MANIFEST_SEMANTICS_SHA256
+        or type(getattr(manifest, "annotations", None)) is not tuple
+        or manifest.annotations != tuple(sorted(_EXPECTED_LABELS.items()))
+    ):
+        raise _ConfigValueError("OCI layout nested manifest evidence is invalid")
+    descriptors = (manifest.config, *manifest.layers)
+    if type(manifest.layers) is not tuple or len(descriptors) != 11:
+        raise _ConfigValueError("OCI layout nested descriptor graph is invalid")
+    for descriptor, expected in zip(descriptors, _EXPECTED_BLOBS[1:]):
+        _role, media_type, digest, size_bytes = expected
+        if (
+            type(descriptor) is not type(manifest.config)
+            or descriptor.media_type != media_type
+            or descriptor.digest != digest
+            or descriptor.size_bytes != size_bytes
+        ):
+            raise _ConfigValueError("OCI layout nested descriptor graph is invalid")
+    captured_manifests = tuple(
+        artifact for artifact in prior.snapshot.artifacts if artifact.spec.kind == "oci_manifest"
+    )
+    manifest_expected = _EXPECTED_BLOBS[0]
+    if len(captured_manifests) != 1:
+        raise _ConfigValueError("OCI layout nested manifest artifact is invalid")
+    spec = captured_manifests[0].spec
+    if (
+        spec.sha256 != manifest_expected[2].removeprefix("sha256:")
+        or spec.size_bytes != manifest_expected[3]
+        or prior.runtime_identity is not prior.snapshot.runtime_identity
+        or prior.snapshot.artifact_integrity_verified is not True
+    ):
+        raise _ConfigValueError("OCI layout nested manifest artifact is invalid")
+
+
+def _revalidate_layout_evidence(
+    layout_evidence: object,
+) -> tuple[
+    runtime_oci_layout.LayaRuntimeOciLayoutEvidence,
+    runtime_oci_layout.VerifiedLayaOciBlob,
+]:
+    if type(layout_evidence) is not runtime_oci_layout.LayaRuntimeOciLayoutEvidence:
+        raise _ConfigValueError("OCI layout evidence must be an exact sealed value")
+    try:
+        runtime_oci_layout.canonical_laya_runtime_oci_layout_summary_bytes(layout_evidence)
+    except (TypeError, ValueError):
+        raise _ConfigValueError("OCI layout evidence binding is invalid") from None
+    if layout_evidence.schema_version != runtime_oci_layout.LAYOUT_EVIDENCE_SCHEMA:
+        raise _ConfigValueError("OCI layout evidence schema is invalid")
+    for flag in _LAYOUT_TRUE_FLAGS:
+        if getattr(layout_evidence, flag, None) is not True:
+            raise _ConfigValueError("OCI layout evidence positive claim flag is invalid")
+    for flag in _LAYOUT_FALSE_FLAGS:
+        if getattr(layout_evidence, flag, None) is not False:
+            raise _ConfigValueError("OCI layout evidence conservative claim flag is invalid")
+
+    plan = layout_evidence.plan
+    if type(plan) is not runtime_oci_layout.LayaOciLayoutPlan:
+        raise _ConfigValueError("OCI layout plan type is invalid")
+    _require_exact_prior_oci_evidence(plan.oci_evidence)
+    if (
+        plan.schema_version != runtime_oci_layout.LAYOUT_PLAN_SCHEMA
+        or plan.runtime_identity is not plan.oci_evidence.runtime_identity
+        or layout_evidence.runtime_identity is not plan.runtime_identity
+        or plan.control_paths != ("oci-layout", "index.json")
+        or plan.control_file_count != 2
+        or type(plan.blobs) is not tuple
+        or len(plan.blobs) != len(_EXPECTED_BLOBS)
+        or plan.blob_count != len(_EXPECTED_BLOBS)
+        or plan.logical_file_count != len(_EXPECTED_BLOBS) + 2
+    ):
+        raise _ConfigValueError("OCI layout plan binding or count is invalid")
+
+    for blob, expected in zip(plan.blobs, _EXPECTED_BLOBS):
+        role, media_type, digest, size_bytes = expected
+        if type(blob) is not runtime_oci_layout.LayaOciBlobPlan:
+            raise _ConfigValueError("OCI layout blob descriptor type is invalid")
+        if (
+            blob.role != role
+            or blob.media_type != media_type
+            or blob.digest != digest
+            or blob.size_bytes != size_bytes
+            or blob.path != "blobs/sha256/" + digest.removeprefix("sha256:")
+        ):
+            raise _ConfigValueError("OCI layout blob descriptor profile is invalid")
+    expected_total = sum(item[3] for item in _EXPECTED_BLOBS)
+    if (
+        plan.index_manifest is not plan.blobs[0]
+        or plan.blob_total_size_bytes != expected_total
+        or plan.total_size_bytes != expected_total + 30 + 423
+    ):
+        raise _ConfigValueError("OCI layout index or total binding is invalid")
+
+    receipts = layout_evidence.receipts
+    if type(receipts) is not tuple or len(receipts) != len(plan.blobs):
+        raise _ConfigValueError("OCI layout receipt count is invalid")
+    for position, receipt in enumerate(receipts):
+        if (
+            type(receipt) is not runtime_oci_layout.VerifiedLayaOciBlob
+            or receipt.plan is not plan
+            or receipt.blob is not plan.blobs[position]
+            or receipt.blob_bytes_verified is not True
+        ):
+            raise _ConfigValueError("OCI layout receipt order or blob binding is invalid")
+    config_positions = tuple(
+        position for position, blob in enumerate(plan.blobs) if blob.role == "config"
+    )
+    if config_positions != (1,):
+        raise _ConfigValueError("OCI layout config descriptor uniqueness is invalid")
+    return layout_evidence, receipts[1]
+
+
+def _revalidate_config_projection(config: object) -> ValidatedLayaRuntimeOciConfig:
+    if type(config) is not ValidatedLayaRuntimeOciConfig:
+        raise _ConfigValueError("OCI config projection type is invalid")
+    try:
+        config.__post_init__(_FACTORY_TOKEN)
+    except (TypeError, ValueError):
+        raise _ConfigValueError("OCI config projection binding is invalid") from None
+    return config
+
+
+def _revalidate_config_evidence(
+    evidence: object,
+) -> LayaRuntimeOciConfigEvidence:
+    if type(evidence) is not LayaRuntimeOciConfigEvidence:
+        raise _ConfigValueError("OCI config evidence must be an exact sealed value")
+    if evidence.schema_version != OCI_CONFIG_EVIDENCE_SCHEMA:
+        raise _ConfigValueError("OCI config evidence schema binding is invalid")
+    layout_evidence, config_receipt = _revalidate_layout_evidence(evidence.layout_evidence)
+    _revalidate_config_projection(evidence.config)
+    if (
+        evidence.config_receipt is not config_receipt
+        or evidence.runtime_identity is not layout_evidence.runtime_identity
+    ):
+        raise _ConfigValueError("OCI config evidence binding is invalid")
+    for flag in _CONFIG_TRUE_FLAGS:
+        if getattr(evidence, flag, None) is not True:
+            raise _ConfigValueError("OCI config evidence positive claim flag is invalid")
+    for flag in _CONFIG_FALSE_FLAGS:
+        if getattr(evidence, flag, None) is not False:
+            raise _ConfigValueError("OCI config evidence conservative claim flag is invalid")
+    return evidence
+
+
+def validate_laya_runtime_oci_config_semantics(
+    layout_evidence: runtime_oci_layout.LayaRuntimeOciLayoutEvidence,
+    config_bytes: bytes,
+) -> LayaRuntimeOciConfigEvidence:
+    """Bind exact config bytes and semantics to one deeply validated layout."""
+
+    layout_failed = False
+    try:
+        validated_layout, config_receipt = _revalidate_layout_evidence(layout_evidence)
+    except Exception:
+        layout_failed = True
+    if layout_failed:
+        _raise_private(ValueError, "OCI layout evidence validation failed")
+    if type(config_bytes) is not bytes:
+        _raise_private(TypeError, "OCI config payload must be exact bytes")
+    if len(config_bytes) != _CONFIG_SIZE_BYTES:
+        _raise_private(ValueError, "OCI config payload size is invalid")
+    if hashlib.sha256(config_bytes).hexdigest() != _CONFIG_SHA256:
+        _raise_private(ValueError, "OCI config payload digest is invalid")
+    config = _parse_laya_runtime_oci_config_bytes(config_bytes)
+    return LayaRuntimeOciConfigEvidence(
+        schema_version=OCI_CONFIG_EVIDENCE_SCHEMA,
+        layout_evidence=validated_layout,
+        config_receipt=config_receipt,
+        config=config,
+        runtime_identity=validated_layout.runtime_identity,
+        _factory_token=_FACTORY_TOKEN,
+    )
+
+
+def canonical_laya_runtime_oci_config_summary_bytes(
+    evidence: LayaRuntimeOciConfigEvidence,
+) -> bytes:
+    """Return a canonical privacy-safe summary after full deep revalidation."""
+
+    validation_failed = False
+    try:
+        validated = _revalidate_config_evidence(evidence)
+    except Exception:
+        validation_failed = True
+    if validation_failed:
+        _raise_private(ValueError, "OCI config evidence binding validation failed")
+    payload = {
+        "schema_version": validated.schema_version,
+        "profile_schema_version": validated.config.schema_version,
+        "runtime_identity_schema_version": validated.runtime_identity.schema_version,
+        "runtime_identity_sha256": validated.runtime_identity.sha256,
+        **{flag: True for flag in _CONFIG_TRUE_FLAGS},
+        **{flag: False for flag in _CONFIG_FALSE_FLAGS},
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("ascii")
