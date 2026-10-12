@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "config": {
+    "mediaType": "application/vnd.oci.image.config.v1+json",
+    "digest": "sha256:bdd27ffe0d14dd637985f09bcdf461e58a64348829a4b3ad3cb7886ff56e20c5",
+    "size": 10261
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:bc0965b23a04fe7f2d9fb20f597008fcf89891de1c705ffc1c80483a1f098e4f",
+      "size": 28231580
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:c58b365c3bcb57c930511e3fef962d15491ef2daba1e111fb5a6b41dbdecfc6b",
+      "size": 3317301
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:3bc3f72291794502343f023ab10455e459897b13a73f38b6b56cf266dccb7ec5",
+      "size": 16202769
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:42dacf6a4601de71542906f1be2bca5a78b8f430479b260a7097b9870498af69",
+      "size": 251
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:418d9aeceb23d76e9191b40d18f9c73816dc849ef0e1111a42343b73c8ccc51c",
+      "size": 21573096
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:ce65de5ef47521f33f7eb5bb76b05d5ff9c5a562e110b077449ff3af802803df",
+      "size": 31693638
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:eb0f362469da4169812e6a645b36eca3678d6aaf06acb0297850b2c525692398",
+      "size": 11510
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+      "size": 32
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:890fbe6d21f33111795ef040fe123b712444c40bc1f4e93a940a8baf9a93d339",
+      "size": 511506914
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:f3d008f925e78af5c67f1e8b54aead83de30df814e105ff93e12f02c0d515c14",
+      "size": 19739
+    }
+  ],
+  "annotations": {
+    "org.aai-hydric.runtime.checkpoint-manifest.sha256": "e54ad4cf767dd653c0703f3671e5317a5dca18c351bee2ab0b7943b5472900bf",
+    "org.aai-hydric.runtime.config.sha256": "9a14323b31c463add7188331ce2c98bb3afbd491e15d06b1f98838a917454b5f",
+    "org.aai-hydric.runtime.sbom.sha256": "f2fde1a342990e3b5b4d74d4930bf37f6d2229768b509a27f34edffc009a03b2",
+    "org.aai-hydric.runtime.uv-lock.sha256": "e968771680b9c6e683163230ebd98b43541325ccb36d6959d1f9ed5565bd5526",
+    "org.opencontainers.image.base.digest": "sha256:840e180ebcc6e5c8efab209c43f5e40fd2af98cb49db5c7103c90539c56bb30e",
+    "org.opencontainers.image.base.name": "docker.io/library/python:3.11.10-slim-bookworm",
+    "org.opencontainers.image.licenses": "Apache-2.0",
+    "org.opencontainers.image.revision": "68804629e8ccd9d616d48a40e87de9fabbeae069",
+    "org.opencontainers.image.source": "https://github.com/NandhaKishorM/laya",
+    "org.opencontainers.image.version": "0.4.2"
+  }
+}
