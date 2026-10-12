@@ -305,9 +305,16 @@ def test_public_summary_and_repr_do_not_expose_private_corpus_values(tmp_path: P
     assert decoded["schema_version"] == PLAN_SCHEMA_VERSION
     assert decoded["calibration_policy_id"] == CALIBRATION_POLICY_ID
     assert decoded["evaluation_corpus_digest"] == evaluation_corpus_digest(corpus)
+    assert decoded["corpus_id"] == corpus.corpus_id
     assert decoded["sampling_protocol_id"] == corpus.sampling_protocol_id
     assert decoded["sampling_protocol_sha256"] == corpus.sampling_protocol_sha256
-    assert decoded["assignment_sha256"] == plan.assignment_sha256
+    assert "assignment_sha256" not in decoded
+    assert decoded["structurally_valid"] is True
+    assert decoded["evaluation_executed"] is False
+    assert decoded["calibration_fitted"] is False
+    assert decoded["scientifically_sufficient"] is False
+    assert decoded["eligible_for_shadow_review"] is False
+    assert decoded["production_enablement_authorized"] is False
     assert [fold["held_out_site"] for fold in decoded["folds"]] == list(REQUIRED_SITES)
     for fold in decoded["folds"]:
         assert set(fold) == {
@@ -356,7 +363,10 @@ def test_structural_plan_does_not_claim_scientific_sufficiency_or_enablement(
     plan = build_loso_evaluation_plan(_load_corpus(tmp_path, _records(), stem="flags"))
 
     assert plan.structurally_valid is True
+    assert plan.evaluation_executed is False
+    assert plan.calibration_fitted is False
     assert plan.scientifically_sufficient is False
+    assert plan.eligible_for_shadow_review is False
     assert plan.production_enablement_authorized is False
 
 
