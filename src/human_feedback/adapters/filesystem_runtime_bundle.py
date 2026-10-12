@@ -49,6 +49,10 @@ def _root_components(root: Any) -> tuple[str, ...]:
         raise RuntimeArtifactCaptureError("secure runtime root is invalid") from error
     if not isinstance(raw_root, str) or not os.path.isabs(raw_root):
         raise RuntimeArtifactCaptureError("secure runtime root must be absolute")
+    if raw_root == os.sep:
+        return ()
+    if raw_root.startswith(os.sep * 2) or os.sep * 2 in raw_root or raw_root.endswith(os.sep):
+        raise RuntimeArtifactCaptureError("secure runtime root is not canonical")
     components = tuple(component for component in raw_root.split(os.sep) if component)
     if any(component in {".", ".."} for component in components):
         raise RuntimeArtifactCaptureError("secure runtime root is not canonical")

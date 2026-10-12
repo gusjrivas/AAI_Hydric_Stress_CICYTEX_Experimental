@@ -48,7 +48,7 @@ def _require_verified_content(spec: RuntimeArtifactSpec, content: object) -> byt
 class CapturedRuntimeArtifact:
     """One artifact whose private bytes match its declared specification."""
 
-    spec: RuntimeArtifactSpec
+    spec: RuntimeArtifactSpec = field(repr=False)
     content: bytes = field(repr=False)
     _verification_token: InitVar[object]
 
@@ -63,8 +63,8 @@ class LayaRuntimeBundleSnapshot:
     """All-or-nothing integrity snapshot with conservative attestations."""
 
     schema_version: str
-    manifest: LayaRuntimeManifest
-    artifacts: tuple[CapturedRuntimeArtifact, ...]
+    manifest: LayaRuntimeManifest = field(repr=False)
+    artifacts: tuple[CapturedRuntimeArtifact, ...] = field(repr=False)
     runtime_identity: RuntimeIdentityRef
     _verification_token: InitVar[object]
     artifact_integrity_verified: bool = field(default=True, init=False)
