@@ -91,8 +91,8 @@ class LosoExecutionContract:
 
     schema_version: str
     plan: LosoEvaluationPlan = field(repr=False)
-    loso_plan_sha256: str
-    evaluation_corpus_sha256: str
+    loso_plan_sha256: str = field(repr=False)
+    evaluation_corpus_sha256: str = field(repr=False)
     runtime_identity: RuntimeIdentityRef
     execution_protocol_id: str
     execution_protocol_sha256: str
@@ -346,8 +346,6 @@ def canonical_loso_execution_summary_bytes(
     latencies = [prediction.latency_ms for prediction in evidence.predictions]
     payload = {
         "schema_version": evidence.contract.schema_version,
-        "loso_plan_sha256": evidence.contract.loso_plan_sha256,
-        "evaluation_corpus_sha256": evidence.contract.evaluation_corpus_sha256,
         "runtime_identity_schema_version": evidence.contract.runtime_identity.schema_version,
         "runtime_identity_sha256": evidence.contract.runtime_identity.sha256,
         "execution_protocol_id": evidence.contract.execution_protocol_id,
