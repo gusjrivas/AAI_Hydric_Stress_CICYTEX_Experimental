@@ -1,22 +1,37 @@
 import ast
+import hashlib
 import json
+import os
+import sys
 import traceback
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 REAL_CONFIG_SIZE_BYTES = 10_261
 REAL_CONFIG_SHA256 = "bdd27ffe0d14dd637985f09bcdf461e58a64348829a4b3ad3cb7886ff56e20c5"
 PROFILE_SCHEMA = "laya-runtime-oci-config-profile-v1"
+EVIDENCE_SCHEMA = "laya-runtime-oci-config-evidence-v1"
+REAL_CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
+REAL_LAYOUT_GATE_ENV = "LAYA_RUNTIME_OCI_LAYOUT_ROOT"
 MAX_CONFIG_BYTES = 64 * 1024
 MAX_JSON_DEPTH = 32
 MAX_OBJECT_MEMBERS = 64
 MAX_LIST_ITEMS = 256
 MAX_STRING_LENGTH = 4_096
 MAX_JSON_NODES = 2_048
-ALLOWED_PARSER_IMPORTS = {"__future__", "dataclasses", "json", "re", "typing"}
+ALLOWED_PARSER_IMPORTS = {
+    "__future__",
+    "dataclasses",
+    "hashlib",
+    "human_feedback.runtime_oci_layout",
+    "json",
+    "re",
+    "typing",
+}
 FORBIDDEN_PARSER_CALLS = {
     "__import__",
     "compile",
@@ -698,13 +713,19 @@ def test_module_public_surface_and_purity_are_exactly_allowlisted():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and not node.name.startswith("_")
     }
-    assert public_functions == set()
+    assert public_functions == {
+        "validate_laya_runtime_oci_config_semantics",
+        "canonical_laya_runtime_oci_config_summary_bytes",
+    }
     public_classes = {
         node.name
         for node in tree.body
         if isinstance(node, ast.ClassDef) and not node.name.startswith("_")
     }
-    assert public_classes == {"ValidatedLayaRuntimeOciConfig"}
+    assert public_classes == {
+        "ValidatedLayaRuntimeOciConfig",
+        "LayaRuntimeOciConfigEvidence",
+    }
     public_constants = {
         target.id
         for node in tree.body
@@ -720,4 +741,356 @@ def test_module_public_surface_and_purity_are_exactly_allowlisted():
         "MAX_OCI_CONFIG_STRING_LENGTH",
         "MAX_OCI_CONFIG_JSON_NODES",
         "OCI_CONFIG_PROFILE_SCHEMA",
+        "OCI_CONFIG_EVIDENCE_SCHEMA",
     }
+
+
+COMPOSITION_SYMBOLS = {
+    "LayaRuntimeOciConfigEvidence",
+    "validate_laya_runtime_oci_config_semantics",
+    "canonical_laya_runtime_oci_config_summary_bytes",
+}
+LAYOUT_TRUE_FLAGS = (
+    "artifact_integrity_verified",
+    "oci_manifest_semantics_verified",
+    "oci_layout_controls_bytes_verified",
+    "oci_blob_inventory_verified",
+    "oci_same_root_capture_verified",
+    "oci_manifest_blob_bytes_verified",
+    "oci_config_blob_bytes_verified",
+    "oci_layer_blobs_bytes_verified",
+    "oci_bytes_verified",
+)
+CONFIG_TRUE_FLAGS = (*LAYOUT_TRUE_FLAGS, "oci_config_semantics_verified")
+CONFIG_FALSE_FLAGS = (
+    "lock_verified",
+    "sbom_verified",
+    "lock_sbom_consistent",
+    "runtime_config_semantics_verified",
+    "checkpoint_manifest_semantics_verified",
+    "checkpoint_bytes_verified",
+    "oci_layer_diff_ids_verified",
+    "oci_rootfs_verified",
+    "origin_verified",
+    "license_verified",
+    "base_ancestry_verified",
+    "rootfs_materialized",
+    "runtime_materialized",
+    "executor_available",
+    "inference_executed",
+)
+
+
+def _uses_config_composition(source: str) -> bool:
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == "human_feedback.runtime_oci_config" for alias in node.names
+        ):
+            return True
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "human_feedback" and any(
+                alias.name == "runtime_oci_config" for alias in node.names
+            ):
+                return True
+            if node.module == "human_feedback.runtime_oci_config" and any(
+                alias.name == "*" or alias.name in COMPOSITION_SYMBOLS for alias in node.names
+            ):
+                return True
+            if node.level and (
+                node.module == "runtime_oci_config"
+                or (
+                    node.module in {None, ""}
+                    and any(alias.name == "runtime_oci_config" for alias in node.names)
+                )
+            ):
+                return True
+        if isinstance(node, ast.Name) and node.id in COMPOSITION_SYMBOLS:
+            return True
+        if isinstance(node, ast.Attribute) and node.attr in COMPOSITION_SYMBOLS:
+            return True
+        if isinstance(node, ast.Constant) and node.value in {
+            "human_feedback.runtime_oci_config",
+            *COMPOSITION_SYMBOLS,
+        }:
+            return True
+    return False
+
+
+def test_no_product_module_calls_config_composition_contract():
+    repository = Path(__file__).parents[1]
+    owner = repository / "src" / "human_feedback" / "runtime_oci_config.py"
+    offenders = []
+    for relative_root in ("backend", "src", "scripts"):
+        root = repository / relative_root
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.py"):
+            if path == owner:
+                continue
+            if _uses_config_composition(path.read_text(encoding="utf-8")):
+                offenders.append(path.relative_to(repository).as_posix())
+    assert offenders == []
+
+
+def test_validator_rejects_proxy_subclass_and_unsealed_layout_before_config_access(monkeypatch):
+    from human_feedback import runtime_oci_config as module
+    from human_feedback.runtime_oci_layout import LayaRuntimeOciLayoutEvidence
+
+    accesses = 0
+
+    class HostileConfig:
+        def __bytes__(self):
+            nonlocal accesses
+            accesses += 1
+            raise AssertionError("config bytes must not be coerced")
+
+        def __len__(self):
+            nonlocal accesses
+            accesses += 1
+            raise AssertionError("config bytes must not be sized")
+
+    class LayoutSubclass(LayaRuntimeOciLayoutEvidence):
+        pass
+
+    invalid_layouts = (
+        SimpleNamespace(oci_bytes_verified=True),
+        object.__new__(LayoutSubclass),
+        object.__new__(LayaRuntimeOciLayoutEvidence),
+    )
+    monkeypatch.setattr(
+        module,
+        "_parse_laya_runtime_oci_config_bytes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("parser must not run for invalid layout evidence")
+        ),
+    )
+    for invalid in invalid_layouts:
+        with pytest.raises(
+            (TypeError, ValueError), match="layout|evidence|sealed|valid"
+        ) as captured:
+            module.validate_laya_runtime_oci_config_semantics(invalid, HostileConfig())
+        _private_error(captured.value, "config bytes must not")
+    assert accesses == 0
+
+
+def test_config_evidence_and_summary_reject_direct_proxy_and_unsealed_values():
+    from human_feedback.runtime_oci_config import (
+        LayaRuntimeOciConfigEvidence,
+        canonical_laya_runtime_oci_config_summary_bytes,
+    )
+
+    with pytest.raises((TypeError, ValueError), match="factory|seal|layout|valid"):
+        LayaRuntimeOciConfigEvidence(
+            schema_version=EVIDENCE_SCHEMA,
+            layout_evidence=None,
+            config_receipt=None,
+            config=None,
+            runtime_identity=None,
+        )
+    for invalid in (
+        None,
+        SimpleNamespace(schema_version=EVIDENCE_SCHEMA),
+        object.__new__(LayaRuntimeOciConfigEvidence),
+    ):
+        with pytest.raises((TypeError, ValueError), match="evidence|sealed|valid"):
+            canonical_laya_runtime_oci_config_summary_bytes(invalid)
+
+
+def test_normal_suite_has_no_committed_config_blob_or_fabricated_positive_gate(monkeypatch):
+    monkeypatch.delenv(REAL_LAYOUT_GATE_ENV, raising=False)
+    fixture_root = Path(__file__).parent / "fixtures" / "laya"
+    assert os.environ.get(REAL_LAYOUT_GATE_ENV) is None
+    assert not any(path.name == REAL_CONFIG_SHA256 for path in fixture_root.rglob("*"))
+    assert not any(
+        path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == REAL_CONFIG_SHA256
+        for path in fixture_root.rglob("*")
+    )
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or not os.environ.get(REAL_LAYOUT_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(monkeypatch):
+    from human_feedback import runtime_oci_config as module
+    from human_feedback.adapters.filesystem_oci_layout import (
+        capture_and_verify_laya_oci_layout,
+    )
+    from human_feedback.runtime_oci_config import LayaRuntimeOciConfigEvidence
+    from tests.test_laya_runtime_oci_layout import _oci_evidence
+    from tests.test_laya_runtime_oci_layout_filesystem import _tree_fingerprint
+
+    assert "PYTEST_XDIST_WORKER" not in os.environ, "external OCI gate must run serially"
+    root = Path(os.environ[REAL_LAYOUT_GATE_ENV])
+    before = _tree_fingerprint(root)
+    layout_evidence = capture_and_verify_laya_oci_layout(_oci_evidence(), root)
+    config_positions = [
+        index for index, blob in enumerate(layout_evidence.plan.blobs) if blob.role == "config"
+    ]
+    assert config_positions == [1]
+    position = config_positions[0]
+    descriptor = layout_evidence.plan.blobs[position]
+    receipt = layout_evidence.receipts[position]
+    assert descriptor.media_type == REAL_CONFIG_MEDIA_TYPE
+    assert descriptor.size_bytes == REAL_CONFIG_SIZE_BYTES
+    assert descriptor.digest == "sha256:" + REAL_CONFIG_SHA256
+    assert receipt.plan is layout_evidence.plan
+    assert receipt.blob is descriptor
+    assert receipt.blob_bytes_verified is True
+    payload = (root / descriptor.path).read_bytes()
+    assert len(payload) == REAL_CONFIG_SIZE_BYTES
+    assert hashlib.sha256(payload).hexdigest() == REAL_CONFIG_SHA256
+
+    evidence = module.validate_laya_runtime_oci_config_semantics(layout_evidence, payload)
+    assert type(evidence) is LayaRuntimeOciConfigEvidence
+    assert is_dataclass(evidence)
+    assert not hasattr(evidence, "__dict__")
+    assert evidence.schema_version == EVIDENCE_SCHEMA
+    assert evidence.layout_evidence is layout_evidence
+    assert evidence.config_receipt is receipt
+    assert type(evidence.config) is module.ValidatedLayaRuntimeOciConfig
+    assert evidence.runtime_identity is layout_evidence.runtime_identity
+    for flag in CONFIG_TRUE_FLAGS:
+        assert getattr(evidence, flag) is True
+    for flag in CONFIG_FALSE_FLAGS:
+        assert getattr(evidence, flag) is False
+    assert not hasattr(evidence, "oci_config_same_fd_verified")
+    assert not hasattr(evidence, "oci_config_current_path_verified")
+
+    summary = module.canonical_laya_runtime_oci_config_summary_bytes(evidence)
+    decoded = json.loads(summary)
+    expected = {
+        "schema_version": EVIDENCE_SCHEMA,
+        "profile_schema_version": PROFILE_SCHEMA,
+        "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
+        "runtime_identity_sha256": evidence.runtime_identity.sha256,
+        **{flag: True for flag in CONFIG_TRUE_FLAGS},
+        **{flag: False for flag in CONFIG_FALSE_FLAGS},
+    }
+    assert decoded == expected
+    assert summary == json.dumps(
+        expected, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("ascii")
+    rendered = repr(evidence) + repr(evidence.config_receipt) + summary.decode("ascii")
+    private_values = (
+        str(root),
+        descriptor.path,
+        descriptor.digest,
+        str(descriptor.size_bytes),
+        *ENVIRONMENT,
+        *LABELS,
+        *LABELS.values(),
+        *DIFF_IDS,
+        "synthetic-private-history-command",
+    )
+    assert all(value not in rendered for value in private_values)
+
+    original_parser = module._parse_laya_runtime_oci_config_bytes
+    parsed = 0
+
+    def parser_spy(config_bytes):
+        nonlocal parsed
+        parsed += 1
+        return original_parser(config_bytes)
+
+    monkeypatch.setattr(module, "_parse_laya_runtime_oci_config_bytes", parser_spy)
+    mutations = (
+        payload[:-1],
+        payload + b"x",
+        bytes([payload[0] ^ 1]) + payload[1:],
+        bytearray(payload),
+        memoryview(payload),
+    )
+    for mutation in mutations:
+        with pytest.raises((TypeError, ValueError), match="bytes|size|digest|config") as captured:
+            module.validate_laya_runtime_oci_config_semantics(layout_evidence, mutation)
+        _private_error(captured.value, str(root), descriptor.digest)
+    assert parsed == 0
+
+    def forged_dataclass(value, **changes):
+        forged = object.__new__(type(value))
+        for field in fields(value):
+            object.__setattr__(
+                forged,
+                field.name,
+                changes.get(field.name, getattr(value, field.name)),
+            )
+        return forged
+
+    corrupt_layouts = (
+        forged_dataclass(layout_evidence, oci_bytes_verified=False),
+        forged_dataclass(layout_evidence, oci_config_semantics_verified=True),
+        forged_dataclass(layout_evidence, receipts=tuple(reversed(layout_evidence.receipts))),
+        forged_dataclass(layout_evidence, runtime_identity=object()),
+    )
+    for corrupt in corrupt_layouts:
+        with pytest.raises((TypeError, ValueError), match="layout|evidence|claim|receipt|valid"):
+            module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
+    assert parsed == 0
+
+    def forged_graph(*, blob_position=position, **blob_changes):
+        blobs = list(layout_evidence.plan.blobs)
+        original_blob = blobs[blob_position]
+        if "digest" in blob_changes and "path" not in blob_changes:
+            blob_changes["path"] = "blobs/sha256/" + blob_changes["digest"].removeprefix("sha256:")
+        blobs[blob_position] = forged_dataclass(original_blob, **blob_changes)
+        blob_total = sum(blob.size_bytes for blob in blobs)
+        plan = forged_dataclass(
+            layout_evidence.plan,
+            blobs=tuple(blobs),
+            index_manifest=blobs[0],
+            blob_total_size_bytes=blob_total,
+            total_size_bytes=(
+                layout_evidence.plan.total_size_bytes
+                + blob_total
+                - layout_evidence.plan.blob_total_size_bytes
+            ),
+        )
+        receipts = tuple(
+            forged_dataclass(
+                layout_evidence.receipts[index],
+                plan=plan,
+                blob=blob,
+            )
+            for index, blob in enumerate(blobs)
+        )
+        return forged_dataclass(layout_evidence, plan=plan, receipts=receipts)
+
+    graph_mutations = (
+        forged_graph(role="private-not-config"),
+        forged_graph(blob_position=2, role="config"),
+        forged_graph(media_type="application/vnd.oci.image.config.v1+private"),
+        forged_graph(digest="sha256:" + "a" * 64),
+        forged_graph(size_bytes=REAL_CONFIG_SIZE_BYTES + 1),
+    )
+    for corrupt in graph_mutations:
+        with pytest.raises((TypeError, ValueError), match="config|descriptor|blob|layout|valid"):
+            module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
+    assert parsed == 0
+
+    receipt_mutations = (
+        SimpleNamespace(
+            plan=layout_evidence.plan,
+            blob=descriptor,
+            blob_bytes_verified=True,
+        ),
+        forged_dataclass(receipt, blob=layout_evidence.plan.blobs[position + 1]),
+        forged_dataclass(receipt, blob_bytes_verified=False),
+    )
+    for corrupt_receipt in receipt_mutations:
+        receipts = list(layout_evidence.receipts)
+        receipts[position] = corrupt_receipt
+        corrupt = forged_dataclass(layout_evidence, receipts=tuple(receipts))
+        with pytest.raises((TypeError, ValueError), match="receipt|blob|layout|valid"):
+            module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
+    assert parsed == 0
+
+    for field in fields(evidence):
+        if field.name.startswith("_"):
+            continue
+        with pytest.raises(FrozenInstanceError):
+            setattr(evidence, field.name, getattr(evidence, field.name))
+        with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+            replace(evidence, **{field.name: getattr(evidence, field.name)})
+    assert _tree_fingerprint(root) == before
