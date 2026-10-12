@@ -16,6 +16,24 @@ MAX_OBJECT_MEMBERS = 64
 MAX_LIST_ITEMS = 256
 MAX_STRING_LENGTH = 4_096
 MAX_JSON_NODES = 2_048
+ALLOWED_PARSER_IMPORTS = {"__future__", "dataclasses", "json", "re", "typing"}
+FORBIDDEN_PARSER_CALLS = {
+    "__import__",
+    "compile",
+    "eval",
+    "exec",
+    "import_module",
+    "open",
+    "read_bytes",
+    "read_text",
+    "write_bytes",
+    "write_text",
+    "run",
+    "Popen",
+    "system",
+    "socket",
+    "urlopen",
+}
 BASE_CREATED = "2024-10-18T23:23:40Z"
 EPOCH_CREATED = "1970-01-01T00:00:00Z"
 EMPTY_HISTORY_INDEXES = {1, 2, 4, 5, 6, 9, 14, 17, 18, 19, 20}
@@ -138,6 +156,31 @@ def _private_error(error: BaseException, *markers: str) -> None:
     assert error.__cause__ is None
     assert error.__context__ is None
     assert error.__suppress_context__ is True
+
+
+def _parser_purity_violations(source: str) -> tuple[set[str], set[str]]:
+    tree = ast.parse(source)
+    forbidden_imports = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            forbidden_imports.update(
+                alias.name for alias in node.names if alias.name not in ALLOWED_PARSER_IMPORTS
+            )
+        elif isinstance(node, ast.ImportFrom):
+            if node.level >= 1:
+                forbidden_imports.add(f"relative:{node.level}:{node.module or ''}")
+            elif node.module not in ALLOWED_PARSER_IMPORTS:
+                forbidden_imports.add(node.module or "<missing-module>")
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    } | {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    return forbidden_imports, called.intersection(FORBIDDEN_PARSER_CALLS)
 
 
 def test_synthetic_profile_builder_sanity_does_not_embed_real_config_blob():
@@ -513,41 +556,56 @@ def test_validated_projection_is_frozen_slotted_factory_sealed_and_opaque():
         )
 
 
+def test_parser_purity_detector_accepts_only_intended_pure_stdlib():
+    source = """
+from __future__ import annotations
+from dataclasses import dataclass
+import json
+import re
+from typing import Any
+
+json.loads("{}")
+re.fullmatch("x", "x")
+"""
+    assert _parser_purity_violations(source) == (set(), set())
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from . import runtime_oci_layout",
+        "from .runtime_oci_layout import LayaOciLayoutPlan",
+        "from ..runtime_oci_layout import LayaOciLayoutPlan",
+        "import os",
+        "from pathlib import Path",
+        "__import__('os')",
+        "import importlib\nimportlib.import_module('os')",
+        "compile('x', 'private.py', 'exec')",
+        "eval('1')",
+        "exec('x = 1')",
+        "open('private')",
+        "Path('private').read_bytes()",
+        "Path('private').read_text()",
+        "Path('private').write_bytes(b'x')",
+        "Path('private').write_text('x')",
+        "subprocess.run([])",
+        "subprocess.Popen([])",
+        "os.system('private')",
+        "socket.socket()",
+        "urllib.request.urlopen('https://private.invalid')",
+    ],
+)
+def test_parser_purity_detector_rejects_relative_dynamic_and_effectful_snippets(source):
+    imports, calls = _parser_purity_violations(source)
+    assert imports or calls
+
+
 def test_module_public_surface_and_purity_are_exactly_allowlisted():
     from human_feedback import runtime_oci_config as module
 
     source = Path(module.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
-    imports = {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    } | {
-        node.module
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module is not None
-    }
-    assert imports <= {
-        "__future__",
-        "dataclasses",
-        "json",
-        "re",
-        "typing",
-    }
-    assert imports.isdisjoint(
-        {
-            "os",
-            "pathlib",
-            "subprocess",
-            "socket",
-            "http",
-            "urllib",
-            "requests",
-            "docker",
-            "human_feedback.runtime_oci_layout",
-        }
-    )
+    assert _parser_purity_violations(source) == (set(), set())
     public_functions = {
         node.name
         for node in tree.body
@@ -577,14 +635,3 @@ def test_module_public_surface_and_purity_are_exactly_allowlisted():
         "MAX_OCI_CONFIG_JSON_NODES",
         "OCI_CONFIG_PROFILE_SCHEMA",
     }
-    forbidden_calls = {"open", "read_bytes", "read_text", "run", "Popen", "urlopen", "socket"}
-    called = {
-        node.func.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    } | {
-        node.func.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    assert called.isdisjoint(forbidden_calls)
