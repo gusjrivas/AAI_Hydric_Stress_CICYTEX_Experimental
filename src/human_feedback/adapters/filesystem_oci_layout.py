@@ -244,16 +244,23 @@ def _path_fingerprint(
 
 def _blob_chunks(descriptor: int, expected_size: int):
     captured = 0
-    while captured <= expected_size:
-        amount = min(
-            runtime_oci_layout.MAX_OCI_BLOB_CHUNK_BYTES,
-            expected_size + 1 - captured,
-        )
+    capture_limit = expected_size + 1
+    chunk_limit = runtime_oci_layout.MAX_OCI_BLOB_CHUNK_BYTES
+    buffer = bytearray()
+    while captured < capture_limit:
+        amount = min(chunk_limit - len(buffer), capture_limit - captured)
         chunk = os.read(descriptor, amount)
         if not chunk:
             break
+        if type(chunk) is not bytes or len(chunk) > amount:
+            raise OciLayoutCaptureError("secure OCI blob read is invalid")
+        buffer.extend(chunk)
         captured += len(chunk)
-        yield chunk
+        if len(buffer) == chunk_limit:
+            yield bytes(buffer)
+            buffer.clear()
+    if buffer:
+        yield bytes(buffer)
 
 
 def _capture_blob(
