@@ -338,6 +338,85 @@ def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
     }
 
 
+def test_adapter_derives_layer_budgets_only_from_public_core_limits():
+    module = _adapter()
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    def constant_integer_expression(node):
+        if isinstance(node, ast.Constant) and type(node.value) is int:
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            left = constant_integer_expression(node.left)
+            right = constant_integer_expression(node.right)
+            if left is not None and right is not None:
+                return left * right
+        return None
+
+    forbidden_duplicates = {
+        "_MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        "_MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+    }
+    assigned_names = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for target in (node.targets if isinstance(node, ast.Assign) else (node.target,))
+        if isinstance(target, ast.Name)
+    }
+    core_limit_attributes = {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "runtime_oci_layers"
+        and node.attr
+        in {
+            "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+            "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+        }
+    }
+    duplicated_limit_literals = {
+        value
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for value in (constant_integer_expression(node.value),)
+        if value in {2 * 1_024 * 1_024 * 1_024, 3 * 1_024 * 1_024 * 1_024}
+    }
+
+    assert assigned_names.isdisjoint(forbidden_duplicates)
+    assert duplicated_limit_literals == set()
+    assert core_limit_attributes == {
+        "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+    }
+    assert callable(module._effective_layer_budget)
+
+
+def test_effective_layer_budget_uses_live_core_caps_and_validates_remaining(monkeypatch):
+    module = _adapter()
+    monkeypatch.setattr(
+        module.runtime_oci_layers,
+        "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        10,
+    )
+    monkeypatch.setattr(
+        module.runtime_oci_layers,
+        "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+        25,
+    )
+
+    remaining_values = (25, 17, 9)
+    budgets = tuple(module._effective_layer_budget(value) for value in remaining_values)
+    assert budgets == (10, 10, 9)
+    assert all(later < earlier for earlier, later in zip(remaining_values, remaining_values[1:]))
+    assert all(later <= earlier for earlier, later in zip(budgets, budgets[1:]))
+
+    for invalid in (True, False, 0, -1, 26, 1.0, None, "9"):
+        with pytest.raises((TypeError, ValueError), match="remaining|budget|integer|positive"):
+            module._effective_layer_budget(invalid)
+
+
 def test_missing_secure_capability_fails_before_open_or_root_coercion(monkeypatch):
     module = _adapter()
     evidence = _oci_evidence()

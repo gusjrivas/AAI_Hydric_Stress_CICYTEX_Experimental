@@ -150,6 +150,8 @@ def _filesystem_adapter_layer_contract_violations(source: str) -> tuple[str, ...
     module_name = "human_feedback.runtime_oci_layers"
     alias_name = "runtime_oci_layers"
     allowed_attributes = {
+        "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
         "prepare_laya_oci_layer_diff_id_plan",
         "verify_laya_oci_layer_diff_id_chunks",
         "_seal_laya_oci_layer_diff_ids_capture_authority",
@@ -626,13 +628,23 @@ def test_real_single_member_layer_streams_to_an_identity_bound_diff_id_receipt(m
     expansion_bomb = gzip.compress(b"x" * 65, mtime=0)
     with pytest.raises((TypeError, ValueError), match="expand|uncompressed|size|limit|layer"):
         verify_laya_oci_layer_diff_id_chunks(plan, blob.digest, iter((expansion_bomb,)))
-    consumed = 0
 
-    def budget_exhaustion_stream():
-        nonlocal consumed
-        consumed += 1
-        yield expansion_bomb
-        raise AssertionError("private-budget-trailing-sentinel")
+    class BudgetExhaustionStream:
+        def __init__(self):
+            self.requests = 0
+            self.sentinel_executed = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requests += 1
+            if self.requests == 1:
+                return expansion_bomb
+            self.sentinel_executed = True
+            raise AssertionError("private-budget-trailing-sentinel")
+
+    budget_stream = BudgetExhaustionStream()
 
     with pytest.raises(
         (TypeError, ValueError), match="budget|expand|uncompressed|size|limit|layer"
@@ -640,10 +652,11 @@ def test_real_single_member_layer_streams_to_an_identity_bound_diff_id_receipt(m
         verify_laya_oci_layer_diff_id_chunks(
             plan,
             blob.digest,
-            budget_exhaustion_stream(),
+            budget_stream,
             max_uncompressed_bytes=64,
         )
-    assert consumed == 1
+    assert budget_stream.requests == 1
+    assert budget_stream.sentinel_executed is False
     _private_error(captured.value, "private-budget-trailing-sentinel")
     monkeypatch.setattr(
         module.runtime_oci_layout,
