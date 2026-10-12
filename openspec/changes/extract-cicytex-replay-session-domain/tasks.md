@@ -15,8 +15,8 @@
 - [x] 2.2 Implementar `SessionRepository` y el adaptador in-memory sincronizado.
 - [x] 2.3 Inyectar el caso de uso y traducir errores sin cambiar HTTP.
 - [x] 2.4 Mantener feedback fuera del repositorio y distinguir su lock del estado de sesión.
-- [ ] 2.5 Revalidar atómicamente el reloj sin fallback de lecturas separadas.
-- [ ] 2.6 Derivar `can_advance` del mismo límite inyectado que usa `advance`.
+- [x] 2.5 Revalidar atómicamente el reloj sin fallback de lecturas separadas.
+- [x] 2.6 Derivar `can_advance` del mismo límite inyectado que usa `advance`.
 
 ## 3. Verificación
 
