@@ -41,7 +41,7 @@ No significa compatibilidad gzip multi-member genérica, validez TAR, semántica
 whiteouts, corrección del rootfs resultante, procedencia, licencia, ancestry de la
 base, materialización, executor ni inferencia.
 
-Las evidencias ejecutadas fueron: suite focal `60 passed, 5 skipped`; gate real
+Las evidencias finales ejecutadas fueron: suite focal `67 passed, 32 skipped`; gate real
 Linux `1 passed`, con 12 revalidaciones de blobs más 10 verificaciones DiffID; suite
 Laya completa `983 passed, 34 skipped`; Black y Ruff limpios. El gate real sigue
 siendo manual/opt-in, no un job obligatorio de CI.

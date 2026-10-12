@@ -22,7 +22,7 @@
 
 ## 4. Gates y alcance
 
-- [x] 4.1 Ejecutar suite focal: `60 passed, 5 skipped`.
+- [x] 4.1 Ejecutar suite focal final después de los fixes: `67 passed, 32 skipped`.
 - [x] 4.2 Ejecutar gate real manual/serial Linux sobre mount read-only: `1 passed`, 12 revalidaciones blob y 10 verificaciones DiffID.
 - [x] 4.3 Ejecutar suite Laya completa después de los fixes de presupuesto: `983 passed, 34 skipped`; Black y Ruff limpios.
 - [x] 4.4 Elevar sólo `oci_layer_diff_ids_verified`; mantener falsos TAR/rootfs/origen/licencia/ancestry/materialización/ejecución.

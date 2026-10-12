@@ -93,7 +93,7 @@ comprimidos, DiffIDs, sizes y contenido. Errores y `repr` tampoco filtran esos d
 - RED streaming/límites `bcfa8db` y autorización de dependencia `85b83a2`;
   GREEN `c70ace4`.
 - RED adapter/captura segura `b243c14`; GREEN `1e46ecd`.
-- Suite focal: `60 passed, 5 skipped`.
+- Suite focal final: `67 passed, 32 skipped`.
 - Gate real Linux: `1 passed`, con exactamente 12 llamadas de revalidación blob y
   10 llamadas de verificación DiffID.
 - Suite Laya completa: `983 passed, 34 skipped`; Black y Ruff limpios.
