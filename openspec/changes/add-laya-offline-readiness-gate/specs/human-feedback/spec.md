@@ -26,6 +26,13 @@ determinista que nunca autorice activación productiva.
 - **THEN** la decisión es `FAIL_QUALITY`
 - **AND** el sitio fallido queda identificado en razones ordenadas y estables.
 
+#### Scenario: Confianza por debajo del umbral productivo
+
+- **GIVEN** una predicción grabada cuya categoría es válida pero su confianza es menor a 0.85
+- **WHEN** se calculan cobertura, exactitud selectiva y costo
+- **THEN** la predicción cuenta como abstención
+- **AND** una confianza exactamente igual a 0.85 permanece aceptada.
+
 #### Scenario: Métricas puntuales aprobadas sin protocolo científico completo
 
 - **GIVEN** evidencia marcada como humana, supply chain verificada y todos los point estimates aprobados

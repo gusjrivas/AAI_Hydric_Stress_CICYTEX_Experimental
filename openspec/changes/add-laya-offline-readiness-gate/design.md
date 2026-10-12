@@ -29,6 +29,7 @@ Los límites se registran antes de observar un holdout humano y sólo pueden cam
 una nueva versión de política:
 
 - coverage >= 0.60;
+- umbral de aceptación consultiva >= 0.85, igual al caso de uso productivo;
 - accuracy total >= 0.70;
 - selective accuracy >= 0.80;
 - macro-F1 >= 0.65;
@@ -51,6 +52,7 @@ sombra real.
 - Una ejecución con fixture sintética puede pasar todas las métricas y aun así queda
   en `CHARACTERIZATION_ONLY`.
 - El caller no puede autoafirmar supply chain: el evaluador exige una verificación
-  ligada por digest a la identidad fijada y predicciones de la revisión declarada.
+  de bytes locales desde `artifact_root`, ligada por digest a la identidad fijada, y
+  predicciones de la revisión declarada.
 - La activación productiva permanece fuera de alcance y requiere otro cambio
   arquitectónico con TDD, evidencia humana cross-site y revisión independiente.
