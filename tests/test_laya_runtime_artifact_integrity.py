@@ -137,15 +137,21 @@ def test_payload_hash_and_size_must_match_each_declared_artifact(case: str):
 
 
 @pytest.mark.parametrize("path", tuple(ARTIFACT_PATHS.values()))
-def test_git_lfs_pointer_is_rejected_for_every_artifact_kind(path: str):
-    manifest = _manifest()
+@pytest.mark.parametrize("line_ending", [b"\n", b"\r\n"], ids=["lf", "crlf"])
+def test_git_lfs_pointer_is_rejected_for_every_artifact_kind(
+    path: str,
+    line_ending: bytes,
+):
     payloads = _payloads()
     pointer = (
-        b"version https://git-lfs.github.com/spec/v1\n"
-        b"oid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
-        b"size 123\n"
+        b"version https://git-lfs.github.com/spec/v1"
+        + line_ending
+        + b"oid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        + line_ending
+        + b"size 123"
     )
     payloads[path] = pointer
+    manifest = _manifest(payloads=payloads)
 
     with pytest.raises(ValueError, match="Git LFS|LFS|pointer") as error:
         _verify(manifest, payloads)
