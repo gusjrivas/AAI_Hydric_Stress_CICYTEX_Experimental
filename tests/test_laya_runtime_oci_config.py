@@ -331,6 +331,73 @@ def test_platform_and_created_are_exact(field, invalid):
         _private_error(captured.value, invalid)
 
 
+@pytest.mark.parametrize(
+    "invalid_created",
+    [
+        "2025-02-29T00:00:00Z",
+        "2024-02-30T00:00:00Z",
+        "2025-04-31T00:00:00Z",
+        "2025-02-31T00:00:00Z",
+        "2024-02-29T00:00:00+00:00",
+        "2024-02-29T00:00:00.000Z",
+    ],
+)
+def test_history_created_rejects_invalid_calendar_dates_offsets_and_fractions_privately(
+    invalid_created,
+):
+    value = _config_object()
+    value["history"][0]["created"] = invalid_created
+    with pytest.raises(ValueError, match="history|created|RFC|config") as captured:
+        _parse(_encoded(value))
+    _private_error(captured.value, invalid_created)
+
+
+@pytest.mark.parametrize(
+    "valid_created",
+    [
+        "2024-02-29T00:00:00Z",
+        "2025-02-28T23:59:59Z",
+        "2025-04-30T12:34:56Z",
+        "2025-01-31T00:00:00Z",
+        "2025-12-31T23:59:59Z",
+    ],
+)
+def test_history_created_accepts_valid_leap_day_and_real_month_endpoints(valid_created):
+    expected = _parse()
+    value = _config_object()
+    value["history"][0]["created"] = valid_created
+    assert _parse(_encoded(value)) == expected
+
+
+@pytest.mark.parametrize(
+    ("case", "invalid"),
+    [
+        ("top", []),
+        ("config", []),
+        ("rootfs", []),
+        ("history", {}),
+        ("Env", {}),
+        ("Labels", []),
+        ("diff_ids", {}),
+        ("Entrypoint", {}),
+    ],
+)
+def test_all_profile_containers_reject_wrong_types(case, invalid):
+    value = _config_object()
+    if case == "top":
+        value = invalid
+    elif case in {"config", "rootfs", "history"}:
+        value[case] = invalid
+    elif case in {"Env", "Labels", "Entrypoint"}:
+        value["config"][case] = invalid
+    else:
+        value["rootfs"][case] = invalid
+    with pytest.raises(
+        ValueError, match="field|profile|config|history|rootfs|environment|label|entrypoint"
+    ):
+        _parse(_encoded(value))
+
+
 @pytest.mark.parametrize("key", ["User", "Env", "Entrypoint", "WorkingDir", "Labels"])
 def test_nested_config_schema_is_closed_and_complete(key):
     value = _config_object()
@@ -606,6 +673,25 @@ def test_module_public_surface_and_purity_are_exactly_allowlisted():
     source = Path(module.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
     assert _parser_purity_violations(source) == (set(), set())
+    private_exception_classes = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name.startswith("_")
+        and any(
+            isinstance(base, ast.Name) and base.id in {"TypeError", "ValueError"}
+            for base in node.bases
+        )
+    }
+    constructed_private_exceptions = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in private_exception_classes
+    }
+    assert "_ConfigTypeError" not in private_exception_classes
+    assert private_exception_classes <= constructed_private_exceptions
     public_functions = {
         node.name
         for node in tree.body
