@@ -16,6 +16,7 @@ SCHEMA_VERSION = "laya-runtime-manifest-v1"
 IDENTITY_SCHEMA_VERSION = "laya-runtime-identity-v1"
 LAYA_PROVIDER = "laya-http"
 LAYA_ENGINE = "laya==0.4.2"
+LAYA_RUNTIME_ID = "laya-0.4.2-python-3.11.10-linux-amd64"
 LAYA_SOURCE_PREFIX = "https://github.com/convaiinnovations/laya@"
 LAYA_LICENSE = "Apache-2.0"
 PYTHON_VERSION = "3.11.10"
@@ -52,7 +53,6 @@ _MANIFEST_FIELDS = frozenset(
     }
 )
 _ARTIFACT_FIELDS = frozenset({"kind", "format", "path", "sha256", "size_bytes"})
-_RUNTIME_ID = re.compile(r"[a-z0-9][a-z0-9._-]*\Z")
 _RELATIVE_POSIX_PATH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*\Z")
 
 
@@ -89,8 +89,8 @@ def _require_sha1(value: object, *, label: str) -> str:
 
 
 def _require_runtime_id(value: object) -> str:
-    if not isinstance(value, str) or _RUNTIME_ID.fullmatch(value) is None:
-        raise ValueError("runtime id must be a canonical ASCII identifier")
+    if value != LAYA_RUNTIME_ID:
+        raise ValueError(f"runtime id must be exactly {LAYA_RUNTIME_ID}")
     return value
 
 
@@ -202,6 +202,9 @@ def _validate_manifest(manifest: LayaRuntimeManifest) -> None:
     kinds = tuple(artifact.kind for artifact in manifest.artifacts)
     if kinds != ARTIFACT_KINDS:
         raise ValueError("runtime artifacts require each exact artifact kind once")
+    paths = tuple(artifact.path for artifact in manifest.artifacts)
+    if len(paths) != len(set(paths)):
+        raise ValueError("runtime artifact paths must be unique without duplicates")
 
 
 def _manifest_payload(manifest: LayaRuntimeManifest) -> dict[str, object]:
