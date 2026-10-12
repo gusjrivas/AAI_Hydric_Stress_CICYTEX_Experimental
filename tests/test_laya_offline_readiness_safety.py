@@ -7,8 +7,8 @@ import pytest
 from tests.test_laya_offline_readiness import (
     CATEGORIES,
     FIXTURE,
+    _materialize_supply,
     _perfect_predictions,
-    _supply_verification,
 )
 
 
@@ -24,18 +24,19 @@ def test_gate_rejects_caller_asserted_supply_boolean():
     from human_feedback.offline_readiness import evaluate_readiness, load_contract
 
     contract = load_contract(FIXTURE)
-    with pytest.raises(TypeError, match="SupplyVerification"):
+    with pytest.raises(TypeError, match="unexpected keyword"):
         evaluate_readiness(
             contract,
             _perfect_predictions(contract),
-            supply_verification=True,
+            supply_verified=True,
         )
 
 
-def test_gate_rejects_predictions_not_bound_to_the_pinned_checkpoint():
+def test_gate_rejects_predictions_not_bound_to_the_pinned_checkpoint(tmp_path: Path):
     from human_feedback.offline_readiness import evaluate_readiness, load_contract
 
     contract = load_contract(FIXTURE)
+    contract, artifact_root = _materialize_supply(contract, tmp_path)
     predictions = _perfect_predictions(contract)
     predictions = (replace(predictions[0], model_revision="different-checkpoint"), *predictions[1:])
 
@@ -43,14 +44,15 @@ def test_gate_rejects_predictions_not_bound_to_the_pinned_checkpoint():
         evaluate_readiness(
             contract,
             predictions,
-            supply_verification=_supply_verification(contract),
+            artifact_root=artifact_root,
         )
 
 
-def test_gate_rejects_extra_predictions_before_scientific_site_filtering():
+def test_gate_rejects_extra_predictions_before_scientific_site_filtering(tmp_path: Path):
     from human_feedback.offline_readiness import evaluate_readiness, load_contract
 
     contract = load_contract(FIXTURE)
+    contract, artifact_root = _materialize_supply(contract, tmp_path)
     predictions = _perfect_predictions(contract)
     extra = replace(predictions[0], example_id="unknown-extra")
 
@@ -58,11 +60,13 @@ def test_gate_rejects_extra_predictions_before_scientific_site_filtering():
         evaluate_readiness(
             contract,
             (*predictions, extra),
-            supply_verification=_supply_verification(contract),
+            artifact_root=artifact_root,
         )
 
 
-def test_quality_targets_cannot_claim_shadow_readiness_before_scientific_protocol():
+def test_quality_targets_cannot_claim_shadow_readiness_before_scientific_protocol(
+    tmp_path: Path,
+):
     from human_feedback.offline_readiness import evaluate_readiness, load_contract
 
     contract = load_contract(FIXTURE)
@@ -70,11 +74,12 @@ def test_quality_targets_cannot_claim_shadow_readiness_before_scientific_protoco
         contract,
         corpus=replace(contract.corpus, evidence_role="human_cross_site", adjudicated=True),
     )
+    promoted, artifact_root = _materialize_supply(promoted, tmp_path)
 
     report = evaluate_readiness(
         promoted,
         _perfect_predictions(promoted),
-        supply_verification=_supply_verification(promoted),
+        artifact_root=artifact_root,
     )
 
     assert report.decision == "BLOCKED_SCIENTIFIC_METHOD_PENDING"
@@ -88,6 +93,7 @@ def test_non_finite_policy_thresholds_are_rejected():
     with pytest.raises(ValueError, match="finite"):
         ReadinessPolicy(
             policy_id="invalid",
+            minimum_decision_confidence=0.85,
             minimum_coverage=0.6,
             minimum_accuracy=0.7,
             minimum_selective_accuracy=0.8,
@@ -121,3 +127,29 @@ def test_declared_choice_must_match_unique_probability_argmax():
             provider="laya-http",
             model_revision="revision",
         )
+
+
+def test_gate_applies_the_same_exact_confidence_boundary_as_production(
+    tmp_path: Path,
+):
+    from human_feedback.offline_readiness import evaluate_readiness, load_contract
+
+    contract = load_contract(FIXTURE)
+    contract, artifact_root = _materialize_supply(contract, tmp_path)
+    predictions = list(_perfect_predictions(contract))
+    predictions[0] = replace(
+        predictions[0],
+        probabilities=tuple(zip(CATEGORIES, (0.84, 0.04, 0.04, 0.04, 0.04), strict=True)),
+    )
+    predictions[1] = replace(
+        predictions[1],
+        probabilities=tuple(zip(CATEGORIES, (0.0375, 0.85, 0.0375, 0.0375, 0.0375), strict=True)),
+    )
+
+    report = evaluate_readiness(
+        contract,
+        tuple(predictions),
+        artifact_root=artifact_root,
+    )
+
+    assert report.metrics.coverage == pytest.approx(14 / 15)

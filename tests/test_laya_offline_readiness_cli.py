@@ -70,29 +70,12 @@ def test_cli_is_offline_and_reports_characterization_without_enabling_laya(
     assert report["production_enablement_authorized"] is False
 
 
-def test_cli_require_shadow_eligibility_fails_for_synthetic_evidence(monkeypatch, capsys, tmp_path):
-    predictions = _write_predictions(tmp_path)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            str(SCRIPT),
-            "--contract",
-            str(FIXTURE),
-            "--predictions",
-            str(predictions),
-            "--artifact-root",
-            str(tmp_path),
-            "--require-shadow-eligible",
-        ],
-    )
+def test_cli_does_not_advertise_an_unimplemented_shadow_eligibility_gate(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--help"])
 
     try:
         runpy.run_path(str(SCRIPT), run_name="__main__")
     except SystemExit as error:
-        assert error.code == 1
-    else:
-        raise AssertionError("synthetic evidence must not satisfy the readiness gate")
+        assert error.code == 0
 
-    report = json.loads(capsys.readouterr().out)
-    assert report["decision"] == "CHARACTERIZATION_ONLY"
+    assert "shadow" not in capsys.readouterr().out.casefold()

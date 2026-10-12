@@ -53,6 +53,7 @@
   },
   "policy": {
     "policy_id": "laya-readiness-policy-v1",
+    "minimum_decision_confidence": 0.85,
     "minimum_coverage": 0.6,
     "minimum_accuracy": 0.7,
     "minimum_selective_accuracy": 0.8,

@@ -15,13 +15,26 @@ CATEGORIES = (
 )
 
 
-def _supply_verification(contract):
-    from human_feedback.offline_readiness import SupplyVerification, supply_identity_digest
+def _materialize_supply(contract, tmp_path: Path):
+    from human_feedback.offline_readiness import SupplyArtifact
 
-    return SupplyVerification(
-        verified=True,
-        failures=(),
-        supply_digest=supply_identity_digest(contract.supply),
+    artifact_root = tmp_path / "supply"
+    artifacts = []
+    for index, name in enumerate(("model.safetensors", "tokenizer.json")):
+        payload = f"verified-artifact-{index}".encode()
+        path = artifact_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+        artifacts.append(
+            SupplyArtifact(
+                path=name,
+                sha256=hashlib.sha256(payload).hexdigest(),
+                size_bytes=len(payload),
+            )
+        )
+    return (
+        replace(contract, supply=replace(contract.supply, artifacts=tuple(artifacts))),
+        artifact_root,
     )
 
 
@@ -181,7 +194,7 @@ def test_predictions_fail_closed_on_missing_extra_duplicate_or_invalid_probabili
         replace(valid, probabilities=tuple(zip(CATEGORIES, (0.9, 0.1, 0.1, 0.1, 0.1))))
 
 
-def test_synthetic_contract_is_only_characterization_and_report_is_canonical():
+def test_synthetic_contract_is_only_characterization_and_report_is_canonical(tmp_path: Path):
     from human_feedback.offline_readiness import (
         canonical_report_bytes,
         evaluate_readiness,
@@ -189,14 +202,14 @@ def test_synthetic_contract_is_only_characterization_and_report_is_canonical():
     )
 
     contract = load_contract(FIXTURE)
+    contract, artifact_root = _materialize_supply(contract, tmp_path)
     predictions = _perfect_predictions(contract)
-    verification = _supply_verification(contract)
 
-    report_a = evaluate_readiness(contract, predictions, supply_verification=verification)
+    report_a = evaluate_readiness(contract, predictions, artifact_root=artifact_root)
     report_b = evaluate_readiness(
         contract,
         tuple(reversed(predictions)),
-        supply_verification=verification,
+        artifact_root=artifact_root,
     )
 
     assert report_a.decision == "CHARACTERIZATION_ONLY"
@@ -208,7 +221,7 @@ def test_synthetic_contract_is_only_characterization_and_report_is_canonical():
     assert decoded["production_enablement_authorized"] is False
 
 
-def test_human_evidence_cannot_hide_a_failed_site_behind_the_global_average():
+def test_human_evidence_cannot_hide_a_failed_site_behind_the_global_average(tmp_path: Path):
     from human_feedback.offline_readiness import evaluate_readiness, load_contract
 
     contract = load_contract(FIXTURE)
@@ -216,6 +229,7 @@ def test_human_evidence_cannot_hide_a_failed_site_behind_the_global_average():
         contract,
         corpus=replace(contract.corpus, evidence_role="human_cross_site", adjudicated=True),
     )
+    contract, artifact_root = _materialize_supply(contract, tmp_path)
     predictions = _perfect_predictions(contract)
     predictions = tuple(
         (
@@ -235,10 +249,10 @@ def test_human_evidence_cannot_hide_a_failed_site_behind_the_global_average():
     report = evaluate_readiness(
         contract,
         predictions,
-        supply_verification=_supply_verification(contract),
+        artifact_root=artifact_root,
     )
 
-    assert report.decision == "BLOCKED_SCIENTIFIC_METHOD_PENDING"
+    assert report.decision == "FAIL_QUALITY"
     assert "minimum_site_macro_f1:melchor-romero" in report.failed_gates
     assert report.production_enablement_authorized is False
 
