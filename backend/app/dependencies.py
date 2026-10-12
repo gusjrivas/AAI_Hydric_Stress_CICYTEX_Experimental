@@ -6,16 +6,20 @@ validación, reusando `data_ingestion.sensor_naming.validate_sensor_id`.
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import Depends, HTTPException
 
 from data_ingestion.catalog import CatalogRepository
 from data_ingestion.sensor_naming import validate_sensor_id
 from historical_replay.adapters.cicytex_csv import CsvReplayCatalogSource
+from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
 from historical_replay.catalog import GetReplayCatalog
 from historical_replay.feedback import ReplayFeedbackStore
 from historical_replay.package_loader import LoadedReplayPackage, load_package
+from historical_replay.sessions import ReplaySessionService
 from human_feedback.adapters.disabled import DisabledDecisionPolicyEngine
 from human_feedback.adapters.laya_http import LayaDecisionPolicyEngine
 from human_feedback.decision_policy import TriageFeedback
@@ -28,6 +32,12 @@ from .config import (
     get_historical_replay_package_dir,
     is_historical_replay_enabled,
     is_producer_v2_enabled,
+)
+
+_cicytex_replay_sessions = ReplaySessionService(
+    InMemorySessionRepository(),
+    id_factory=lambda: uuid4().hex,
+    last_observation=date(2023, 7, 25),
 )
 
 
@@ -93,6 +103,12 @@ def get_cicytex_replay_catalog() -> GetReplayCatalog:
         else Path(__file__).resolve().parents[2] / "results" / "cicytex" / "causal_replay"
     )
     return GetReplayCatalog(CsvReplayCatalogSource(root))
+
+
+def get_cicytex_replay_sessions() -> ReplaySessionService:
+    """Process-scoped session use case, replaceable through FastAPI overrides."""
+
+    return _cicytex_replay_sessions
 
 
 def get_feedback_triage() -> TriageFeedback:
