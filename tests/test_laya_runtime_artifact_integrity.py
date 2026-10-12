@@ -217,6 +217,11 @@ def test_raw_artifact_content_never_appears_in_repr_or_public_summary():
     for raw in _raw_values(payloads):
         assert raw not in rendered
         assert raw.encode("ascii") not in summary
+    for spec in snapshot.manifest.artifacts:
+        assert spec.path not in rendered
+        assert spec.sha256 not in rendered
+        assert spec.path.encode("ascii") not in summary
+        assert spec.sha256.encode("ascii") not in summary
     assert "content=" not in rendered
     assert "content" not in decoded
 

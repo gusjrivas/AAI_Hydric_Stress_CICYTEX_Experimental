@@ -107,6 +107,44 @@ def test_windows_real_capture_fails_closed(tmp_path):
     _assert_private_details_hidden(error.value, root, payloads)
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="root lexical validation is a Linux boundary")
+@pytest.mark.parametrize(
+    "root_variant",
+    ["internal-double-slash", "double-leading-slash", "trailing-slash"],
+)
+def test_linux_noncanonical_root_is_rejected_before_any_open(monkeypatch, tmp_path, root_variant):
+    module = _filesystem_adapter()
+    manifest = _manifest()
+    canonical = str(tmp_path / "runtime")
+    if root_variant == "internal-double-slash":
+        root = f"{tmp_path}//runtime"
+    elif root_variant == "double-leading-slash":
+        root = f"/{canonical}"
+    else:
+        root = canonical + "/"
+    opened = False
+
+    def forbidden_open(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("noncanonical roots must fail before os.open")
+
+    monkeypatch.setattr(module, "_secure_runtime_capture_available", lambda: True)
+    monkeypatch.setattr(module.os, "open", forbidden_open)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError, match="root|canonical"):
+        module.capture_and_verify_laya_runtime_artifacts(manifest, root)
+
+    assert opened is False
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="root lexical validation is a Linux boundary")
+def test_linux_slash_root_is_explicitly_canonical():
+    module = _filesystem_adapter()
+
+    assert module._root_components("/") == ()
+
+
 @pytest.mark.skipif(not IS_LINUX, reason="secure dir-fd traversal is a Linux contract")
 def test_linux_captures_exactly_the_five_manifest_artifacts(tmp_path):
     from human_feedback.runtime_bundle import LayaRuntimeBundleSnapshot
