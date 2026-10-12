@@ -161,6 +161,33 @@ def _predictions(contract):
     )
 
 
+def _private_prediction_content_sha256(predictions) -> str:
+    payload = {
+        "domain": "laya-loso-prediction-content-v1",
+        "rows": [
+            {
+                "held_out_site": prediction.held_out_site,
+                "example_id": prediction.example_id,
+                "category": prediction.category,
+                "probabilities": [list(item) for item in prediction.probabilities],
+                "answer_confidence": prediction.answer_confidence,
+                "latency_ms": prediction.latency_ms,
+                "provider": prediction.provider,
+                "model_revision": prediction.model_revision,
+            }
+            for prediction in predictions
+        ],
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _private_values(records: list[dict[str, object]]) -> set[str]:
     return (
         {str(record["example_id"]) for record in records}
@@ -461,6 +488,7 @@ def test_canonical_summary_normalizes_equivalent_numeric_representations(tmp_pat
     assert loso_execution_evidence_digest(integer_evidence) == loso_execution_evidence_digest(
         float_evidence
     )
+    assert integer_evidence.prediction_content_sha256 == float_evidence.prediction_content_sha256
 
 
 def test_canonical_summary_normalizes_negative_zero(tmp_path: Path):
@@ -496,6 +524,71 @@ def test_canonical_summary_normalizes_negative_zero(tmp_path: Path):
     assert loso_execution_evidence_digest(positive_evidence) == loso_execution_evidence_digest(
         negative_evidence
     )
+    assert (
+        positive_evidence.prediction_content_sha256 == negative_evidence.prediction_content_sha256
+    )
+
+
+def test_private_prediction_commitment_covers_complete_canonical_batch(tmp_path: Path):
+    from human_feedback.evaluation_execution import validate_loso_prediction_set
+
+    contract, _ = _contract(tmp_path)
+    evidence = validate_loso_prediction_set(contract, _predictions(contract))
+
+    assert evidence.prediction_content_sha256 == _private_prediction_content_sha256(
+        evidence.predictions
+    )
+    assert not hasattr(evidence, "__dict__")
+
+
+def test_private_commitment_detects_content_hidden_from_public_summary(tmp_path: Path):
+    from human_feedback.evaluation_execution import (
+        canonical_loso_execution_summary_bytes,
+        loso_execution_evidence_digest,
+        validate_loso_prediction_set,
+    )
+
+    contract, _ = _contract(tmp_path)
+    rows_a = _predictions(contract)
+    rows_b = list(rows_a)
+    original = rows_b[0]
+    alternate_category = next(category for category in CATEGORIES if category != original.category)
+    rows_b[0] = replace(
+        original,
+        category=alternate_category,
+        probabilities=tuple(
+            (category, 1.0 if category == alternate_category else 0.0) for category in CATEGORIES
+        ),
+    )
+    evidence_a = validate_loso_prediction_set(contract, rows_a)
+    evidence_b = validate_loso_prediction_set(contract, tuple(rows_b))
+    summary_a = canonical_loso_execution_summary_bytes(evidence_a)
+    summary_b = canonical_loso_execution_summary_bytes(evidence_b)
+
+    assert [row.latency_ms for row in evidence_a.predictions] == [
+        row.latency_ms for row in evidence_b.predictions
+    ]
+    assert summary_a == summary_b
+    assert loso_execution_evidence_digest(evidence_a) == loso_execution_evidence_digest(evidence_b)
+    assert evidence_a.prediction_content_sha256 != evidence_b.prediction_content_sha256
+    assert "prediction_content_sha256" not in json.loads(summary_a)
+    assert evidence_a.prediction_content_sha256.encode("ascii") not in summary_a
+    assert evidence_a.prediction_content_sha256 not in repr(evidence_a)
+    assert evidence_b.prediction_content_sha256 not in repr(evidence_b)
+
+
+def test_validated_prediction_commitment_rejects_tampering_and_null_sentinel(tmp_path: Path):
+    from human_feedback.evaluation_execution import validate_loso_prediction_set
+
+    contract, _ = _contract(tmp_path)
+    evidence = validate_loso_prediction_set(contract, _predictions(contract))
+    changed_rows = list(evidence.predictions)
+    changed_rows[0] = replace(changed_rows[0], latency_ms=changed_rows[0].latency_ms + 1.0)
+
+    with pytest.raises(ValueError, match="prediction|content|commitment|digest|null|sentinel"):
+        replace(evidence, prediction_content_sha256="0" * 64)
+    with pytest.raises(ValueError, match="prediction|content|commitment|digest"):
+        replace(evidence, predictions=tuple(changed_rows))
 
 
 def test_public_summary_uses_safe_latency_aggregates_not_prediction_content_commitments(
