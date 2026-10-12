@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json as _json_parser
-from dataclasses import InitVar, dataclass
+from dataclasses import InitVar, dataclass, field
 from typing import Any
+
+from human_feedback import runtime_bundle, runtime_identity
 
 MAX_OCI_MANIFEST_BYTES = 64 * 1024
 MAX_OCI_JSON_DEPTH = 32
 MAX_OCI_STRING_LENGTH = 4_096
 MAX_OCI_LAYERS = 128
 MAX_OCI_ANNOTATIONS = 64
+OCI_EVIDENCE_SCHEMA_VERSION = "laya-runtime-oci-evidence-v1"
 
 _MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 _CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
@@ -49,13 +52,15 @@ _ANNOTATIONS = {
     "org.opencontainers.image.base.digest": (
         "sha256:840e180ebcc6e5c8efab209c43f5e40fd2af98cb49db5c7103c90539c56bb30e"
     ),
-    "org.opencontainers.image.base.name": "dock" "er.io/library/python:3.11.10-slim-bookworm",
+    "org.opencontainers.image.base.name": "docker.io/library/python:3.11.10-slim-bookworm",
     "org.opencontainers.image.licenses": "Apache-2.0",
     "org.opencontainers.image.revision": "68804629e8ccd9d616d48a40e87de9fabbeae069",
     "org.opencontainers.image.source": "https://github.com/NandhaKishorM/laya",
     "org.opencontainers.image.version": "0.4.2",
 }
 _SEMANTICS_SHA256 = "e8b3c42b7698c4e821abbb6dca21e3226c8eca59d62983c2ba7ad0b1010539e5"
+_OCI_PAYLOAD_SIZE_BYTES = 3_166
+_OCI_PAYLOAD_SHA256 = "7e46eb4f9e10b81e550b2587d1b12d50e0e9d746e346077e860e702ce169d9f0"
 _FACTORY_TOKEN = object()
 
 
@@ -129,6 +134,44 @@ class ValidatedLayaOciManifest:
             raise ValueError("OCI manifest media profile is invalid")
         if self.semantics_sha256 != _SEMANTICS_SHA256:
             raise ValueError("OCI manifest semantic commitment is invalid")
+
+    __repr__ = _private_repr
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LayaRuntimeOciEvidence:
+    schema_version: str
+    snapshot: runtime_bundle.LayaRuntimeBundleSnapshot
+    oci_manifest: ValidatedLayaOciManifest
+    runtime_identity: runtime_identity.RuntimeIdentityRef
+    _factory_token: InitVar[object]
+    artifact_integrity_verified: bool = field(default=True, init=False)
+    oci_manifest_semantics_verified: bool = field(default=True, init=False)
+    lock_verified: bool = field(default=False, init=False)
+    sbom_verified: bool = field(default=False, init=False)
+    lock_sbom_consistent: bool = field(default=False, init=False)
+    runtime_config_semantics_verified: bool = field(default=False, init=False)
+    checkpoint_manifest_semantics_verified: bool = field(default=False, init=False)
+    checkpoint_bytes_verified: bool = field(default=False, init=False)
+    oci_bytes_verified: bool = field(default=False, init=False)
+    origin_verified: bool = field(default=False, init=False)
+    runtime_materialized: bool = field(default=False, init=False)
+    executor_available: bool = field(default=False, init=False)
+    inference_executed: bool = field(default=False, init=False)
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI evidence construction is factory-sealed")
+        if self.schema_version != OCI_EVIDENCE_SCHEMA_VERSION:
+            raise ValueError("OCI evidence schema version is invalid")
+        if type(self.snapshot) is not runtime_bundle.LayaRuntimeBundleSnapshot:
+            raise ValueError("OCI evidence bundle snapshot is invalid")
+        if type(self.oci_manifest) is not ValidatedLayaOciManifest:
+            raise ValueError("OCI manifest evidence is invalid")
+        if type(self.runtime_identity) is not runtime_identity.RuntimeIdentityRef:
+            raise ValueError("OCI runtime identity is invalid")
+        if self.runtime_identity != self.snapshot.runtime_identity:
+            raise ValueError("OCI runtime identity is inconsistent")
 
     __repr__ = _private_repr
 
@@ -258,3 +301,133 @@ def validate_laya_oci_manifest_bytes(payload: bytes) -> ValidatedLayaOciManifest
         return _validate_laya_oci_manifest_bytes(payload)
     except (TypeError, ValueError) as error:
         raise type(error)(str(error)) from None
+
+
+def _captured_payloads(
+    snapshot: runtime_bundle.LayaRuntimeBundleSnapshot,
+) -> dict[str, bytes]:
+    payloads: dict[str, bytes] = {}
+    for artifact in snapshot.artifacts:
+        if artifact.spec.kind in payloads or type(artifact.content) is not bytes:
+            raise ValueError("OCI bundle artifact coverage is invalid")
+        if (
+            len(artifact.content) != artifact.spec.size_bytes
+            or hashlib.sha256(artifact.content).hexdigest() != artifact.spec.sha256
+        ):
+            raise ValueError("OCI bundle artifact integrity is invalid")
+        payloads[artifact.spec.kind] = artifact.content
+    if set(payloads) != set(runtime_identity.ARTIFACT_KINDS):
+        raise ValueError("OCI bundle artifact coverage is invalid")
+    return payloads
+
+
+def _cross_check_oci_annotations(
+    snapshot: runtime_bundle.LayaRuntimeBundleSnapshot,
+    manifest: ValidatedLayaOciManifest,
+    payloads: dict[str, bytes],
+) -> None:
+    annotations = dict(manifest.annotations)
+    artifact_links = {
+        "dependency_lock": "org.aai-hydric.runtime.uv-lock.sha256",
+        "sbom": "org.aai-hydric.runtime.sbom.sha256",
+        "runtime_config": "org.aai-hydric.runtime.config.sha256",
+        "checkpoint_manifest": "org.aai-hydric.runtime.checkpoint-manifest.sha256",
+    }
+    if any(
+        annotations[annotation] != hashlib.sha256(payloads[kind]).hexdigest()
+        for kind, annotation in artifact_links.items()
+    ):
+        raise ValueError("OCI annotation artifact digest crosslink is inconsistent")
+
+    runtime_manifest = snapshot.manifest
+    source, separator, revision = runtime_manifest.source.rpartition("@")
+    base_digest = annotations["org.opencontainers.image.base.digest"]
+    expected_base_name = f"docker.io/library/python:{runtime_identity.PYTHON_VERSION}-slim-bookworm"
+    if (
+        not separator
+        or runtime_manifest.source != runtime_identity.LAYA_SOURCE
+        or annotations["org.opencontainers.image.source"] != source
+        or annotations["org.opencontainers.image.revision"] != revision
+        or annotations["org.opencontainers.image.licenses"] != runtime_manifest.license
+        or runtime_manifest.license != runtime_identity.LAYA_LICENSE
+        or annotations["org.opencontainers.image.version"]
+        != runtime_manifest.engine.removeprefix("laya==")
+        or runtime_manifest.engine != runtime_identity.LAYA_ENGINE
+        or annotations["org.opencontainers.image.base.name"] != expected_base_name
+        or runtime_manifest.base_image_ref != f"docker.io/library/python@{base_digest}"
+    ):
+        raise ValueError("OCI runtime source base image profile is inconsistent")
+
+
+def _validate_laya_runtime_oci_metadata(
+    snapshot: runtime_bundle.LayaRuntimeBundleSnapshot,
+) -> LayaRuntimeOciEvidence:
+    if type(snapshot) is not runtime_bundle.LayaRuntimeBundleSnapshot:
+        raise TypeError("OCI metadata input must be an exact verified bundle snapshot")
+    if snapshot.artifact_integrity_verified is not True:
+        raise ValueError("OCI bundle artifact integrity is not verified")
+    expected_identity = runtime_identity.runtime_identity_ref(snapshot.manifest)
+    if (
+        type(snapshot.runtime_identity) is not runtime_identity.RuntimeIdentityRef
+        or snapshot.runtime_identity != expected_identity
+    ):
+        raise ValueError("OCI bundle runtime identity is invalid")
+    payloads = _captured_payloads(snapshot)
+    oci_payload = payloads["oci_manifest"]
+    if (
+        len(oci_payload) != _OCI_PAYLOAD_SIZE_BYTES
+        or hashlib.sha256(oci_payload).hexdigest() != _OCI_PAYLOAD_SHA256
+    ):
+        raise ValueError("OCI manifest artifact exact byte profile is invalid")
+    oci_manifest = validate_laya_oci_manifest_bytes(oci_payload)
+    _cross_check_oci_annotations(snapshot, oci_manifest, payloads)
+    return LayaRuntimeOciEvidence(
+        schema_version=OCI_EVIDENCE_SCHEMA_VERSION,
+        snapshot=snapshot,
+        oci_manifest=oci_manifest,
+        runtime_identity=snapshot.runtime_identity,
+        _factory_token=_FACTORY_TOKEN,
+    )
+
+
+def validate_laya_runtime_oci_metadata(
+    snapshot: runtime_bundle.LayaRuntimeBundleSnapshot,
+) -> LayaRuntimeOciEvidence:
+    """Bind the exact captured OCI manifest to one verified snapshot."""
+
+    try:
+        return _validate_laya_runtime_oci_metadata(snapshot)
+    except (TypeError, ValueError) as error:
+        raise type(error)(str(error)) from None
+
+
+def canonical_laya_runtime_oci_summary_bytes(evidence: LayaRuntimeOciEvidence) -> bytes:
+    """Return a minimal deterministic summary without captured metadata."""
+
+    if type(evidence) is not LayaRuntimeOciEvidence:
+        raise ValueError("OCI evidence must be an exact sealed value")
+    payload = {
+        "schema_version": evidence.schema_version,
+        "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
+        "runtime_identity_sha256": evidence.runtime_identity.sha256,
+        "artifact_integrity_verified": evidence.artifact_integrity_verified,
+        "oci_manifest_semantics_verified": evidence.oci_manifest_semantics_verified,
+        "lock_verified": evidence.lock_verified,
+        "sbom_verified": evidence.sbom_verified,
+        "lock_sbom_consistent": evidence.lock_sbom_consistent,
+        "runtime_config_semantics_verified": evidence.runtime_config_semantics_verified,
+        "checkpoint_manifest_semantics_verified": (evidence.checkpoint_manifest_semantics_verified),
+        "checkpoint_bytes_verified": evidence.checkpoint_bytes_verified,
+        "oci_bytes_verified": evidence.oci_bytes_verified,
+        "origin_verified": evidence.origin_verified,
+        "runtime_materialized": evidence.runtime_materialized,
+        "executor_available": evidence.executor_available,
+        "inference_executed": evidence.inference_executed,
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
