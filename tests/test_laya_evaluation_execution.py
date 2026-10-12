@@ -416,6 +416,8 @@ def test_public_summary_is_sensitive_to_predictions_without_disclosing_rows(tmp_
         "probabilities",
         "records_sha256",
         "row_sha256",
+        "loso_plan_sha256",
+        "evaluation_corpus_sha256",
     }
 
     def all_keys(value: object) -> set[str]:
@@ -428,6 +430,8 @@ def test_public_summary_is_sensitive_to_predictions_without_disclosing_rows(tmp_
         return set()
 
     assert forbidden_keys.isdisjoint(all_keys(decoded))
+    assert contract.loso_plan_sha256.encode("ascii") not in summary
+    assert contract.evaluation_corpus_sha256.encode("ascii") not in summary
     assert all(value.encode("utf-8") not in summary for value in _private_values(records))
     assert loso_execution_evidence_digest(validated_a) == hashlib.sha256(summary).hexdigest()
 
@@ -438,7 +442,9 @@ def test_execution_objects_repr_and_errors_do_not_disclose_private_inputs(tmp_pa
     contract, records = _contract(tmp_path)
     raw = _predictions(contract)
     validated = validate_loso_prediction_set(contract, raw)
-    rendered_objects = (repr(raw[0]), repr(raw), repr(validated))
+    contract_repr = repr(contract)
+    evidence_repr = repr(validated)
+    rendered_objects = (repr(raw[0]), repr(raw), contract_repr, evidence_repr)
     rendered = "".join(rendered_objects)
 
     assert all(value not in rendered for value in _private_values(records))
@@ -447,6 +453,11 @@ def test_execution_objects_repr_and_errors_do_not_disclose_private_inputs(tmp_pa
         assert all(prediction.category not in representation for prediction in raw)
     assert "probabilities" not in rendered
     assert contract.plan.corpus.records_sha256 not in rendered
+    for representation in (contract_repr, evidence_repr):
+        assert "loso_plan_sha256" not in representation
+        assert "evaluation_corpus_sha256" not in representation
+        assert contract.loso_plan_sha256 not in representation
+        assert contract.evaluation_corpus_sha256 not in representation
 
 
 def test_runtime_identity_rejects_null_digest_sentinel():
