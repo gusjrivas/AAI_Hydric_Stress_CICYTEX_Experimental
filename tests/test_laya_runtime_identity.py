@@ -56,7 +56,7 @@ def _manifest_object() -> dict[str, object]:
         "runtime_id": "laya-0.4.2-python-3.11.10-linux-amd64",
         "provider": "laya-http",
         "engine": "laya==0.4.2",
-        "source": f"https://github.com/convaiinnovations/laya@{SOURCE_COMMIT}",
+        "source": f"https://github.com/NandhaKishorM/laya@{SOURCE_COMMIT}",
         "license": "Apache-2.0",
         "python": "3.11.10",
         "platform": "linux/amd64",
@@ -98,7 +98,7 @@ def test_manifest_loads_exact_runtime_and_artifact_identity():
     assert manifest.provider == "laya-http"
     assert manifest.engine == "laya==0.4.2"
     assert manifest.source == (
-        "https://github.com/convaiinnovations/laya@68804629e8ccd9d616d48a40e87de9fabbeae069"
+        "https://github.com/NandhaKishorM/laya@68804629e8ccd9d616d48a40e87de9fabbeae069"
     )
     assert manifest.license == "Apache-2.0"
     assert manifest.python == "3.11.10"
@@ -186,10 +186,11 @@ def test_loader_accepts_bytes_only_and_rejects_invalid_utf8():
         ("runtime_id", "laya-runtimé"),
         ("provider", "other-provider"),
         ("engine", "laya==0.4.3"),
-        ("source", f"https://github.com/convaiinnovations/laya@{'0' * 40}"),
-        ("source", "https://github.com/convaiinnovations/laya@6880462"),
-        ("source", f"https://github.com/convaiinnovations/laya@{SOURCE_COMMIT.upper()}"),
-        ("source", f"https://github.com/convaiinnovations/laya@{'g' * 40}"),
+        ("source", f"https://github.com/NandhaKishorM/laya@{'0' * 40}"),
+        ("source", "https://github.com/NandhaKishorM/laya@6880462"),
+        ("source", f"https://github.com/NandhaKishorM/laya@{SOURCE_COMMIT.upper()}"),
+        ("source", f"https://github.com/NandhaKishorM/laya@{'g' * 40}"),
+        ("source", f"https://github.com/convaiinnovations/laya@{SOURCE_COMMIT}"),
         ("source", f"https://example.test/laya@{SOURCE_COMMIT}"),
         ("license", "MIT"),
         ("python", "3.11.11"),
