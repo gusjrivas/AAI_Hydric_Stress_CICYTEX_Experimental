@@ -362,9 +362,71 @@ def test_invalid_evidence_fails_before_root_coercion_or_open(monkeypatch):
     assert root_coercions == 0
 
 
+def test_root_component_cap_is_private_bounded_and_enforced_before_open(monkeypatch):
+    module = _adapter()
+    limit = module._MAX_OCI_LAYOUT_ROOT_COMPONENTS
+    assert type(limit) is int
+    assert 32 <= limit <= 256
+    opened = 0
+
+    def counted_open(*_args, **_kwargs):
+        nonlocal opened
+        opened += 1
+        raise OSError("private structural traversal sentinel")
+
+    monkeypatch.setattr(module, "_secure_oci_layout_capture_available", lambda: True)
+    monkeypatch.setattr(module.os, "open", counted_open)
+    _forbid_seal(monkeypatch)
+
+    boundary = "/" + "/".join(f"c{index}" for index in range(limit))
+    with pytest.raises(module.OciLayoutCaptureError):
+        _capture(boundary)
+    assert opened == 1
+
+    opened = 0
+    over_limit = boundary + "/private-over-limit-component"
+    with pytest.raises(module.OciLayoutCaptureError) as captured:
+        _capture(over_limit)
+    assert opened == 0
+    _private_error(captured.value, over_limit, "private-over-limit-component")
+
+
+def test_root_fspath_exception_is_private_and_fails_before_open(monkeypatch):
+    module = _adapter()
+    opened = 0
+    marker = "private-hostile-fspath-marker"
+
+    class HostileRoot:
+        def __fspath__(self):
+            raise RuntimeError(marker)
+
+    def counted_open(*_args, **_kwargs):
+        nonlocal opened
+        opened += 1
+        raise AssertionError("os.open must not run after root coercion failure")
+
+    monkeypatch.setattr(module, "_secure_oci_layout_capture_available", lambda: True)
+    monkeypatch.setattr(module.os, "open", counted_open)
+    _forbid_seal(monkeypatch)
+    with pytest.raises(module.OciLayoutCaptureError) as captured:
+        _capture(HostileRoot())
+    assert opened == 0
+    _private_error(captured.value, marker)
+
+
 @pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd capture")
 @pytest.mark.parametrize(
-    "kind", ["duplicate-separator", "double-leading", "trailing", "relative", "root"]
+    "kind",
+    [
+        "duplicate-separator",
+        "double-leading",
+        "trailing",
+        "relative",
+        "dot-component",
+        "dotdot-component",
+        "empty",
+        "root",
+    ],
 )
 def test_noncanonical_or_filesystem_root_fails_before_any_open(monkeypatch, tmp_path, kind):
     module = _adapter()
@@ -374,6 +436,9 @@ def test_noncanonical_or_filesystem_root_fails_before_any_open(monkeypatch, tmp_
         "double-leading": "/" + raw,
         "trailing": raw + "/",
         "relative": "relative/layout",
+        "dot-component": raw + "/./private-dot-layout",
+        "dotdot-component": raw + "/../private-dotdot-layout",
+        "empty": "",
         "root": "/",
     }
     _forbid_seal(monkeypatch)
@@ -384,8 +449,13 @@ def test_noncanonical_or_filesystem_root_fails_before_any_open(monkeypatch, tmp_
             AssertionError("noncanonical root must fail before os.open")
         ),
     )
-    with pytest.raises(module.OciLayoutCaptureError):
+    with pytest.raises(module.OciLayoutCaptureError) as captured:
         _capture(candidates[kind])
+    marker = candidates[kind]
+    if kind not in {"empty", "root"}:
+        _private_error(captured.value, marker)
+    else:
+        _private_error(captured.value)
 
 
 @pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd capture")
@@ -500,6 +570,40 @@ def test_controls_are_read_from_capture_root_and_private_on_failure(monkeypatch,
     selected = seen[0][0 if control == "oci-layout" else 1]
     assert selected == payload
     _private_error(captured.value, str(root), marker)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd capture")
+@pytest.mark.parametrize(
+    ("control", "limit_name"),
+    [
+        ("oci-layout", "MAX_OCI_LAYOUT_BYTES"),
+        ("index.json", "MAX_OCI_INDEX_BYTES"),
+    ],
+)
+def test_oversized_control_is_rejected_before_read_verification_or_sealing(
+    monkeypatch, tmp_path, control, limit_name
+):
+    module = _adapter()
+    root = _partial_layout_root(tmp_path)
+    limit = getattr(module.runtime_oci_layout, limit_name)
+    with (root / control).open("wb") as stream:
+        stream.truncate(limit + 1)
+
+    def forbidden_read(*_args, **_kwargs):
+        raise AssertionError("oversized control must fail before os.read")
+
+    monkeypatch.setattr(module.os, "read", forbidden_read)
+    monkeypatch.setattr(
+        module.runtime_oci_layout,
+        "prepare_laya_oci_layout_plan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("oversized control must fail before plan preparation")
+        ),
+    )
+    _forbid_blob_verification_and_sealing(monkeypatch)
+    with pytest.raises(module.OciLayoutCaptureError) as captured:
+        _capture(root)
+    _private_error(captured.value, str(root))
 
 
 @pytest.mark.skipif(not IS_LINUX, reason="requires Linux dir-fd capture")
