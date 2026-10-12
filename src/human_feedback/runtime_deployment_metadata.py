@@ -12,6 +12,8 @@ from . import runtime_bundle, runtime_identity
 DEPLOYMENT_SCHEMA_VERSION = "laya-runtime-deployment-evidence-v1"
 RUNTIME_CONFIG_SCHEMA_VERSION = "laya-runtime-config-v1"
 CHECKPOINT_SCHEMA_VERSION = "laya-checkpoint-manifest-v1"
+MAX_RUNTIME_CONFIG_BYTES = 16 * 1024
+MAX_CHECKPOINT_MANIFEST_BYTES = 64 * 1024
 
 ENTRYPOINT = "laya-serve"
 MODEL_REPOSITORY = "convaiinnovations/laya"
@@ -114,9 +116,16 @@ def _reject_nonfinite(_value: str) -> None:
     raise ValueError("metadata JSON numeric value must be finite")
 
 
-def _load_json_object_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
+def _load_json_object_bytes(
+    payload: bytes,
+    *,
+    label: str,
+    maximum_bytes: int,
+) -> dict[str, Any]:
     if not isinstance(payload, bytes):
         raise TypeError(f"{label} payload must be bytes")
+    if len(payload) > maximum_bytes:
+        raise ValueError(f"{label} payload size exceeds limit")
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError:
@@ -127,7 +136,7 @@ def _load_json_object_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_nonfinite,
         )
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, RecursionError):
         raise ValueError(f"{label} payload must be valid JSON") from None
     if not isinstance(value, dict):
         raise ValueError(f"{label} payload must be a JSON object")
@@ -254,7 +263,11 @@ def validate_laya_runtime_config_bytes(payload: bytes) -> ValidatedRuntimeConfig
     """Validate strict runtime config bytes without consulting external state."""
 
     raw = _exact_object(
-        _load_json_object_bytes(payload, label="runtime config"),
+        _load_json_object_bytes(
+            payload,
+            label="runtime config",
+            maximum_bytes=MAX_RUNTIME_CONFIG_BYTES,
+        ),
         _CONFIG_FIELDS,
         label="runtime config",
     )
@@ -300,13 +313,19 @@ def validate_laya_checkpoint_manifest_bytes(payload: bytes) -> ValidatedCheckpoi
     """Validate and canonically order exact checkpoint manifest bytes."""
 
     raw = _exact_object(
-        _load_json_object_bytes(payload, label="checkpoint manifest"),
+        _load_json_object_bytes(
+            payload,
+            label="checkpoint manifest",
+            maximum_bytes=MAX_CHECKPOINT_MANIFEST_BYTES,
+        ),
         _CHECKPOINT_FIELDS,
         label="checkpoint manifest",
     )
     raw_files = raw["files"]
     if not isinstance(raw_files, list):
         raise ValueError("checkpoint files must be a JSON array")
+    if len(raw_files) != len(CHECKPOINT_FILES):
+        raise ValueError("checkpoint files count must be exactly five")
     files = [_parse_checkpoint_file(item) for item in raw_files]
     roles = [item.role for item in files]
     expected_roles = tuple(item[0] for item in CHECKPOINT_FILES)
