@@ -4,7 +4,11 @@ from dataclasses import FrozenInstanceError, is_dataclass, replace
 from pathlib import Path
 
 import pytest
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.10 job
+    import tomli as tomllib
 
 FIXTURE_SHA256 = "e968771680b9c6e683163230ebd98b43541325ccb36d6959d1f9ed5565bd5526"
 FIXTURE_SIZE_BYTES = 37_599
