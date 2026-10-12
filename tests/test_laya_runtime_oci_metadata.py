@@ -1005,9 +1005,14 @@ def test_oci_evidence_isolation_detector_ignores_unrelated_parser_usage(source):
     assert _uses_oci_evidence_aggregate(source) is False
 
 
-def test_no_external_product_module_imports_or_uses_oci_evidence_aggregator():
+def test_only_exact_oci_layout_successor_uses_oci_evidence_aggregator():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_oci_metadata.py"
+    successor = repository / "src" / "human_feedback" / "runtime_oci_layout.py"
+    assert successor.is_file(), "the authorized OCI layout successor must exist"
+    assert _uses_oci_evidence_aggregate(successor.read_text(encoding="utf-8")) is True
+
+    allowed_consumers = {owner, successor}
     offenders: list[str] = []
     production_roots = (
         repository / "backend",
@@ -1017,7 +1022,7 @@ def test_no_external_product_module_imports_or_uses_oci_evidence_aggregator():
 
     for root in production_roots:
         for path in root.rglob("*.py"):
-            if path == owner:
+            if path in allowed_consumers:
                 continue
             if _uses_oci_evidence_aggregate(path.read_text(encoding="utf-8")):
                 offenders.append(path.relative_to(repository).as_posix())
