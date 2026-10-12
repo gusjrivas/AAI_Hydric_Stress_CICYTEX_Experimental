@@ -234,9 +234,13 @@ def test_exact_synthetic_profile_parses_to_minimal_validated_projection():
     assert parsed.environment_count == 15
     assert parsed.label_count == 10
     assert parsed.diff_id_count == 10
+    assert type(parsed.declared_diff_ids) is tuple
+    assert parsed.declared_diff_ids == DIFF_IDS
     assert parsed.history_count == 21
     assert parsed.non_empty_history_count == 10
     assert _parse(_encoded(pretty=True)) == parsed
+    rendered = repr(parsed)
+    assert all(diff_id not in rendered for diff_id in DIFF_IDS)
 
 
 @pytest.mark.parametrize("invalid", [None, "{}", bytearray(b"{}"), memoryview(b"{}")])
@@ -637,6 +641,7 @@ def test_validated_projection_is_frozen_slotted_factory_sealed_and_opaque():
             environment_count=15,
             label_count=10,
             diff_id_count=10,
+            declared_diff_ids=DIFF_IDS,
             history_count=21,
             non_empty_history_count=10,
         )
@@ -837,16 +842,63 @@ def _uses_config_composition(source: str) -> bool:
     return False
 
 
-def test_no_product_module_calls_config_composition_contract():
+def _uses_only_direct_config_plan_contract(source: str) -> bool:
+    tree = ast.parse(source)
+    allowed = {
+        "LayaRuntimeOciConfigEvidence",
+        "canonical_laya_runtime_oci_config_summary_bytes",
+    }
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == "human_feedback.runtime_oci_config" for alias in node.names
+        ):
+            return False
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "human_feedback.runtime_oci_config" and node.level == 0:
+                imports.append(node)
+                if any(
+                    alias.asname is not None or alias.name not in allowed for alias in node.names
+                ):
+                    return False
+            elif (
+                node.module == "human_feedback"
+                and any(alias.name == "runtime_oci_config" for alias in node.names)
+            ) or (
+                node.level > 0
+                and node.module in {None, "", "runtime_oci_config"}
+                and any(
+                    alias.name == "runtime_oci_config" or alias.name in COMPOSITION_SYMBOLS
+                    for alias in node.names
+                )
+            ):
+                return False
+        if isinstance(node, ast.Attribute) and node.attr in COMPOSITION_SYMBOLS:
+            return False
+        if isinstance(node, ast.Constant) and node.value in {
+            "human_feedback.runtime_oci_config",
+            *COMPOSITION_SYMBOLS,
+        }:
+            return False
+    imported = {alias.name for node in imports for alias in node.names}
+    return len(imports) == 1 and imported == allowed
+
+
+def test_only_exact_oci_layer_plan_successor_calls_config_composition_contract():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_oci_config.py"
+    successor = repository / "src" / "human_feedback" / "runtime_oci_layers.py"
+    assert successor.is_file(), "the authorized OCI layer-plan successor must exist"
+    successor_source = successor.read_text(encoding="utf-8")
+    assert _uses_config_composition(successor_source) is True
+    assert _uses_only_direct_config_plan_contract(successor_source) is True
     offenders = []
     for relative_root in ("backend", "src", "scripts"):
         root = repository / relative_root
         if not root.is_dir():
             continue
         for path in root.rglob("*.py"):
-            if path == owner:
+            if path in {owner, successor}:
                 continue
             if _uses_config_composition(path.read_text(encoding="utf-8")):
                 offenders.append(path.relative_to(repository).as_posix())
@@ -867,6 +919,37 @@ def test_no_product_module_calls_config_composition_contract():
 )
 def test_config_composition_caller_detector_rejects_every_owner_import_form(source):
     assert _uses_config_composition(source) is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import human_feedback.runtime_oci_config",
+        "from human_feedback import runtime_oci_config",
+        "from .runtime_oci_config import LayaRuntimeOciConfigEvidence",
+        "from human_feedback.runtime_oci_config import *",
+        (
+            "from human_feedback.runtime_oci_config import "
+            "LayaRuntimeOciConfigEvidence as Evidence"
+        ),
+        "from human_feedback.runtime_oci_config import validate_laya_runtime_oci_config_semantics",
+        "module.canonical_laya_runtime_oci_config_summary_bytes(evidence)",
+        "__import__('human_feedback.runtime_oci_config')",
+    ],
+)
+def test_config_plan_successor_detector_rejects_bypasses(source):
+    assert _uses_only_direct_config_plan_contract(source) is False
+
+
+def test_config_plan_successor_detector_accepts_exact_public_contract():
+    source = (
+        "from human_feedback.runtime_oci_config import (\n"
+        "    LayaRuntimeOciConfigEvidence,\n"
+        "    canonical_laya_runtime_oci_config_summary_bytes,\n"
+        ")\n"
+        "canonical_laya_runtime_oci_config_summary_bytes(evidence)\n"
+    )
+    assert _uses_only_direct_config_plan_contract(source) is True
 
 
 def test_validator_rejects_proxy_subclass_and_unsealed_layout_before_config_access(monkeypatch):
@@ -2250,6 +2333,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         "environment_count": evidence.config.environment_count + 1,
         "label_count": evidence.config.label_count + 1,
         "diff_id_count": evidence.config.diff_id_count + 1,
+        "declared_diff_ids": tuple(reversed(evidence.config.declared_diff_ids)),
         "history_count": evidence.config.history_count + 1,
         "non_empty_history_count": evidence.config.non_empty_history_count + 1,
     }
