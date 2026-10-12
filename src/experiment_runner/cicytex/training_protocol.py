@@ -44,6 +44,19 @@ class TemporalSplit:
     evaluation_end: pd.Timestamp
 
 
+@dataclass(frozen=True, slots=True)
+class HorizonPreparation:
+    """Structurally immutable preparation containing mutable partition copies."""
+
+    horizon_days: int
+    split: TemporalSplit
+    threshold_train_p20: float
+    train: pd.DataFrame
+    calibration: pd.DataFrame
+    validation: pd.DataFrame
+    evaluation: pd.DataFrame
+
+
 def build_features(data: pd.DataFrame, horizon: int) -> pd.DataFrame:
     """Features y targets se construyen por sonda; nunca cruzan identidades."""
     pieces = []
@@ -87,3 +100,23 @@ def select_partition(frame: pd.DataFrame, split: TemporalSplit, name: str) -> pd
     else:
         raise ValueError(name)
     return frame.loc[mask].copy()
+
+
+def prepare_horizon(data: pd.DataFrame, horizon_days: int) -> HorizonPreparation:
+    """Compose the shared scientific preparation without runner-specific labels."""
+    featured = build_features(data, horizon_days).dropna(subset=[*FEATURES, "future_soil_moisture"])
+    split = temporal_split(featured["target_timestamp"])
+    parts = {
+        name: select_partition(featured, split, name)
+        for name in ("train", "calibration", "validation", "evaluation")
+    }
+    threshold = float(parts["train"]["future_soil_moisture"].quantile(0.20))
+    return HorizonPreparation(
+        horizon_days=horizon_days,
+        split=split,
+        threshold_train_p20=threshold,
+        train=parts["train"],
+        calibration=parts["calibration"],
+        validation=parts["validation"],
+        evaluation=parts["evaluation"],
+    )

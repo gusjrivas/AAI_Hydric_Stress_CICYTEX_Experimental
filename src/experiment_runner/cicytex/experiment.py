@@ -34,17 +34,24 @@ from experiment_runner.cicytex.ingestion import (
 from experiment_runner.cicytex.training_protocol import (
     FAMILY_PARAMS,
     FEATURES,
-    build_features,
+    prepare_horizon,
     select_partition,
-    temporal_split,
 )
 from experiment_runner.cicytex.training_protocol import (
     TemporalSplit as _TemporalSplit,
+)
+from experiment_runner.cicytex.training_protocol import (
+    build_features as _build_features,
+)
+from experiment_runner.cicytex.training_protocol import (
+    temporal_split as _temporal_split,
 )
 from experiment_runner.controlled_daily_v4.models import fit_estimator
 
 # Backward-compatible private alias retained while callers migrate to the shared seam.
 TemporalSplit = _TemporalSplit
+build_features = _build_features
+temporal_split = _temporal_split
 _part = select_partition
 
 
@@ -124,18 +131,15 @@ def run_experiment(
             parent_params["normalized_dataset_sha256"] = dataset_provenance.snapshot.dataset_sha256
         mlflow.log_params(parent_params)
         for horizon in (1, 2, 3):
-            featured = build_features(data, horizon).dropna(
-                subset=[*FEATURES, "future_soil_moisture"]
-            )
-            split = temporal_split(featured["target_timestamp"])
-            threshold = float(
-                _part(featured, split, "train")["future_soil_moisture"].quantile(0.20)
-            )
-            featured["stress_proxy"] = (featured["future_soil_moisture"] < threshold).astype(int)
+            prepared = prepare_horizon(data, horizon)
+            split = prepared.split
+            threshold = prepared.threshold_train_p20
             parts = {
-                name: _part(featured, split, name)
+                name: getattr(prepared, name)
                 for name in ("train", "calibration", "validation", "evaluation")
             }
+            for part in parts.values():
+                part["stress_proxy"] = (part["future_soil_moisture"] < threshold).astype(int)
             for name, part in parts.items():
                 if part.empty or part["stress_proxy"].nunique() < 2:
                     raise ValueError(f"Horizonte +{horizon}: partición {name} sin ambas clases")

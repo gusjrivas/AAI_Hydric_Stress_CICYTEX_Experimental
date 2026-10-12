@@ -39,9 +39,7 @@ from experiment_runner.cicytex.ingestion import (
 from experiment_runner.cicytex.training_protocol import (
     FAMILY_PARAMS,
     FEATURES,
-    build_features,
-    select_partition,
-    temporal_split,
+    prepare_horizon,
 )
 from experiment_runner.controlled_daily_v4.models import fit_estimator
 
@@ -182,15 +180,13 @@ def run_causal_ensemble(
             parent_params["normalized_dataset_sha256"] = dataset_provenance.snapshot.dataset_sha256
         mlflow.log_params(parent_params)
         for horizon in (1, 2, 3):
-            featured = build_features(data, horizon).dropna(
-                subset=[*FEATURES, "future_soil_moisture"]
-            )
-            split = temporal_split(featured["target_timestamp"])
-            train = select_partition(featured, split, "train")
-            calibration = select_partition(featured, split, "calibration")
-            validation = select_partition(featured, split, "validation")
-            evaluation = select_partition(featured, split, "evaluation")
-            threshold = float(train["future_soil_moisture"].quantile(0.20))
+            prepared = prepare_horizon(data, horizon)
+            split = prepared.split
+            train = prepared.train
+            calibration = prepared.calibration
+            validation = prepared.validation
+            evaluation = prepared.evaluation
+            threshold = prepared.threshold_train_p20
             for frame in (train, calibration, validation, evaluation):
                 frame["observed_label"] = (frame["future_soil_moisture"] < threshold).astype(int)
                 if frame.empty or frame["observed_label"].nunique() < 2:
