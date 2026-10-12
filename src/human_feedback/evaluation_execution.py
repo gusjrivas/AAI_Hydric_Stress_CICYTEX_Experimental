@@ -272,12 +272,35 @@ def _validate_predictions(
     return _canonical_prediction_order(contract, typed_predictions)
 
 
+def _private_prediction_content_digest(
+    predictions: tuple[RawLosoPrediction, ...],
+) -> str:
+    payload = {
+        "domain": "laya-loso-prediction-content-v1",
+        "rows": [
+            {
+                "held_out_site": prediction.held_out_site,
+                "example_id": prediction.example_id,
+                "category": prediction.category,
+                "probabilities": [list(item) for item in prediction.probabilities],
+                "answer_confidence": prediction.answer_confidence,
+                "latency_ms": prediction.latency_ms,
+                "provider": prediction.provider,
+                "model_revision": prediction.model_revision,
+            }
+            for prediction in predictions
+        ],
+    }
+    return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class ValidatedLosoPredictionSet:
     """Structurally validated evidence that remains fail-closed for all uses."""
 
     contract: LosoExecutionContract
     predictions: tuple[RawLosoPrediction, ...] = field(repr=False)
+    prediction_content_sha256: str = field(repr=False)
     execution_evidence_validated: bool = field(default=True, init=False)
     execution_completed: bool = field(default=False, init=False)
     scientifically_sufficient: bool = field(default=False, init=False)
@@ -292,6 +315,11 @@ class ValidatedLosoPredictionSet:
         canonical = _validate_predictions(self.contract, self.predictions)
         if self.predictions != canonical:
             raise ValueError("prediction evidence is not in canonical order")
+        _require_digest(self.prediction_content_sha256, label="prediction content commitment")
+        if self.prediction_content_sha256 == "0" * 64:
+            raise ValueError("prediction content commitment cannot use the null sentinel")
+        if self.prediction_content_sha256 != _private_prediction_content_digest(canonical):
+            raise ValueError("prediction content commitment does not match evidence")
 
 
 def validate_loso_prediction_set(
@@ -301,7 +329,11 @@ def validate_loso_prediction_set(
     """Validate exact outer-test coverage and return canonical private evidence."""
 
     canonical = _validate_predictions(contract, predictions)
-    return ValidatedLosoPredictionSet(contract=contract, predictions=canonical)
+    return ValidatedLosoPredictionSet(
+        contract=contract,
+        predictions=canonical,
+        prediction_content_sha256=_private_prediction_content_digest(canonical),
+    )
 
 
 def canonical_loso_execution_summary_bytes(
