@@ -20,8 +20,6 @@ _CONTROL_LIMITS = {
 }
 _NATIVE_OPEN_SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
 _MAX_OCI_LAYOUT_ROOT_COMPONENTS = 128
-_MAX_OCI_LAYER_UNCOMPRESSED_BYTES = 2 * 1_024 * 1_024 * 1_024
-_MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES = 3 * 1_024 * 1_024 * 1_024
 
 
 class OciLayoutCaptureError(ValueError):
@@ -30,6 +28,19 @@ class OciLayoutCaptureError(ValueError):
 
 class SecureOciLayoutCaptureUnavailableError(OciLayoutCaptureError):
     """The host lacks the descriptor capabilities required by this boundary."""
+
+
+def _effective_layer_budget(remaining_rootfs: object) -> int:
+    if (
+        type(remaining_rootfs) is not int
+        or remaining_rootfs <= 0
+        or remaining_rootfs > runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+    ):
+        raise ValueError("remaining OCI rootfs budget must be a bounded positive integer")
+    return min(
+        runtime_oci_layers.MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
+        remaining_rootfs,
+    )
 
 
 def _secure_oci_layout_capture_available() -> bool:
@@ -500,14 +511,9 @@ def _capture_and_verify_layer_diff_ids(
                 raise OciLayoutCaptureError("secure OCI blob path changed during capture")
 
         receipts = []
-        remaining_rootfs = _MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+        remaining_rootfs = runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
         for position, blob in enumerate(layer_plan.layer_blobs):
-            if remaining_rootfs <= 0:
-                raise OciLayoutCaptureError("secure OCI rootfs budget is exhausted")
-            effective_limit = min(
-                _MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
-                remaining_rootfs,
-            )
+            effective_limit = _effective_layer_budget(remaining_rootfs)
             receipt, fingerprint = _capture_layer_diff_id(
                 sha256_fd,
                 layer_plan,
