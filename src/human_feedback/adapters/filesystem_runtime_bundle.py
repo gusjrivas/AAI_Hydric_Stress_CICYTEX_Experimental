@@ -55,16 +55,34 @@ def _root_components(root: Any) -> tuple[str, ...]:
     return components
 
 
+def _close_owned_once(owned: list[int]) -> OSError | None:
+    """Attempt every owned close once, transferring ownership before the call."""
+
+    first_error: OSError | None = None
+    while owned:
+        file_descriptor = owned.pop()
+        try:
+            os.close(file_descriptor)
+        except OSError as error:
+            if first_error is None:
+                first_error = error
+    return first_error
+
+
 def _open_root_directory(root: Any) -> int:
-    current_fd = os.open("/", _directory_flags())
+    components = _root_components(root)
+    owned: list[int] = []
     try:
-        for component in _root_components(root):
-            next_fd = os.open(component, _directory_flags(), dir_fd=current_fd)
-            os.close(current_fd)
-            current_fd = next_fd
-        return current_fd
+        owned.append(os.open("/", _directory_flags()))
+        for component in components:
+            owned.append(os.open(component, _directory_flags(), dir_fd=owned[-1]))
+        root_fd = owned.pop()
+        if _close_owned_once(owned) is not None:
+            _close_owned_once([root_fd])
+            raise RuntimeArtifactCaptureError("secure runtime root traversal cleanup failed")
+        return root_fd
     except BaseException:
-        os.close(current_fd)
+        _close_owned_once(owned)
         raise
 
 
@@ -93,32 +111,60 @@ def _bounded_read(file_descriptor: int, expected_size: int) -> bytes:
     return b"".join(chunks)
 
 
+def _path_fingerprint(
+    root_fd: int,
+    spec: RuntimeArtifactSpec,
+) -> tuple[tuple[int, ...], ...]:
+    components = spec.path.split("/")
+    directory_fds = [os.dup(root_fd)]
+    file_fds: list[int] = []
+    try:
+        fingerprints = [_stat_fingerprint(os.fstat(directory_fds[-1]))]
+        for component in components[:-1]:
+            directory_fds.append(os.open(component, _directory_flags(), dir_fd=directory_fds[-1]))
+            fingerprints.append(_stat_fingerprint(os.fstat(directory_fds[-1])))
+        file_fds.append(os.open(components[-1], _file_flags(), dir_fd=directory_fds[-1]))
+        metadata = os.fstat(file_fds[-1])
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size != spec.size_bytes:
+            raise RuntimeArtifactCaptureError(
+                "runtime artifact metadata does not match declaration"
+            )
+        fingerprints.append(_stat_fingerprint(metadata))
+        return tuple(fingerprints)
+    finally:
+        close_error = _close_owned_once(file_fds)
+        directory_error = _close_owned_once(directory_fds)
+        if close_error is not None or directory_error is not None:
+            raise RuntimeArtifactCaptureError(
+                "runtime artifact metadata traversal cleanup failed"
+            ) from None
+
+
 def _capture_one(root_fd: int, spec: RuntimeArtifactSpec) -> bytes:
     components = spec.path.split("/")
-    directory_fd = os.dup(root_fd)
-    file_fd: int | None = None
+    directory_fds = [os.dup(root_fd)]
+    file_fds: list[int] = []
     try:
         for component in components[:-1]:
-            next_fd = os.open(component, _directory_flags(), dir_fd=directory_fd)
-            os.close(directory_fd)
-            directory_fd = next_fd
-        file_fd = os.open(components[-1], _file_flags(), dir_fd=directory_fd)
-        before = os.fstat(file_fd)
+            directory_fds.append(os.open(component, _directory_flags(), dir_fd=directory_fds[-1]))
+        file_fds.append(os.open(components[-1], _file_flags(), dir_fd=directory_fds[-1]))
+        before = os.fstat(file_fds[-1])
         if not stat.S_ISREG(before.st_mode):
             raise RuntimeArtifactCaptureError("runtime artifact target is not a regular file")
         if before.st_size != spec.size_bytes:
             raise RuntimeArtifactCaptureError("runtime artifact size does not match declaration")
-        content = _bounded_read(file_fd, spec.size_bytes)
-        after = os.fstat(file_fd)
+        content = _bounded_read(file_fds[-1], spec.size_bytes)
+        after = os.fstat(file_fds[-1])
         if _stat_fingerprint(before) != _stat_fingerprint(after):
             raise RuntimeArtifactCaptureError("runtime artifact changed during secure capture")
         if len(content) != spec.size_bytes:
             raise RuntimeArtifactCaptureError("runtime artifact bounded read size mismatch")
         return content
     finally:
-        if file_fd is not None:
-            os.close(file_fd)
-        os.close(directory_fd)
+        close_error = _close_owned_once(file_fds)
+        directory_error = _close_owned_once(directory_fds)
+        if close_error is not None or directory_error is not None:
+            raise RuntimeArtifactCaptureError("runtime artifact capture cleanup failed") from None
 
 
 def _preflight_manifest(manifest: object) -> LayaRuntimeManifest:
@@ -141,10 +187,22 @@ def capture_and_verify_laya_runtime_artifacts(
             "secure runtime capture capability is unavailable"
         )
 
-    root_fd: int | None = None
+    root_fds: list[int] = []
     try:
-        root_fd = _open_root_directory(root)
-        payloads = {spec.path: _capture_one(root_fd, spec) for spec in validated_manifest.artifacts}
+        root_fds.append(_open_root_directory(root))
+        root_fd = root_fds[-1]
+        payloads: dict[str, bytes] = {}
+        fingerprints: dict[str, tuple[tuple[int, ...], ...]] = {}
+        for spec in validated_manifest.artifacts:
+            fingerprints[spec.path] = _path_fingerprint(root_fd, spec)
+            payloads[spec.path] = _capture_one(root_fd, spec)
+        for spec in validated_manifest.artifacts:
+            if _path_fingerprint(root_fd, spec) != fingerprints[spec.path]:
+                raise RuntimeArtifactCaptureError(
+                    "runtime artifact path changed before bundle verification"
+                )
+        if _close_owned_once(root_fds) is not None:
+            raise RuntimeArtifactCaptureError("runtime root cleanup failed")
         return verify_laya_runtime_artifact_bytes(validated_manifest, payloads)
     except SecureRuntimeCaptureUnavailableError:
         raise
@@ -155,5 +213,5 @@ def capture_and_verify_laya_runtime_artifacts(
             "secure runtime artifact capture or verification failed"
         ) from None
     finally:
-        if root_fd is not None:
-            os.close(root_fd)
+        if _close_owned_once(root_fds) is not None:
+            raise RuntimeArtifactCaptureError("runtime root cleanup failed") from None
