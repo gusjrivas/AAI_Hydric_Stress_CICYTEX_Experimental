@@ -57,6 +57,18 @@ ANNOTATIONS = {
     "org.opencontainers.image.source": "https://github.com/NandhaKishorM/laya",
     "org.opencontainers.image.version": "0.4.2",
 }
+MUTATED_ANNOTATION_VALUES = {
+    "org.aai-hydric.runtime.checkpoint-manifest.sha256": "a" * 64,
+    "org.aai-hydric.runtime.config.sha256": "a" * 64,
+    "org.aai-hydric.runtime.sbom.sha256": "a" * 64,
+    "org.aai-hydric.runtime.uv-lock.sha256": "a" * 64,
+    "org.opencontainers.image.base.digest": "sha256:" + "a" * 64,
+    "org.opencontainers.image.base.name": "docker.io/library/python:3.11.11-slim-bookworm",
+    "org.opencontainers.image.licenses": "MIT",
+    "org.opencontainers.image.revision": "a" * 40,
+    "org.opencontainers.image.source": "https://github.com/NandhaKishorM/laya-other",
+    "org.opencontainers.image.version": "0.4.3",
+}
 
 
 def _fixture_path() -> Path:
@@ -101,7 +113,7 @@ def _validate_parsed(monkeypatch, value: object):
     return module.validate_laya_oci_manifest_bytes(b'{"synthetic":"bounded"}')
 
 
-def test_committed_oci_manifest_fixture_is_exact_real_evidence():
+def test_committed_oci_manifest_fixture_is_exact_captured_local_profile_bytes():
     payload = _fixture_bytes()
     value = _fixture_object()
 
@@ -305,6 +317,22 @@ def test_descriptor_profile_values_are_exact(target, case):
         _validate(_encoded(value))
 
 
+@pytest.mark.parametrize("layer_index", range(10))
+@pytest.mark.parametrize("field", ["mediaType", "digest", "size"])
+def test_every_ordered_layer_descriptor_field_is_pinned(layer_index, field):
+    value = _fixture_object()
+    descriptor = value["layers"][layer_index]
+    if field == "mediaType":
+        descriptor[field] = "application/vnd.oci.image.layer.v1.tar+zstd"
+    elif field == "digest":
+        descriptor[field] = "sha256:" + "a" * 64
+    else:
+        descriptor[field] += 1
+
+    with pytest.raises(ValueError, match="layer|descriptor|order|profile|exact"):
+        _validate(_encoded(value))
+
+
 @pytest.mark.parametrize("case", ["duplicate", "config-overlap", "reordered"])
 def test_layer_order_cardinality_and_identity_are_exact(case):
     value = _fixture_object()
@@ -332,6 +360,30 @@ def test_annotations_are_an_exact_closed_crosslink_profile(case):
         annotations["private.renamed"] = annotations.pop(first_key)
     else:
         annotations[first_key] = "f" * 64
+
+    with pytest.raises(ValueError, match="annotation|crosslink|profile|exact"):
+        _validate(_encoded(value))
+
+
+@pytest.mark.parametrize("annotation_key", tuple(ANNOTATIONS))
+@pytest.mark.parametrize("mutation", ["value", "rename", "missing"])
+def test_every_annotation_key_and_value_is_individually_pinned(annotation_key, mutation):
+    value = _fixture_object()
+    annotations = value["annotations"]
+    if mutation == "value":
+        annotations[annotation_key] = MUTATED_ANNOTATION_VALUES[annotation_key]
+    elif mutation == "rename":
+        annotations[f"{annotation_key}.renamed"] = annotations.pop(annotation_key)
+    else:
+        annotations.pop(annotation_key)
+
+    with pytest.raises(ValueError, match="annotation|crosslink|profile|exact"):
+        _validate(_encoded(value))
+
+
+def test_annotation_profile_rejects_an_additional_well_formed_entry():
+    value = _fixture_object()
+    value["annotations"]["org.opencontainers.image.title"] = "laya-runtime"
 
     with pytest.raises(ValueError, match="annotation|crosslink|profile|exact"):
         _validate(_encoded(value))
