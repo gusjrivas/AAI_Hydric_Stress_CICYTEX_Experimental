@@ -31,6 +31,8 @@ recalibración, training, registry, MLflow, frontend ni experimentos históricos
 Preserva las corridas de CICYTEX, Pergamino, Melchor Romero y laboratorio mock.
 
 El corpus incluido es sintético y sólo prueba el contrato. Su decisión obligatoria es
-`CHARACTERIZATION_ONLY`. Aun con corpus humano y todos los gates aprobados, el máximo
-estado posible es `ELIGIBLE_FOR_SHADOW_REVIEW` y
-`production_enablement_authorized` permanece siempre en `false`.
+`CHARACTERIZATION_ONLY`. Esta versión no puede emitir elegibilidad: aun con métricas
+puntuales aprobadas, el máximo estado es `BLOCKED_SCIENTIFIC_METHOD_PENDING` hasta
+incorporar corpus humano suficiente, LOSO, intervalos de confianza y comparación
+pareada contra baseline. `production_enablement_authorized` permanece siempre en
+`false`.

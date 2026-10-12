@@ -26,11 +26,12 @@ determinista que nunca autorice activación productiva.
 - **THEN** la decisión es `FAIL_QUALITY`
 - **AND** el sitio fallido queda identificado en razones ordenadas y estables.
 
-#### Scenario: Evidencia humana suficiente y gates aprobados
+#### Scenario: Métricas puntuales aprobadas sin protocolo científico completo
 
-- **GIVEN** corpus humano adjudicado de CICYTEX, Pergamino y Melchor Romero, supply chain verificada y todos los límites aprobados
+- **GIVEN** evidencia marcada como humana, supply chain verificada y todos los point estimates aprobados
 - **WHEN** se ejecuta el gate
-- **THEN** el máximo estado es `ELIGIBLE_FOR_SHADOW_REVIEW`
+- **THEN** el estado es `BLOCKED_SCIENTIFIC_METHOD_PENDING`
+- **AND** no puede emitirse `ELIGIBLE_FOR_SHADOW_REVIEW` hasta incorporar corpus suficiente, LOSO, intervalos de confianza y delta pareado contra baseline
 - **AND** la revisión humana sigue siendo obligatoria
 - **AND** la activación productiva sigue desautorizada.
 

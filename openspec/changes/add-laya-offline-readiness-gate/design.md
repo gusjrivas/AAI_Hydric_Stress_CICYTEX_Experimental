@@ -38,9 +38,11 @@ una nueva versión de política:
 - macro-F1 por sitio >= 0.55;
 - latencia p95 <= 640 ms.
 
-Estos límites permiten evaluar el mecanismo; no sustituyen intervalos de confianza,
-adjudicación humana ni comparación pareada con baseline. Esas condiciones deben
-incorporarse antes de una revisión de sombra real.
+Estos límites permiten caracterizar el mecanismo; no sustituyen intervalos de
+confianza, adjudicación humana ni comparación pareada con baseline. Por diseño, esta
+versión emite `BLOCKED_SCIENTIFIC_METHOD_PENDING` aunque los point estimates superen
+todos los límites. Esas condiciones deben incorporarse antes de una revisión de
+sombra real.
 
 ## Consecuencias
 
@@ -48,5 +50,7 @@ incorporarse antes de una revisión de sombra real.
 - Una ejecución sin artefactos reales verificados nunca acredita supply chain.
 - Una ejecución con fixture sintética puede pasar todas las métricas y aun así queda
   en `CHARACTERIZATION_ONLY`.
+- El caller no puede autoafirmar supply chain: el evaluador exige una verificación
+  ligada por digest a la identidad fijada y predicciones de la revisión declarada.
 - La activación productiva permanece fuera de alcance y requiere otro cambio
   arquitectónico con TDD, evidencia humana cross-site y revisión independiente.

@@ -11,6 +11,7 @@
 - [x] 2.3 Medir accuracy, selective accuracy, macro-F1, Brier, ECE, coverage, costo y latencia.
 - [x] 2.4 Desglosar por sitio y bloquear una degradación local.
 - [x] 2.5 Mantener siempre desautorizada la activación productiva.
+- [x] 2.6 Bloquear también la elegibilidad en sombra mientras falte el protocolo científico.
 
 ## 3. Aislamiento y regresión
 
@@ -19,3 +20,4 @@
 - [x] 3.3 Ejecutar regresiones de Laya, CICYTEX, Pergamino, Melchor Romero y laboratorio mock.
 - [ ] 3.4 Evaluar un corpus humano adjudicado, cross-site y fuera de muestra.
 - [ ] 3.5 Agregar intervalos de confianza y delta pareado frente al baseline antes de shadow review.
+- [ ] 3.6 Recién después de 3.4 y 3.5 habilitar el estado `ELIGIBLE_FOR_SHADOW_REVIEW`.
