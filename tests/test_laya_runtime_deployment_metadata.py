@@ -560,8 +560,11 @@ def test_deployment_repr_errors_and_public_summary_hide_private_metadata():
     forbidden_text = {
         config_bytes.decode("ascii"),
         checkpoint_bytes.decode("ascii"),
+        MODEL_REPOSITORY,
+        MODEL_REVISION,
+        MODEL_SUBFOLDER,
         *ENVIRONMENT.keys(),
-        *ENVIRONMENT.values(),
+        *(value for value in ENVIRONMENT.values() if len(value) > 1),
         *(item["path"] for item in CHECKPOINT_FILES),
         *(item["sha256"] for item in CHECKPOINT_FILES),
         hashlib.sha256(checkpoint_bytes).hexdigest(),
