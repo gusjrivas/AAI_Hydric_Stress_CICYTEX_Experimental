@@ -1,4 +1,6 @@
 import hashlib
+import json
+import traceback
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, is_dataclass, replace
 from pathlib import Path
@@ -12,6 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.10 j
 
 FIXTURE_SHA256 = "e968771680b9c6e683163230ebd98b43541325ccb36d6959d1f9ed5565bd5526"
 FIXTURE_SIZE_BYTES = 37_599
+EXPECTED_LOCK_SEMANTICS_SHA256 = "c4e1d2876569217c106d9a32fdfacb5a88c1fbd4808fe90c828ba8073a9ab45e"
 MAX_UV_LOCK_BYTES = 2 * 1024 * 1024
 MAX_UV_LOCK_PACKAGES = 512
 MAX_DISTRIBUTIONS_PER_PACKAGE = 256
@@ -39,6 +42,40 @@ def _fixture_bytes() -> bytes:
 
 def _fixture_object() -> dict[str, object]:
     return tomllib.loads(_fixture_bytes().decode("utf-8"))
+
+
+def _canonical_lock_semantics_sha256(value: dict[str, object]) -> str:
+    normalized = deepcopy(value)
+    packages = normalized["package"]
+    assert isinstance(packages, list)
+    for package in packages:
+        for collection in ("dependencies", "wheels"):
+            if collection in package:
+                package[collection].sort(
+                    key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"))
+                )
+        if "optional-dependencies" in package:
+            optional = package["optional-dependencies"]
+            package["optional-dependencies"] = {
+                name: sorted(
+                    dependencies,
+                    key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+                )
+                for name, dependencies in sorted(optional.items())
+            }
+        if "metadata" in package:
+            package["metadata"]["requires-dist"].sort(
+                key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"))
+            )
+    packages.sort(key=lambda package: package["name"])
+    encoded = json.dumps(
+        normalized,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _mutated(old: bytes, new: bytes) -> bytes:
@@ -70,6 +107,14 @@ def test_committed_uv_lock_fixture_is_exact_generated_evidence():
     assert len(payload) == FIXTURE_SIZE_BYTES
     assert hashlib.sha256(payload).hexdigest() == FIXTURE_SHA256
     assert len(_fixture_object()["package"]) == 45
+
+
+def test_full_canonical_lock_semantics_have_an_exact_commitment():
+    value = _fixture_object()
+    lock = _validate()
+
+    assert _canonical_lock_semantics_sha256(value) == EXPECTED_LOCK_SEMANTICS_SHA256
+    assert lock.semantics_sha256 == EXPECTED_LOCK_SEMANTICS_SHA256
 
 
 def test_exact_laya_supply_lock_profile_loads():
@@ -315,14 +360,27 @@ def test_package_collection_is_exact_without_duplicate_or_unknown_fields(monkeyp
         _validate_parsed(monkeypatch, value)
 
 
-def test_package_input_order_is_canonicalized(monkeypatch):
+def test_representational_order_of_packages_dependencies_and_distributions_is_canonicalized(
+    monkeypatch,
+):
     original = _validate()
     value = _fixture_object()
-    value["package"] = list(reversed(value["package"]))  # type: ignore[arg-type]
+    packages = value["package"]
+    assert isinstance(packages, list)
+    for package in packages:
+        if "dependencies" in package:
+            package["dependencies"].reverse()
+        if "wheels" in package:
+            package["wheels"].reverse()
+        if "optional-dependencies" in package:
+            for dependencies in package["optional-dependencies"].values():
+                dependencies.reverse()
+    value["package"] = list(reversed(packages))
 
     reordered = _validate_parsed(monkeypatch, value)
 
     assert reordered == original
+    assert reordered.semantics_sha256 == EXPECTED_LOCK_SEMANTICS_SHA256
     assert tuple(package.name for package in reordered.packages) == tuple(
         sorted(package.name for package in reordered.packages)
     )
@@ -360,6 +418,30 @@ def test_registry_artifact_urls_hashes_and_sizes_fail_closed(old, new):
         _validate(_mutated(old, new))
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (b'{ name = "idna" }', b'{ name = "h11" }'),
+        (
+            b"sha256:c7e58ce09192557605d8bbd92836d7e1d520ac9580096042c0bfd197efacf1bb",
+            b"sha256:" + b"f" * 64,
+        ),
+        (
+            b"https://files.pythonhosted.org/packages/5a/8e/"
+            b"38aa427ed5402449e226975b649c5dc73ccadfefeb95e6aecb8f8ea4b6b6/"
+            b"annotated_doc-0.0.5.tar.gz",
+            b"https://files.pythonhosted.org/packages/5a/8e/"
+            b"38aa427ed5402449e226975b649c5dc73ccadfefeb95e6aecb8f8ea4b6b6/"
+            b"other-valid-file.tar.gz",
+        ),
+    ],
+    ids=["closed-edge", "valid-digest", "allowlisted-https-url"],
+)
+def test_structurally_valid_semantic_mutations_are_rejected(old, new):
+    with pytest.raises(ValueError, match="lock|semantic|profile|exact"):
+        _validate(_mutated(old, new))
+
+
 def test_dependency_references_are_closed_over_locked_packages(monkeypatch):
     value = _fixture_object()
     value["package"][0]["dependencies"] = [{"name": "private-missing-package"}]  # type: ignore[index]
@@ -370,16 +452,39 @@ def test_dependency_references_are_closed_over_locked_packages(monkeypatch):
     assert "private-missing-package" not in str(error.value)
 
 
-def test_dependency_cycles_are_not_rejected_by_the_structural_validator(monkeypatch):
+def test_closed_graph_that_differs_from_exact_profile_is_rejected_regardless_of_cycles(
+    monkeypatch,
+):
     value = _fixture_object()
     packages = value["package"]
     assert isinstance(packages, list)
     packages[0]["dependencies"] = [{"name": packages[1]["name"]}]
     packages[1]["dependencies"] = [{"name": packages[0]["name"]}]
 
-    lock = _validate_parsed(monkeypatch, value)
+    with pytest.raises(ValueError, match="lock|semantic|profile|exact"):
+        _validate_parsed(monkeypatch, value)
 
-    assert len(lock.packages) == 45
+
+@pytest.mark.parametrize("case", ["other-package", "sdist-kind", "other-torch-url"])
+def test_missing_distribution_size_exception_is_exactly_scoped(monkeypatch, case):
+    value = _fixture_object()
+    packages = value["package"]
+    assert isinstance(packages, list)
+    torch = next(package for package in packages if package["name"] == "torch")
+    torch_wheel = deepcopy(torch["wheels"][0])
+    assert "size" not in torch_wheel
+    if case == "other-package":
+        target = next(package for package in packages if package["name"] == "annotated-doc")
+        target["wheels"] = [torch_wheel]
+    elif case == "sdist-kind":
+        torch["sdist"] = torch_wheel
+        torch["wheels"] = []
+    else:
+        torch_wheel["url"] = "https://download-r2.pytorch.org/whl/cpu/other-valid-wheel.whl"
+        torch["wheels"] = [torch_wheel]
+
+    with pytest.raises(ValueError, match="torch|distribution|size|profile|exact"):
+        _validate_parsed(monkeypatch, value)
 
 
 @pytest.mark.parametrize(
@@ -437,6 +542,32 @@ def test_validation_errors_do_not_echo_credentials_urls_or_digests():
     assert "private-user" not in rendered
     assert "private-secret" not in rendered
     assert private_url.decode("ascii") not in rendered
+
+
+@pytest.mark.parametrize("case", ["utf8", "toml", "url"])
+def test_parser_error_traceback_chain_does_not_expose_private_payload(case):
+    if case == "utf8":
+        marker = "private-utf8-secret"
+        payload = marker.encode("ascii") + b"\xff"
+    elif case == "toml":
+        marker = "private-toml-secret"
+        payload = f'{marker} = ["unterminated"'.encode("ascii")
+    else:
+        marker = "private-port-secret"
+        payload = _mutated(
+            b"https://files.pythonhosted.org/",
+            f"https://files.pythonhosted.org:{marker}/".encode("ascii"),
+        )
+
+    with pytest.raises(ValueError) as captured:
+        _validate(payload)
+
+    error = captured.value
+    rendered_chain = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
+    assert marker not in str(error)
+    assert marker not in rendered_chain
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
 
 
 def test_dependency_metadata_module_is_pure_and_operationally_isolated():
