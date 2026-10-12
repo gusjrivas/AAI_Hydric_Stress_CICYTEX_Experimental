@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import zlib
 from dataclasses import InitVar, dataclass, field
 
@@ -13,6 +14,7 @@ from human_feedback.runtime_oci_config import (
 )
 
 OCI_LAYER_DIFF_ID_PLAN_SCHEMA = "laya-oci-layer-diff-id-plan-v1"
+OCI_LAYER_DIFF_IDS_EVIDENCE_SCHEMA = "laya-runtime-oci-layer-diff-ids-evidence-v1"
 MAX_OCI_LAYER_CHUNK_BYTES = 1_024 * 1_024
 MAX_OCI_LAYER_CHUNKS = 1_024
 MAX_OCI_LAYER_UNCOMPRESSED_BYTES = 2 * 1_024 * 1_024 * 1_024
@@ -95,6 +97,7 @@ class VerifiedLayaOciLayerDiffId:
     layer_position: int
     declared_diff_id: str = field(repr=False)
     computed_diff_id: str = field(repr=False)
+    uncompressed_size_bytes: int = field(repr=False)
     _factory_token: InitVar[object]
     compressed_blob_bytes_verified: bool = field(default=True, init=False)
     layer_diff_id_verified: bool = field(default=True, init=False)
@@ -115,6 +118,9 @@ class VerifiedLayaOciLayerDiffId:
             or self.declared_diff_id is not self.plan.declared_diff_ids[self.layer_position]
             or type(self.computed_diff_id) is not str
             or self.computed_diff_id != self.declared_diff_id
+            or type(self.uncompressed_size_bytes) is not int
+            or self.uncompressed_size_bytes < 0
+            or self.uncompressed_size_bytes > MAX_OCI_LAYER_UNCOMPRESSED_BYTES
             or self.compressed_blob_bytes_verified is not True
             or self.layer_diff_id_verified is not True
             or self.tar_semantics_verified is not False
@@ -122,6 +128,140 @@ class VerifiedLayaOciLayerDiffId:
             or self.origin_verified is not False
         ):
             raise ValueError("OCI layer DiffID receipt binding is invalid")
+
+    __repr__ = _private_repr
+
+
+def _validate_verified_receipts(
+    plan: LayaOciLayerDiffIdPlan,
+    receipts: object,
+) -> tuple[VerifiedLayaOciLayerDiffId, ...]:
+    if type(receipts) is not tuple or len(receipts) != len(plan.layer_blobs):
+        raise ValueError("OCI layer DiffID receipt coverage is invalid")
+    total_size = 0
+    for position, receipt in enumerate(receipts):
+        if type(receipt) is not VerifiedLayaOciLayerDiffId:
+            raise ValueError("OCI layer DiffID receipt type is invalid")
+        receipt.__post_init__(_FACTORY_TOKEN)
+        if (
+            receipt.plan is not plan
+            or receipt.layer_blob is not plan.layer_blobs[position]
+            or receipt.compressed_receipt is not plan.layer_receipts[position]
+            or receipt.layer_position != position
+            or receipt.declared_diff_id is not plan.declared_diff_ids[position]
+        ):
+            raise ValueError("OCI layer DiffID receipt order is invalid")
+        total_size += receipt.uncompressed_size_bytes
+        if total_size > MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES:
+            raise ValueError("OCI layer DiffID aggregate size exceeds rootfs limit")
+    return receipts
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _LayaOciLayerDiffIdsCaptureAuthority:
+    plan: LayaOciLayerDiffIdPlan = field(repr=False)
+    receipts: tuple[VerifiedLayaOciLayerDiffId, ...] = field(repr=False)
+    layers_captured_from_same_root: bool
+    inventory_captured_from_same_root: bool
+    final_fd_sweep_verified: bool
+    descriptors_closed_before_seal: bool
+    _factory_token: InitVar[object]
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI layer DiffID authority requires the factory seal token")
+        if type(self.plan) is not LayaOciLayerDiffIdPlan:
+            raise ValueError("OCI layer DiffID authority plan is invalid")
+        canonical_laya_runtime_oci_config_summary_bytes(self.plan.config_evidence)
+        self.plan.__post_init__(_FACTORY_TOKEN)
+        _validate_verified_receipts(self.plan, self.receipts)
+        if any(
+            flag is not True
+            for flag in (
+                self.layers_captured_from_same_root,
+                self.inventory_captured_from_same_root,
+                self.final_fd_sweep_verified,
+                self.descriptors_closed_before_seal,
+            )
+        ):
+            raise ValueError("OCI layer DiffID authority closure is invalid")
+
+    __repr__ = _private_repr
+
+
+_EVIDENCE_TRUE_FLAGS = (
+    "artifact_integrity_verified",
+    "oci_manifest_semantics_verified",
+    "oci_layout_controls_bytes_verified",
+    "oci_blob_inventory_verified",
+    "oci_same_root_capture_verified",
+    "oci_manifest_blob_bytes_verified",
+    "oci_config_blob_bytes_verified",
+    "oci_layer_blobs_bytes_verified",
+    "oci_bytes_verified",
+    "oci_config_semantics_verified",
+    "oci_layer_diff_ids_verified",
+)
+_EVIDENCE_FALSE_FLAGS = (
+    "lock_verified",
+    "sbom_verified",
+    "lock_sbom_consistent",
+    "runtime_config_semantics_verified",
+    "checkpoint_manifest_semantics_verified",
+    "checkpoint_bytes_verified",
+    "oci_rootfs_verified",
+    "tar_semantics_verified",
+    "origin_verified",
+    "license_verified",
+    "base_ancestry_verified",
+    "rootfs_materialized",
+    "runtime_materialized",
+    "executor_available",
+    "inference_executed",
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LayaRuntimeOciLayerDiffIdsEvidence:
+    schema_version: str
+    plan: LayaOciLayerDiffIdPlan = field(repr=False)
+    config_evidence: LayaRuntimeOciConfigEvidence = field(repr=False)
+    layout_evidence: object = field(repr=False)
+    layout_plan: object = field(repr=False)
+    runtime_identity: object = field(repr=False)
+    receipts: tuple[VerifiedLayaOciLayerDiffId, ...] = field(repr=False)
+    _factory_token: InitVar[object]
+    artifact_integrity_verified: bool = field(default=True, init=False)
+    oci_manifest_semantics_verified: bool = field(default=True, init=False)
+    oci_layout_controls_bytes_verified: bool = field(default=True, init=False)
+    oci_blob_inventory_verified: bool = field(default=True, init=False)
+    oci_same_root_capture_verified: bool = field(default=True, init=False)
+    oci_manifest_blob_bytes_verified: bool = field(default=True, init=False)
+    oci_config_blob_bytes_verified: bool = field(default=True, init=False)
+    oci_layer_blobs_bytes_verified: bool = field(default=True, init=False)
+    oci_bytes_verified: bool = field(default=True, init=False)
+    oci_config_semantics_verified: bool = field(default=True, init=False)
+    oci_layer_diff_ids_verified: bool = field(default=True, init=False)
+    lock_verified: bool = field(default=False, init=False)
+    sbom_verified: bool = field(default=False, init=False)
+    lock_sbom_consistent: bool = field(default=False, init=False)
+    runtime_config_semantics_verified: bool = field(default=False, init=False)
+    checkpoint_manifest_semantics_verified: bool = field(default=False, init=False)
+    checkpoint_bytes_verified: bool = field(default=False, init=False)
+    oci_rootfs_verified: bool = field(default=False, init=False)
+    tar_semantics_verified: bool = field(default=False, init=False)
+    origin_verified: bool = field(default=False, init=False)
+    license_verified: bool = field(default=False, init=False)
+    base_ancestry_verified: bool = field(default=False, init=False)
+    rootfs_materialized: bool = field(default=False, init=False)
+    runtime_materialized: bool = field(default=False, init=False)
+    executor_available: bool = field(default=False, init=False)
+    inference_executed: bool = field(default=False, init=False)
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI layer DiffID evidence requires the factory seal token")
+        _revalidate_layer_evidence(self)
 
     __repr__ = _private_repr
 
@@ -288,6 +428,7 @@ def _verify_laya_oci_layer_diff_id_chunks(
         layer_position=position,
         declared_diff_id=declared_diff_id,
         computed_diff_id=computed_diff_id,
+        uncompressed_size_bytes=uncompressed_size,
         _factory_token=_FACTORY_TOKEN,
     )
 
@@ -307,3 +448,112 @@ def verify_laya_oci_layer_diff_id_chunks(
     if failed:
         _raise_private(ValueError, "OCI layer chunk stream validation failed")
     raise AssertionError("unreachable")
+
+
+def _seal_laya_oci_layer_diff_ids_capture_authority(
+    plan: LayaOciLayerDiffIdPlan,
+    receipts: tuple[VerifiedLayaOciLayerDiffId, ...],
+    *,
+    layers_captured_from_same_root: bool,
+    inventory_captured_from_same_root: bool,
+    final_fd_sweep_verified: bool,
+    descriptors_closed_before_seal: bool,
+) -> _LayaOciLayerDiffIdsCaptureAuthority:
+    failed = False
+    try:
+        return _LayaOciLayerDiffIdsCaptureAuthority(
+            plan=plan,
+            receipts=receipts,
+            layers_captured_from_same_root=layers_captured_from_same_root,
+            inventory_captured_from_same_root=inventory_captured_from_same_root,
+            final_fd_sweep_verified=final_fd_sweep_verified,
+            descriptors_closed_before_seal=descriptors_closed_before_seal,
+            _factory_token=_FACTORY_TOKEN,
+        )
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(ValueError, "OCI layer DiffID capture authority validation failed")
+    raise AssertionError("unreachable")
+
+
+def _revalidate_layer_evidence(evidence: object) -> LayaRuntimeOciLayerDiffIdsEvidence:
+    if type(evidence) is not LayaRuntimeOciLayerDiffIdsEvidence:
+        raise ValueError("OCI layer DiffID evidence must be an exact sealed value")
+    if evidence.schema_version != OCI_LAYER_DIFF_IDS_EVIDENCE_SCHEMA:
+        raise ValueError("OCI layer DiffID evidence schema is invalid")
+    if type(evidence.plan) is not LayaOciLayerDiffIdPlan:
+        raise ValueError("OCI layer DiffID evidence plan is invalid")
+    canonical_laya_runtime_oci_config_summary_bytes(evidence.config_evidence)
+    evidence.plan.__post_init__(_FACTORY_TOKEN)
+    if (
+        evidence.config_evidence is not evidence.plan.config_evidence
+        or evidence.layout_evidence is not evidence.config_evidence.layout_evidence
+        or evidence.layout_evidence is not evidence.plan.layout_evidence
+        or evidence.layout_plan is not evidence.layout_evidence.plan
+        or evidence.layout_plan is not evidence.plan.layout_plan
+        or evidence.runtime_identity is not evidence.config_evidence.runtime_identity
+        or evidence.runtime_identity is not evidence.plan.runtime_identity
+    ):
+        raise ValueError("OCI layer DiffID evidence binding is invalid")
+    _validate_verified_receipts(evidence.plan, evidence.receipts)
+    if any(getattr(evidence, flag, None) is not True for flag in _EVIDENCE_TRUE_FLAGS):
+        raise ValueError("OCI layer DiffID positive evidence claim is invalid")
+    if any(getattr(evidence, flag, None) is not False for flag in _EVIDENCE_FALSE_FLAGS):
+        raise ValueError("OCI layer DiffID conservative evidence claim is invalid")
+    return evidence
+
+
+def _seal_laya_runtime_oci_layer_diff_ids_evidence(
+    authority: object,
+) -> LayaRuntimeOciLayerDiffIdsEvidence:
+    if type(authority) is not _LayaOciLayerDiffIdsCaptureAuthority:
+        _raise_private(ValueError, "OCI layer DiffID evidence authority is invalid")
+    failed = False
+    try:
+        authority.__post_init__(_FACTORY_TOKEN)
+        plan = authority.plan
+        return LayaRuntimeOciLayerDiffIdsEvidence(
+            schema_version=OCI_LAYER_DIFF_IDS_EVIDENCE_SCHEMA,
+            plan=plan,
+            config_evidence=plan.config_evidence,
+            layout_evidence=plan.layout_evidence,
+            layout_plan=plan.layout_plan,
+            runtime_identity=plan.runtime_identity,
+            receipts=authority.receipts,
+            _factory_token=_FACTORY_TOKEN,
+        )
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(ValueError, "OCI layer DiffID evidence authority validation failed")
+    raise AssertionError("unreachable")
+
+
+def canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(
+    evidence: LayaRuntimeOciLayerDiffIdsEvidence,
+) -> bytes:
+    """Return a canonical privacy-safe summary after deep evidence validation."""
+
+    failed = False
+    try:
+        validated = _revalidate_layer_evidence(evidence)
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(ValueError, "OCI layer DiffID evidence validation failed")
+    payload = {
+        "schema_version": validated.schema_version,
+        "plan_schema_version": validated.plan.schema_version,
+        "runtime_identity_schema_version": validated.runtime_identity.schema_version,
+        "runtime_identity_sha256": validated.runtime_identity.sha256,
+        **{flag: True for flag in _EVIDENCE_TRUE_FLAGS},
+        **{flag: False for flag in _EVIDENCE_FALSE_FLAGS},
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("ascii")
