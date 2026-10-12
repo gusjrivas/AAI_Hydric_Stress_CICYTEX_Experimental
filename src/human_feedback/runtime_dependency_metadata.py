@@ -6,9 +6,12 @@ import hashlib
 import json as _json_parser
 import re
 from copy import deepcopy
-from dataclasses import InitVar, dataclass
+from dataclasses import InitVar, dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
+
+from . import runtime_bundle as _runtime_bundle
+from . import runtime_identity as _runtime_identity
 
 try:
     import tomllib as _toml_parser
@@ -65,6 +68,7 @@ MAX_SBOM_DEPENDENCY_NODES = 512
 MAX_SBOM_DEPENDENCY_EDGES = 4_096
 MAX_SBOM_STRING_LENGTH = 1_024
 MAX_SBOM_URL_LENGTH = 4_096
+DEPENDENCY_EVIDENCE_SCHEMA_VERSION = "laya-runtime-dependency-evidence-v1"
 
 _MARKER = (
     "implementation_name == 'cpython' and platform_machine == 'x86_64' "
@@ -233,6 +237,45 @@ class ValidatedLayaCycloneDxSbom:
             raise ValueError("SBOM semantic commitment is invalid")
         if self.identity_count != len(self.components) + 1:
             raise ValueError("SBOM identity count is invalid")
+
+    __repr__ = _private_repr
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LayaRuntimeDependencyEvidence:
+    schema_version: str
+    snapshot: _runtime_bundle.LayaRuntimeBundleSnapshot
+    dependency_lock: ValidatedLayaUvLock
+    sbom: ValidatedLayaCycloneDxSbom
+    runtime_identity: _runtime_identity.RuntimeIdentityRef
+    _factory_token: InitVar[object]
+    artifact_integrity_verified: bool = field(default=True, init=False)
+    lock_verified: bool = field(default=True, init=False)
+    sbom_verified: bool = field(default=True, init=False)
+    lock_sbom_consistent: bool = field(default=True, init=False)
+    runtime_config_semantics_verified: bool = field(default=False, init=False)
+    checkpoint_manifest_semantics_verified: bool = field(default=False, init=False)
+    checkpoint_bytes_verified: bool = field(default=False, init=False)
+    oci_bytes_verified: bool = field(default=False, init=False)
+    oci_manifest_semantics_verified: bool = field(default=False, init=False)
+    runtime_materialized: bool = field(default=False, init=False)
+    origin_verified: bool = field(default=False, init=False)
+    executor_available: bool = field(default=False, init=False)
+    inference_executed: bool = field(default=False, init=False)
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("dependency evidence construction is factory-sealed")
+        if self.schema_version != DEPENDENCY_EVIDENCE_SCHEMA_VERSION:
+            raise ValueError("dependency evidence schema version is invalid")
+        if not isinstance(self.snapshot, _runtime_bundle.LayaRuntimeBundleSnapshot):
+            raise ValueError("dependency evidence snapshot is invalid")
+        if not isinstance(self.dependency_lock, ValidatedLayaUvLock):
+            raise ValueError("dependency lock evidence is invalid")
+        if not isinstance(self.sbom, ValidatedLayaCycloneDxSbom):
+            raise ValueError("dependency SBOM evidence is invalid")
+        if self.runtime_identity != self.snapshot.runtime_identity:
+            raise ValueError("dependency runtime identity is inconsistent")
 
     __repr__ = _private_repr
 
@@ -974,3 +1017,171 @@ def validate_laya_cyclonedx_sbom_bytes(payload: bytes) -> ValidatedLayaCycloneDx
         return _validate_laya_cyclonedx_sbom_bytes(payload)
     except (TypeError, ValueError) as error:
         raise type(error)(str(error)) from None
+
+
+def _captured_dependency_payload(
+    snapshot: _runtime_bundle.LayaRuntimeBundleSnapshot, kind: str
+) -> bytes:
+    matches = tuple(artifact for artifact in snapshot.artifacts if artifact.spec.kind == kind)
+    if len(matches) != 1 or type(matches[0].content) is not bytes:
+        raise ValueError("runtime bundle dependency artifact coverage is invalid")
+    artifact = matches[0]
+    if (
+        hashlib.sha256(artifact.content).hexdigest() != artifact.spec.sha256
+        or len(artifact.content) != artifact.spec.size_bytes
+    ):
+        raise ValueError("runtime bundle dependency artifact integrity is invalid")
+    return artifact.content
+
+
+def _cross_check_runtime_profile(
+    snapshot: _runtime_bundle.LayaRuntimeBundleSnapshot,
+    dependency_lock: ValidatedLayaUvLock,
+) -> None:
+    manifest = snapshot.manifest
+    if (
+        manifest.provider != _runtime_identity.LAYA_PROVIDER
+        or manifest.engine != _runtime_identity.LAYA_ENGINE
+        or manifest.source != _runtime_identity.LAYA_SOURCE
+        or manifest.python != _runtime_identity.PYTHON_VERSION
+        or manifest.platform != _runtime_identity.RUNTIME_PLATFORM
+        or snapshot.runtime_identity != _runtime_identity.runtime_identity_ref(manifest)
+    ):
+        raise ValueError("dependency runtime profile is inconsistent")
+    packages = {package.name: package for package in dependency_lock.packages}
+    if (
+        dependency_lock.requires_python != f"=={_runtime_identity.PYTHON_VERSION}"
+        or packages["laya"].version != _runtime_identity.LAYA_ENGINE.removeprefix("laya==")
+        or packages["laya"].source_url
+        != (
+            "https://github.com/NandhaKishorM/laya?rev="
+            f"{_runtime_identity.LAYA_SOURCE_COMMIT}#{_runtime_identity.LAYA_SOURCE_COMMIT}"
+        )
+    ):
+        raise ValueError("dependency lock runtime profile is inconsistent")
+
+
+def _cross_check_lock_sbom(
+    dependency_lock: ValidatedLayaUvLock,
+    sbom: ValidatedLayaCycloneDxSbom,
+) -> None:
+    lock_inventory = {
+        (package.name, package.version, package.source_kind, package.source_url)
+        for package in dependency_lock.packages
+    }
+
+    def sbom_source(component: SbomComponent) -> tuple[str, str]:
+        if component.name == "laya-runtime-supply":
+            return "virtual", "."
+        if component.name == "laya":
+            return "git", _LAYA_GIT
+        if component.name == "torch":
+            return "registry", _PYTORCH_INDEX
+        return "registry", _PYPI_INDEX
+
+    identities = (sbom.root_component, *sbom.components)
+    sbom_inventory = {
+        (component.name, component.version, *sbom_source(component)) for component in identities
+    }
+    if lock_inventory != sbom_inventory or len(lock_inventory) != 45:
+        raise ValueError("dependency lock and SBOM inventory sources are inconsistent")
+
+    expected_edges = {
+        (package.name, dependency)
+        for package in dependency_lock.packages
+        for dependency in package.dependencies
+    }
+    expected_edges.update(
+        (package.name, dependency)
+        for package in dependency_lock.packages
+        for _extra, dependencies in package.optional_dependencies
+        for dependency in dependencies
+    )
+    by_ref = {component.bom_ref: component.name for component in identities}
+    actual_edges = {
+        (by_ref[node.ref], by_ref[dependency])
+        for node in sbom.dependencies
+        for dependency in node.depends_on
+    }
+    if len(expected_edges) != 70 or actual_edges != expected_edges:
+        raise ValueError("dependency lock and SBOM activated edges are inconsistent")
+    adjacency = {node.ref: set(node.depends_on) for node in sbom.dependencies}
+    reachable = {sbom.root_component.bom_ref}
+    pending = [sbom.root_component.bom_ref]
+    while pending:
+        for dependency in adjacency[pending.pop()]:
+            if dependency not in reachable:
+                reachable.add(dependency)
+                pending.append(dependency)
+    if reachable != set(by_ref):
+        raise ValueError("dependency SBOM graph is not reachable from the root")
+
+
+def _validate_laya_runtime_dependency_metadata(
+    snapshot: _runtime_bundle.LayaRuntimeBundleSnapshot,
+) -> LayaRuntimeDependencyEvidence:
+    if not isinstance(snapshot, _runtime_bundle.LayaRuntimeBundleSnapshot):
+        raise TypeError("runtime dependency input must be a verified bundle snapshot")
+    if snapshot.artifact_integrity_verified is not True:
+        raise ValueError("runtime bundle artifact integrity is not verified")
+    lock_payload = _captured_dependency_payload(snapshot, "dependency_lock")
+    sbom_payload = _captured_dependency_payload(snapshot, "sbom")
+    dependency_lock = validate_laya_uv_lock_bytes(lock_payload)
+    sbom = validate_laya_cyclonedx_sbom_bytes(sbom_payload)
+    if hashlib.sha256(lock_payload).hexdigest() != sbom.lock_sha256:
+        raise ValueError("dependency lock digest and SBOM metadata are inconsistent")
+    _cross_check_runtime_profile(snapshot, dependency_lock)
+    _cross_check_lock_sbom(dependency_lock, sbom)
+    return LayaRuntimeDependencyEvidence(
+        schema_version=DEPENDENCY_EVIDENCE_SCHEMA_VERSION,
+        snapshot=snapshot,
+        dependency_lock=dependency_lock,
+        sbom=sbom,
+        runtime_identity=snapshot.runtime_identity,
+        _factory_token=_FACTORY_TOKEN,
+    )
+
+
+def validate_laya_runtime_dependency_metadata(
+    snapshot: _runtime_bundle.LayaRuntimeBundleSnapshot,
+) -> LayaRuntimeDependencyEvidence:
+    """Bind validated dependency metadata to one captured runtime snapshot."""
+
+    try:
+        return _validate_laya_runtime_dependency_metadata(snapshot)
+    except (TypeError, ValueError) as error:
+        raise type(error)(str(error)) from None
+
+
+def canonical_laya_runtime_dependency_summary_bytes(
+    evidence: LayaRuntimeDependencyEvidence,
+) -> bytes:
+    """Return the minimal public dependency-attestation summary."""
+
+    if not isinstance(evidence, LayaRuntimeDependencyEvidence):
+        raise ValueError("runtime dependency evidence is invalid")
+    payload = {
+        "schema_version": evidence.schema_version,
+        "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
+        "runtime_identity_sha256": evidence.runtime_identity.sha256,
+        "artifact_integrity_verified": evidence.artifact_integrity_verified,
+        "lock_verified": evidence.lock_verified,
+        "sbom_verified": evidence.sbom_verified,
+        "lock_sbom_consistent": evidence.lock_sbom_consistent,
+        "runtime_config_semantics_verified": evidence.runtime_config_semantics_verified,
+        "checkpoint_manifest_semantics_verified": (evidence.checkpoint_manifest_semantics_verified),
+        "checkpoint_bytes_verified": evidence.checkpoint_bytes_verified,
+        "oci_bytes_verified": evidence.oci_bytes_verified,
+        "oci_manifest_semantics_verified": evidence.oci_manifest_semantics_verified,
+        "runtime_materialized": evidence.runtime_materialized,
+        "origin_verified": evidence.origin_verified,
+        "executor_available": evidence.executor_available,
+        "inference_executed": evidence.inference_executed,
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
