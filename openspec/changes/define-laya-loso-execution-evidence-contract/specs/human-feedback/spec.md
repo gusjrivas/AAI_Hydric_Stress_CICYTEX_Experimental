@@ -6,6 +6,8 @@ El sistema MUST ligar el contrato de ejecución al digest del plan LOSO, al dige
 del corpus, a una referencia de runtime, al protocolo de ejecución, al proveedor
 `laya-http` y a una revisión de modelo SHA-1 lowercase completa y no nula. MUST NOT
 presentar esas identidades declaradas como verificaciones de origen o suministro.
+Los digests de plan y corpus MUST permanecer como bindings internos repr-private y
+MUST NOT publicarse, porque el digest del plan deriva del digest del corpus.
 
 #### Scenario: Construcción consistente
 
@@ -96,7 +98,9 @@ El sistema MUST producir un summary JSON canónico con identidad segura, conteo,
 attestations, estados y un agregado de latencia compuesto sólo por `count`,
 `minimum`, `maximum` y `mean`. MUST NOT publicar filas, IDs, payload humano,
 categorías, probabilidades, hashes por fila, digest del corpus privado ni el
-commitment de predicciones.
+commitment de predicciones. Entre las identidades, MUST publicar únicamente las no
+derivadas del corpus: referencia de runtime, protocolo, proveedor y revisión del
+modelo.
 
 #### Scenario: Publicación sin superficie de diccionario
 
@@ -104,6 +108,14 @@ commitment de predicciones.
 - **WHEN** se serializa el summary público o se renderiza `repr`
 - **THEN** no aparecen ejemplos, grupos, comentarios, actores humanos, categorías, probabilidades ni commitments privados
 - **AND** el summary contiene únicamente el agregado de latencia permitido para esos valores observacionales.
+
+#### Scenario: Bindings de plan y corpus exclusivamente privados
+
+- **GIVEN** evidencia cuyo contrato contiene `loso_plan_sha256` y `evaluation_corpus_sha256`
+- **WHEN** se serializa el summary público o se renderizan contrato y evidencia
+- **THEN** no aparecen las claves `loso_plan_sha256` ni `evaluation_corpus_sha256`
+- **AND** tampoco aparecen los valores de ninguno de ambos digests
+- **AND** el summary expone sólo referencia de runtime, protocolo, proveedor, revisión del modelo, conteo, agregado de latencia, attestations y flags.
 
 #### Scenario: Separación entre summary y commitment
 

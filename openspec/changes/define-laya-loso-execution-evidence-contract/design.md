@@ -18,6 +18,11 @@ corpus. Además conserva una referencia opaca `laya-runtime-identity-v1`, ID y S
 del protocolo de ejecución, proveedor `laya-http` y una revisión del modelo expresada
 como SHA-1 lowercase completo y no nulo.
 
+`loso_plan_sha256` y `evaluation_corpus_sha256` existen únicamente como bindings
+internos. Ambos quedan fuera de `repr` y del summary público: el digest del plan
+deriva a su vez del digest del corpus, por lo que exponer cualquiera de sus claves o
+valores crearía una superficie indirecta de confirmación del corpus privado.
+
 La referencia del runtime todavía no verifica artefactos. Por ello
 `runtime_identity_verified`, `origin_verified`,
 `gold_blind_execution_attested` y `supply_identity_verified` permanecen en falso en
@@ -60,16 +65,19 @@ confirmación por diccionario.
 
 ### 5. Summary público mínimo y sensible sólo a agregados seguros
 
-El summary JSON canónico incluye identidades contractuales que no revelan el corpus,
-el número total de predicciones y un único agregado de latencia con `count`,
-`minimum`, `maximum` y `mean`. Este agregado hace que el digest público sea sensible
-a cambios de latencia sin publicar hashes de filas ni commitments del contenido.
+El summary JSON canónico incluye sólo identidades no derivadas del corpus: referencia
+de runtime, protocolo, proveedor y revisión del modelo. Agrega el número total de
+predicciones, flags y un único agregado de latencia con `count`, `minimum`, `maximum`
+y `mean`. Este agregado hace que el digest público sea sensible a cambios de latencia
+sin publicar hashes de filas ni commitments del contenido.
 
 Quedan excluidos `example_id`, `group_id`, comentarios, anotadores, adjudicaciones,
 categorías, probabilidades, `records_sha256`, hashes por fila y
-`prediction_content_sha256`. Dos lotes con iguales agregados públicos pueden tener el
-mismo summary aun cuando sus commitments privados difieran; esa separación es
-intencional.
+`prediction_content_sha256`. También se excluyen explícitamente las claves y valores
+de `loso_plan_sha256` y `evaluation_corpus_sha256`; ambos bindings permanecen
+disponibles sólo dentro del objeto privado. Dos lotes con iguales agregados públicos
+pueden tener el mismo summary aun cuando sus commitments privados difieran; esa
+separación es intencional.
 
 ### 6. Estado fail-closed y alcance TDD
 
