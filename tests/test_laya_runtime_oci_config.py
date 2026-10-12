@@ -1282,10 +1282,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         *plan_mutations,
     )
     for corrupt_layout, *markers in nested_layout_mutations:
-        corrupt_evidence = forged_dataclass(
-            evidence,
-            layout_evidence=corrupt_layout,
-        )
+        corrupt_evidence = evidence_with_layout(corrupt_layout)
         with pytest.raises(
             (TypeError, ValueError), match="layout|plan|evidence|claim|binding|valid"
         ) as captured:
