@@ -39,6 +39,39 @@ def _assert_private_details_hidden(error: BaseException, root: Path, payloads) -
         assert content.decode("ascii") not in rendered
 
 
+def _forbid_partial_verification(monkeypatch, module) -> dict[str, bool]:
+    state = {"called": False}
+
+    def forbidden_verification(*args, **kwargs):
+        state["called"] = True
+        raise AssertionError("portable verifier received an unstable or partial capture")
+
+    monkeypatch.setattr(module, "verify_laya_runtime_artifact_bytes", forbidden_verification)
+    return state
+
+
+def _fds_pointing_into(root: Path) -> dict[int, str]:
+    root_text = str(root.absolute())
+    result = {}
+    for entry in Path("/proc/self/fd").iterdir():
+        try:
+            target = os.readlink(entry)
+            file_descriptor = int(entry.name)
+        except (OSError, ValueError):
+            continue
+        if target == root_text or target.startswith(root_text + os.sep):
+            result[file_descriptor] = target
+    return result
+
+
+def _close_fds(file_descriptors, close) -> None:
+    for file_descriptor in file_descriptors:
+        try:
+            close(file_descriptor)
+        except OSError:
+            pass
+
+
 def test_missing_secure_capture_capability_fails_before_any_os_open(monkeypatch, tmp_path):
     module = _filesystem_adapter()
     payloads = _payloads()
@@ -214,6 +247,238 @@ def test_linux_oversize_artifact_read_is_bounded_to_expected_size_plus_one(monke
         module.capture_and_verify_laya_runtime_artifacts(manifest, root)
 
     assert captured_bytes <= declared_size + 1
+    _assert_private_details_hidden(error.value, root, payloads)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="TOCTOU descriptor checks require Linux")
+def test_linux_same_size_in_place_mutation_after_initial_fstat_is_rejected(monkeypatch, tmp_path):
+    module = _filesystem_adapter()
+    payloads = _payloads()
+    manifest = _manifest(payloads=payloads)
+    root = tmp_path / "runtime"
+    _materialize(root, payloads)
+    target = root / ARTIFACT_PATHS["dependency_lock"]
+    replacement = b"x" * len(payloads[ARTIFACT_PATHS["dependency_lock"]])
+    original_mtime_ns = target.stat().st_mtime_ns
+    original_read = module.os.read
+    mutated = False
+    verifier = _forbid_partial_verification(monkeypatch, module)
+
+    def mutate_then_read(file_descriptor, count):
+        nonlocal mutated
+        if not mutated:
+            target.write_bytes(replacement)
+            os.utime(
+                target,
+                ns=(original_mtime_ns + 1_000_000_000, original_mtime_ns + 1_000_000_000),
+            )
+            mutated = True
+        return original_read(file_descriptor, count)
+
+    monkeypatch.setattr(module.os, "read", mutate_then_read)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError) as error:
+        module.capture_and_verify_laya_runtime_artifacts(manifest, root)
+
+    assert mutated is True
+    assert verifier["called"] is False
+    _assert_private_details_hidden(
+        error.value,
+        root,
+        {**payloads, "private/replacement": replacement},
+    )
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="TOCTOU descriptor checks require Linux")
+def test_linux_growth_during_first_read_is_bounded_and_rejected(monkeypatch, tmp_path):
+    module = _filesystem_adapter()
+    payloads = _payloads()
+    manifest = _manifest(payloads=payloads)
+    root = tmp_path / "runtime"
+    _materialize(root, payloads)
+    path = ARTIFACT_PATHS["dependency_lock"]
+    target = root / path
+    expected_size = len(payloads[path])
+    original_read = module.os.read
+    captured_bytes = 0
+    grown = False
+    verifier = _forbid_partial_verification(monkeypatch, module)
+
+    def grow_then_read(file_descriptor, count):
+        nonlocal captured_bytes, grown
+        if not grown:
+            with target.open("ab") as stream:
+                stream.write(b"private-growth")
+            grown = True
+        chunk = original_read(file_descriptor, count)
+        captured_bytes += len(chunk)
+        return chunk
+
+    monkeypatch.setattr(module.os, "read", grow_then_read)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError) as error:
+        module.capture_and_verify_laya_runtime_artifacts(manifest, root)
+
+    assert grown is True
+    assert captured_bytes <= expected_size + 1
+    assert verifier["called"] is False
+    _assert_private_details_hidden(error.value, root, payloads)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="TOCTOU descriptor checks require Linux")
+def test_linux_final_sweep_rejects_file_replaced_after_capture(monkeypatch, tmp_path):
+    module = _filesystem_adapter()
+    payloads = _payloads()
+    manifest = _manifest(payloads=payloads)
+    root = tmp_path / "runtime"
+    _materialize(root, payloads)
+    path = ARTIFACT_PATHS["dependency_lock"]
+    target = root / path
+    original_capture_one = module._capture_one
+    replaced = False
+    verifier = _forbid_partial_verification(monkeypatch, module)
+
+    def capture_then_replace(root_fd, spec):
+        nonlocal replaced
+        content = original_capture_one(root_fd, spec)
+        if not replaced:
+            target.rename(target.with_name("private-original.lock"))
+            target.write_bytes(content)
+            replaced = True
+        return content
+
+    monkeypatch.setattr(module, "_capture_one", capture_then_replace)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError) as error:
+        module.capture_and_verify_laya_runtime_artifacts(manifest, root)
+
+    assert replaced is True
+    assert verifier["called"] is False
+    _assert_private_details_hidden(error.value, root, payloads)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="TOCTOU descriptor checks require Linux")
+def test_linux_final_sweep_rejects_intermediate_directory_replaced_after_capture(
+    monkeypatch, tmp_path
+):
+    module = _filesystem_adapter()
+    payloads = _payloads()
+    manifest = _manifest(payloads=payloads)
+    root = tmp_path / "runtime"
+    _materialize(root, payloads)
+    directory = root / "locks"
+    original_capture_one = module._capture_one
+    replaced = False
+    verifier = _forbid_partial_verification(monkeypatch, module)
+
+    def capture_then_replace(root_fd, spec):
+        nonlocal replaced
+        content = original_capture_one(root_fd, spec)
+        if not replaced:
+            directory.rename(root / "private-original-locks")
+            directory.mkdir()
+            (directory / "uv.lock").write_bytes(content)
+            replaced = True
+        return content
+
+    monkeypatch.setattr(module, "_capture_one", capture_then_replace)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError) as error:
+        module.capture_and_verify_laya_runtime_artifacts(manifest, root)
+
+    assert replaced is True
+    assert verifier["called"] is False
+    _assert_private_details_hidden(error.value, root, payloads)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="secure root traversal requires Linux")
+def test_linux_rejects_symlink_in_ancestor_of_runtime_root(monkeypatch, tmp_path):
+    module = _filesystem_adapter()
+    payloads = _payloads()
+    manifest = _manifest(payloads=payloads)
+    real_parent = tmp_path / "private-real-parent"
+    real_root = real_parent / "runtime"
+    linked_parent = tmp_path / "linked-parent"
+    _materialize(real_root, payloads)
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    linked_root = linked_parent / "runtime"
+    verifier = _forbid_partial_verification(monkeypatch, module)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError) as error:
+        module.capture_and_verify_laya_runtime_artifacts(manifest, linked_root)
+
+    assert verifier["called"] is False
+    _assert_private_details_hidden(error.value, linked_root, payloads)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="descriptor leak inspection requires /proc on Linux")
+def test_linux_close_failure_during_root_traversal_leaks_no_descriptors(monkeypatch, tmp_path):
+    module = _filesystem_adapter()
+    payloads = _payloads()
+    manifest = _manifest(payloads=payloads)
+    root = tmp_path / "runtime"
+    _materialize(root, payloads)
+    original_close = module.os.close
+    raised = False
+    verifier = _forbid_partial_verification(monkeypatch, module)
+
+    def close_then_raise_once(file_descriptor):
+        nonlocal raised
+        try:
+            target = os.readlink(f"/proc/self/fd/{file_descriptor}")
+        except OSError:
+            target = ""
+        original_close(file_descriptor)
+        if not raised and target == str(tmp_path.absolute()):
+            raised = True
+            raise OSError("injected private root traversal close failure")
+
+    monkeypatch.setattr(module.os, "close", close_then_raise_once)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError) as error:
+        module.capture_and_verify_laya_runtime_artifacts(manifest, root)
+
+    leaked = _fds_pointing_into(tmp_path)
+    _close_fds(leaked, original_close)
+    assert raised is True
+    assert verifier["called"] is False
+    assert leaked == {}
+    _assert_private_details_hidden(error.value, root, payloads)
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="descriptor leak inspection requires /proc on Linux")
+def test_linux_close_failure_for_final_file_leaks_no_descriptors(monkeypatch, tmp_path):
+    module = _filesystem_adapter()
+    payloads = _payloads()
+    manifest = _manifest(payloads=payloads)
+    root = tmp_path / "runtime"
+    _materialize(root, payloads)
+    target_path = str((root / ARTIFACT_PATHS["dependency_lock"]).absolute())
+    original_close = module.os.close
+    raised = False
+    verifier = _forbid_partial_verification(monkeypatch, module)
+
+    def close_then_raise_once(file_descriptor):
+        nonlocal raised
+        try:
+            target = os.readlink(f"/proc/self/fd/{file_descriptor}")
+        except OSError:
+            target = ""
+        original_close(file_descriptor)
+        if not raised and target == target_path:
+            raised = True
+            raise OSError("injected private final file close failure")
+
+    monkeypatch.setattr(module.os, "close", close_then_raise_once)
+
+    with pytest.raises(module.RuntimeArtifactCaptureError) as error:
+        module.capture_and_verify_laya_runtime_artifacts(manifest, root)
+
+    leaked = _fds_pointing_into(tmp_path)
+    _close_fds(leaked, original_close)
+    assert raised is True
+    assert verifier["called"] is False
+    assert leaked == {}
     _assert_private_details_hidden(error.value, root, payloads)
 
 
