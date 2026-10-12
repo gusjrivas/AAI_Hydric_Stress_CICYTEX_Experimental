@@ -8,6 +8,8 @@ import re
 from dataclasses import InitVar, dataclass, field
 
 import human_feedback.runtime_oci_layout as runtime_oci_layout
+from human_feedback.runtime_bundle import verify_laya_runtime_artifact_bytes
+from human_feedback.runtime_oci_metadata import validate_laya_runtime_oci_metadata
 
 MAX_OCI_CONFIG_BYTES = 64 * 1_024
 MAX_OCI_CONFIG_JSON_DEPTH = 32
@@ -276,7 +278,7 @@ class LayaRuntimeOciConfigEvidence:
     def __post_init__(self, _factory_token: object) -> None:
         if _factory_token is not _FACTORY_TOKEN:
             raise ValueError("OCI config evidence construction is factory-sealed")
-        _revalidate_config_evidence(self)
+        _validate_config_evidence_seal(self)
 
     __repr__ = _private_repr
 
@@ -469,11 +471,99 @@ def _parse_laya_runtime_oci_config_bytes(payload: bytes) -> ValidatedLayaRuntime
     _raise_private(ValueError, error_message or "OCI config validation failed")
 
 
-def _require_exact_prior_oci_evidence(value: object) -> None:
-    prior = value
-    if prior.schema_version != "laya-runtime-oci-evidence-v1":
-        raise _ConfigValueError("OCI layout nested evidence schema is invalid")
-    for flag in (
+def _rebuild_prior_oci_evidence(prior: object) -> object:
+    snapshot = prior.snapshot
+    manifest = snapshot.manifest
+    manifest_specs = manifest.artifacts
+    artifacts = snapshot.artifacts
+    if (
+        type(manifest_specs) is not tuple
+        or type(artifacts) is not tuple
+        or len(manifest_specs) != 5
+        or len(artifacts) != len(manifest_specs)
+    ):
+        raise _ConfigValueError("OCI metadata snapshot collection is invalid")
+
+    payload_by_path: dict[str, bytes] = {}
+    for position, artifact in enumerate(artifacts):
+        spec = artifact.spec
+        expected_spec = manifest_specs[position]
+        if spec != expected_spec or type(artifact.content) is not bytes:
+            raise _ConfigValueError("OCI metadata snapshot artifact binding is invalid")
+        if spec.path in payload_by_path:
+            raise _ConfigValueError("OCI metadata snapshot artifact coverage is invalid")
+        payload_by_path[spec.path] = artifact.content
+    if len(payload_by_path) != len(manifest_specs):
+        raise _ConfigValueError("OCI metadata snapshot artifact coverage is invalid")
+
+    rebuilt_snapshot = verify_laya_runtime_artifact_bytes(manifest, payload_by_path)
+    if rebuilt_snapshot is snapshot or type(rebuilt_snapshot) is not type(snapshot):
+        raise _ConfigValueError("OCI metadata snapshot reconstruction is invalid")
+    if (
+        rebuilt_snapshot.manifest is not manifest
+        or rebuilt_snapshot.schema_version != snapshot.schema_version
+        or rebuilt_snapshot.runtime_identity != snapshot.runtime_identity
+        or manifest.identity_sha256 != rebuilt_snapshot.runtime_identity.sha256
+        or type(rebuilt_snapshot.artifacts) is not tuple
+        or len(rebuilt_snapshot.artifacts) != len(manifest_specs)
+        or tuple(item.spec for item in rebuilt_snapshot.artifacts) != manifest_specs
+        or tuple(item.content for item in rebuilt_snapshot.artifacts)
+        != tuple(payload_by_path[spec.path] for spec in manifest_specs)
+    ):
+        raise _ConfigValueError("OCI metadata rebuilt snapshot binding is invalid")
+
+    snapshot_true_flags = ("artifact_integrity_verified",)
+    snapshot_false_flags = (
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "runtime_config_semantics_verified",
+        "checkpoint_manifest_semantics_verified",
+        "oci_manifest_semantics_verified",
+        "runtime_materialized",
+        "origin_verified",
+        "executor_available",
+        "inference_executed",
+    )
+    if any(getattr(snapshot, flag, None) is not True for flag in snapshot_true_flags) or any(
+        getattr(snapshot, flag, None) is not False for flag in snapshot_false_flags
+    ):
+        raise _ConfigValueError("OCI metadata snapshot claim is invalid")
+    manifest_true_flags = ("structurally_valid",)
+    manifest_false_flags = (
+        "artifact_integrity_verified",
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "checkpoint_bytes_verified",
+        "oci_bytes_verified",
+        "runtime_materialized",
+        "origin_verified",
+        "executor_available",
+        "inference_executed",
+    )
+    if any(getattr(manifest, flag, None) is not True for flag in manifest_true_flags) or any(
+        getattr(manifest, flag, None) is not False for flag in manifest_false_flags
+    ):
+        raise _ConfigValueError("OCI metadata runtime manifest claim is invalid")
+
+    rebuilt_prior = validate_laya_runtime_oci_metadata(rebuilt_snapshot)
+    if type(rebuilt_prior) is not type(prior):
+        raise _ConfigValueError("OCI metadata ancestry type is invalid")
+    if (
+        rebuilt_prior.snapshot is not rebuilt_snapshot
+        or type(rebuilt_prior.oci_manifest) is not type(prior.oci_manifest)
+        or rebuilt_prior.oci_manifest != prior.oci_manifest
+        or type(rebuilt_prior.runtime_identity) is not type(prior.runtime_identity)
+        or rebuilt_prior.runtime_identity != prior.runtime_identity
+        or snapshot.runtime_identity != prior.runtime_identity
+    ):
+        raise _ConfigValueError("OCI metadata ancestry binding is invalid")
+    prior_true_flags = (
+        "artifact_integrity_verified",
+        "oci_manifest_semantics_verified",
+    )
+    prior_false_flags = (
         "lock_verified",
         "sbom_verified",
         "lock_sbom_consistent",
@@ -485,44 +575,17 @@ def _require_exact_prior_oci_evidence(value: object) -> None:
         "runtime_materialized",
         "executor_available",
         "inference_executed",
-    ):
-        if getattr(prior, flag, None) is not False:
-            raise _ConfigValueError("OCI layout nested evidence claim is invalid")
-    manifest = prior.oci_manifest
-    if (
-        getattr(manifest, "schema_version", None) != 2
-        or getattr(manifest, "media_type", None) != _MANIFEST_MEDIA_TYPE
-        or getattr(manifest, "semantics_sha256", None) != _OCI_MANIFEST_SEMANTICS_SHA256
-        or type(getattr(manifest, "annotations", None)) is not tuple
-        or manifest.annotations != tuple(sorted(_EXPECTED_LABELS.items()))
-    ):
-        raise _ConfigValueError("OCI layout nested manifest evidence is invalid")
-    descriptors = (manifest.config, *manifest.layers)
-    if type(manifest.layers) is not tuple or len(descriptors) != 11:
-        raise _ConfigValueError("OCI layout nested descriptor graph is invalid")
-    for descriptor, expected in zip(descriptors, _EXPECTED_BLOBS[1:]):
-        _role, media_type, digest, size_bytes = expected
-        if (
-            type(descriptor) is not type(manifest.config)
-            or descriptor.media_type != media_type
-            or descriptor.digest != digest
-            or descriptor.size_bytes != size_bytes
-        ):
-            raise _ConfigValueError("OCI layout nested descriptor graph is invalid")
-    captured_manifests = tuple(
-        artifact for artifact in prior.snapshot.artifacts if artifact.spec.kind == "oci_manifest"
     )
-    manifest_expected = _EXPECTED_BLOBS[0]
-    if len(captured_manifests) != 1:
-        raise _ConfigValueError("OCI layout nested manifest artifact is invalid")
-    spec = captured_manifests[0].spec
-    if (
-        spec.sha256 != manifest_expected[2].removeprefix("sha256:")
-        or spec.size_bytes != manifest_expected[3]
-        or prior.runtime_identity is not prior.snapshot.runtime_identity
-        or prior.snapshot.artifact_integrity_verified is not True
+    if any(getattr(prior, flag, None) is not True for flag in prior_true_flags) or any(
+        getattr(prior, flag, None) is not False for flag in prior_false_flags
     ):
-        raise _ConfigValueError("OCI layout nested manifest artifact is invalid")
+        raise _ConfigValueError("OCI metadata ancestry claim is invalid")
+    if any(
+        getattr(prior, flag) is not getattr(rebuilt_prior, flag)
+        for flag in (*prior_true_flags, *prior_false_flags)
+    ):
+        raise _ConfigValueError("OCI metadata rebuilt claims are inconsistent")
+    return rebuilt_prior
 
 
 def _revalidate_layout_evidence(
@@ -549,7 +612,7 @@ def _revalidate_layout_evidence(
     plan = layout_evidence.plan
     if type(plan) is not runtime_oci_layout.LayaOciLayoutPlan:
         raise _ConfigValueError("OCI layout plan type is invalid")
-    _require_exact_prior_oci_evidence(plan.oci_evidence)
+    _rebuild_prior_oci_evidence(plan.oci_evidence)
     if (
         plan.schema_version != runtime_oci_layout.LAYOUT_PLAN_SCHEMA
         or plan.runtime_identity is not plan.oci_evidence.runtime_identity
@@ -612,18 +675,22 @@ def _revalidate_config_projection(config: object) -> ValidatedLayaRuntimeOciConf
     return config
 
 
-def _revalidate_config_evidence(
-    evidence: object,
-) -> LayaRuntimeOciConfigEvidence:
+def _validate_config_evidence_seal(evidence: object) -> None:
     if type(evidence) is not LayaRuntimeOciConfigEvidence:
         raise _ConfigValueError("OCI config evidence must be an exact sealed value")
     if evidence.schema_version != OCI_CONFIG_EVIDENCE_SCHEMA:
         raise _ConfigValueError("OCI config evidence schema binding is invalid")
-    layout_evidence, config_receipt = _revalidate_layout_evidence(evidence.layout_evidence)
+    if type(evidence.layout_evidence) is not runtime_oci_layout.LayaRuntimeOciLayoutEvidence:
+        raise _ConfigValueError("OCI config layout evidence binding is invalid")
+    if type(evidence.config_receipt) is not runtime_oci_layout.VerifiedLayaOciBlob:
+        raise _ConfigValueError("OCI config receipt binding is invalid")
     _revalidate_config_projection(evidence.config)
     if (
-        evidence.config_receipt is not config_receipt
-        or evidence.runtime_identity is not layout_evidence.runtime_identity
+        type(evidence.layout_evidence.receipts) is not tuple
+        or len(evidence.layout_evidence.receipts) < 2
+        or evidence.config_receipt is not evidence.layout_evidence.receipts[1]
+        or evidence.config_receipt.plan is not evidence.layout_evidence.plan
+        or evidence.runtime_identity is not evidence.layout_evidence.runtime_identity
     ):
         raise _ConfigValueError("OCI config evidence binding is invalid")
     for flag in _CONFIG_TRUE_FLAGS:
@@ -632,6 +699,18 @@ def _revalidate_config_evidence(
     for flag in _CONFIG_FALSE_FLAGS:
         if getattr(evidence, flag, None) is not False:
             raise _ConfigValueError("OCI config evidence conservative claim flag is invalid")
+
+
+def _revalidate_config_evidence(
+    evidence: object,
+) -> LayaRuntimeOciConfigEvidence:
+    _validate_config_evidence_seal(evidence)
+    layout_evidence, config_receipt = _revalidate_layout_evidence(evidence.layout_evidence)
+    if (
+        evidence.config_receipt is not config_receipt
+        or evidence.runtime_identity is not layout_evidence.runtime_identity
+    ):
+        raise _ConfigValueError("OCI config evidence binding is invalid")
     return evidence
 
 

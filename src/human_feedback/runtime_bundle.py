@@ -31,7 +31,7 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 
 def _require_verified_content(spec: RuntimeArtifactSpec, content: object) -> bytes:
-    if not isinstance(spec, RuntimeArtifactSpec):
+    if type(spec) is not RuntimeArtifactSpec:
         raise ValueError("runtime artifact specification is invalid")
     if type(content) is not bytes:
         raise TypeError("runtime artifact payload must be bytes")
@@ -84,11 +84,11 @@ class LayaRuntimeBundleSnapshot:
             raise ValueError("runtime bundle requires the verification factory token")
         if self.schema_version != SCHEMA_VERSION:
             raise ValueError("runtime bundle snapshot schema version is invalid")
-        if not isinstance(self.manifest, LayaRuntimeManifest):
+        if type(self.manifest) is not LayaRuntimeManifest:
             raise ValueError("runtime bundle manifest is invalid")
         if not isinstance(self.artifacts, tuple):
             raise ValueError("runtime bundle artifacts must be a canonical tuple")
-        if any(not isinstance(artifact, CapturedRuntimeArtifact) for artifact in self.artifacts):
+        if any(type(artifact) is not CapturedRuntimeArtifact for artifact in self.artifacts):
             raise ValueError("runtime bundle contains an invalid captured artifact")
         expected_specs = self.manifest.artifacts
         if tuple(artifact.spec for artifact in self.artifacts) != expected_specs:
@@ -105,7 +105,7 @@ def verify_laya_runtime_artifact_bytes(
 ) -> LayaRuntimeBundleSnapshot:
     """Verify an exact path-to-bytes bundle without performing any I/O."""
 
-    if not isinstance(manifest, LayaRuntimeManifest):
+    if type(manifest) is not LayaRuntimeManifest:
         raise ValueError("runtime artifact manifest is invalid")
     if type(payload_by_path) is not dict:
         raise TypeError("runtime artifact payload collection must be a dict of bytes")
@@ -137,7 +137,7 @@ def canonical_laya_runtime_bundle_summary_bytes(
 ) -> bytes:
     """Return a deterministic public summary without private artifact bytes."""
 
-    if not isinstance(snapshot, LayaRuntimeBundleSnapshot):
+    if type(snapshot) is not LayaRuntimeBundleSnapshot:
         raise ValueError("runtime bundle snapshot is invalid")
     payload = {
         "schema_version": snapshot.schema_version,
