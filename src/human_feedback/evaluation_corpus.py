@@ -416,8 +416,13 @@ def _validate_corpus_metadata(corpus: EvaluationCorpus) -> None:
         raise ValueError("structurally valid corpus evidence role is invalid")
     if corpus.required_sites != REQUIRED_SITES:
         raise ValueError("structurally valid corpus required sites are invalid")
-    if corpus.minimum_annotators_per_example != MINIMUM_ANNOTATORS_PER_EXAMPLE:
-        raise ValueError("structurally valid corpus annotator minimum is invalid")
+    if type(corpus.records_count) is not int or corpus.records_count <= 0:
+        raise ValueError("structurally valid corpus records count must be a positive integer")
+    if (
+        type(corpus.minimum_annotators_per_example) is not int
+        or corpus.minimum_annotators_per_example != MINIMUM_ANNOTATORS_PER_EXAMPLE
+    ):
+        raise ValueError("structurally valid corpus annotator minimum must be an integer")
     if corpus.adjudication_policy != ADJUDICATION_POLICY:
         raise ValueError("structurally valid corpus adjudication policy is invalid")
     _require_digest(corpus.records_sha256, label="records digest")
