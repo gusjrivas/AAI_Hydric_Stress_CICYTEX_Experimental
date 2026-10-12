@@ -551,7 +551,9 @@ def _rebuild_prior_oci_evidence(prior: object) -> object:
     if type(rebuilt_prior) is not type(prior):
         raise _ConfigValueError("OCI metadata ancestry type is invalid")
     if (
-        rebuilt_prior.snapshot is not rebuilt_snapshot
+        type(prior.schema_version) is not str
+        or prior.schema_version != rebuilt_prior.schema_version
+        or rebuilt_prior.snapshot is not rebuilt_snapshot
         or type(rebuilt_prior.oci_manifest) is not type(prior.oci_manifest)
         or rebuilt_prior.oci_manifest != prior.oci_manifest
         or type(rebuilt_prior.runtime_identity) is not type(prior.runtime_identity)
