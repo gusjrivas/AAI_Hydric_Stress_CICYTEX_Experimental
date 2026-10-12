@@ -25,9 +25,11 @@ oculta por promedios globales.
 
 ## Impact
 
-El cambio es aditivo y queda aislado en `human_feedback.offline_readiness`. No modifica
-el endpoint actual, variables `LAYA_*`, adaptador HTTP, forecast, ingesta,
-recalibración, training, registry, MLflow, frontend ni experimentos históricos.
+El cambio es aditivo y el gate queda aislado en `human_feedback.offline_readiness`.
+Refactoriza con TDD el parsing interno de confianza del adaptador HTTP para compartir
+la misma precedencia fail-closed con el evaluador offline, sin cambiar su endpoint,
+contrato público ni variables `LAYA_*`. No modifica forecast, ingesta, recalibración,
+training, registry, MLflow, frontend ni experimentos históricos.
 Preserva las corridas de CICYTEX, Pergamino, Melchor Romero y laboratorio mock.
 
 El corpus incluido es sintético y sólo prueba el contrato. Su decisión obligatoria es
