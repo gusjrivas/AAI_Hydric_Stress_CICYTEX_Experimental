@@ -1329,6 +1329,246 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         )
         assert_ancestry_rejected(forged_dataclass(prior, snapshot=corrupt_snapshot))
 
+    for invalid_schema in ("private-snapshot-schema", 1, None):
+        corrupt_snapshot = forged_dataclass(
+            prior.snapshot,
+            schema_version=invalid_schema,
+        )
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            *private_strings(invalid_schema),
+        )
+    snapshot_false_flags = (
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "runtime_config_semantics_verified",
+        "checkpoint_manifest_semantics_verified",
+        "oci_manifest_semantics_verified",
+        "runtime_materialized",
+        "origin_verified",
+        "executor_available",
+        "inference_executed",
+    )
+    for flag in snapshot_false_flags:
+        for invalid in (True, 1, None):
+            corrupt_snapshot = forged_dataclass(prior.snapshot, **{flag: invalid})
+            assert_ancestry_rejected(forged_dataclass(prior, snapshot=corrupt_snapshot))
+
+    runtime_manifest = prior.snapshot.manifest
+
+    class RuntimeManifestSubclass(type(runtime_manifest)):
+        pass
+
+    class HostileRuntimeManifest:
+        @property
+        def schema_version(self):
+            raise AssertionError("private-hostile-runtime-manifest")
+
+    for invalid_manifest, marker in (
+        (
+            SimpleNamespace(marker="private-runtime-manifest-proxy"),
+            "private-runtime-manifest-proxy",
+        ),
+        (object.__new__(RuntimeManifestSubclass), "private-runtime-manifest-subclass"),
+        (object.__new__(type(runtime_manifest)), "private-runtime-manifest-unsealed"),
+        (HostileRuntimeManifest(), "private-hostile-runtime-manifest"),
+    ):
+        corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=invalid_manifest)
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            marker,
+        )
+
+    manifest_field_mutations = {
+        "schema_version": "private-runtime-manifest-schema",
+        "runtime_id": "private-runtime-id",
+        "provider": "private-provider",
+        "engine": "private-engine",
+        "source": "https://private.invalid/source@" + "a" * 40,
+        "license": "private-license",
+        "python": "private-python",
+        "platform": "private-platform",
+        "base_image_ref": "private-base-image@sha256:" + "a" * 64,
+        "identity_sha256": "a" * 64,
+    }
+    for field_name, invalid in manifest_field_mutations.items():
+        corrupt_manifest = forged_dataclass(runtime_manifest, **{field_name: invalid})
+        corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=corrupt_manifest)
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            *private_strings(invalid),
+        )
+    for invalid in (False, 1, None):
+        corrupt_manifest = forged_dataclass(runtime_manifest, structurally_valid=invalid)
+        corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=corrupt_manifest)
+        assert_ancestry_rejected(forged_dataclass(prior, snapshot=corrupt_snapshot))
+    manifest_false_flags = (
+        "artifact_integrity_verified",
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "checkpoint_bytes_verified",
+        "oci_bytes_verified",
+        "runtime_materialized",
+        "origin_verified",
+        "executor_available",
+        "inference_executed",
+    )
+    for flag in manifest_false_flags:
+        for invalid in (True, 1, None):
+            corrupt_manifest = forged_dataclass(runtime_manifest, **{flag: invalid})
+            corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=corrupt_manifest)
+            assert_ancestry_rejected(forged_dataclass(prior, snapshot=corrupt_snapshot))
+
+    manifest_specs = runtime_manifest.artifacts
+    for invalid_artifacts in (
+        list(manifest_specs),
+        manifest_specs[:-1],
+        tuple(reversed(manifest_specs)),
+        (SimpleNamespace(marker="private-runtime-spec-proxy"), *manifest_specs[1:]),
+    ):
+        corrupt_manifest = forged_dataclass(runtime_manifest, artifacts=invalid_artifacts)
+        corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=corrupt_manifest)
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            "private-runtime-spec-proxy",
+        )
+    first_spec = manifest_specs[0]
+    for field_name, invalid in {
+        "kind": "private-kind",
+        "format": "private-format",
+        "path": "private/path",
+        "sha256": "a" * 64,
+        "size_bytes": first_spec.size_bytes + 1,
+    }.items():
+        corrupt_specs = list(manifest_specs)
+        corrupt_specs[0] = forged_dataclass(first_spec, **{field_name: invalid})
+        corrupt_manifest = forged_dataclass(runtime_manifest, artifacts=tuple(corrupt_specs))
+        corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=corrupt_manifest)
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            *private_strings(invalid),
+        )
+    for spec_position, spec in enumerate(manifest_specs):
+        corrupt_specs = list(manifest_specs)
+        corrupt_specs[spec_position] = forged_dataclass(spec, sha256="a" * 64)
+        corrupt_manifest = forged_dataclass(runtime_manifest, artifacts=tuple(corrupt_specs))
+        corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=corrupt_manifest)
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            "a" * 64,
+        )
+
+    oci_artifact_positions = tuple(
+        index
+        for index, artifact in enumerate(prior.snapshot.artifacts)
+        if artifact.spec.kind == "oci_manifest"
+    )
+    assert len(oci_artifact_positions) == 1
+    oci_artifact_position = oci_artifact_positions[0]
+    oci_artifact = prior.snapshot.artifacts[oci_artifact_position]
+
+    class OciArtifactSubclass(type(oci_artifact)):
+        pass
+
+    for invalid_artifact, marker in (
+        (SimpleNamespace(marker="private-oci-artifact-proxy"), "private-oci-artifact-proxy"),
+        (object.__new__(OciArtifactSubclass), "private-oci-artifact-subclass"),
+        (object.__new__(type(oci_artifact)), "private-oci-artifact-unsealed"),
+        (
+            forged_dataclass(oci_artifact, content=b"private-oci-artifact-content"),
+            "private-oci-artifact-content",
+        ),
+        (
+            forged_dataclass(
+                oci_artifact,
+                spec=forged_dataclass(oci_artifact.spec, sha256="a" * 64),
+            ),
+            "a" * 64,
+        ),
+    ):
+        artifacts = list(prior.snapshot.artifacts)
+        artifacts[oci_artifact_position] = invalid_artifact
+        corrupt_snapshot = forged_dataclass(prior.snapshot, artifacts=tuple(artifacts))
+        assert_ancestry_rejected(
+            forged_dataclass(prior, snapshot=corrupt_snapshot),
+            marker,
+        )
+
+    oci_projection = prior.oci_manifest
+    projection_field_mutations = {
+        "schema_version": 1,
+        "media_type": "private-oci-media-type",
+        "semantics_sha256": "a" * 64,
+    }
+    for field_name, invalid in projection_field_mutations.items():
+        corrupt_projection = forged_dataclass(oci_projection, **{field_name: invalid})
+        assert_ancestry_rejected(
+            forged_dataclass(prior, oci_manifest=corrupt_projection),
+            *private_strings(invalid),
+        )
+    for descriptor_field, invalid in (
+        ("media_type", "private-config-descriptor-media"),
+        ("digest", "sha256:" + "a" * 64),
+        ("size_bytes", oci_projection.config.size_bytes + 1),
+    ):
+        corrupt_config_descriptor = forged_dataclass(
+            oci_projection.config,
+            **{descriptor_field: invalid},
+        )
+        corrupt_projection = forged_dataclass(
+            oci_projection,
+            config=corrupt_config_descriptor,
+        )
+        assert_ancestry_rejected(
+            forged_dataclass(prior, oci_manifest=corrupt_projection),
+            *private_strings(invalid),
+        )
+    for layer_position, layer in enumerate(oci_projection.layers):
+        for descriptor_field, invalid in (
+            ("media_type", f"private-layer-{layer_position}-media"),
+            ("digest", "sha256:" + f"{layer_position + 1:x}" * 64),
+            ("size_bytes", layer.size_bytes + 1),
+        ):
+            layers = list(oci_projection.layers)
+            layers[layer_position] = forged_dataclass(layer, **{descriptor_field: invalid})
+            corrupt_projection = forged_dataclass(oci_projection, layers=tuple(layers))
+            assert_ancestry_rejected(
+                forged_dataclass(prior, oci_manifest=corrupt_projection),
+                *private_strings(invalid),
+            )
+    for invalid_layers in (
+        list(oci_projection.layers),
+        oci_projection.layers[:-1],
+        (*oci_projection.layers, oci_projection.layers[-1]),
+        tuple(reversed(oci_projection.layers)),
+    ):
+        corrupt_projection = forged_dataclass(oci_projection, layers=invalid_layers)
+        assert_ancestry_rejected(forged_dataclass(prior, oci_manifest=corrupt_projection))
+    for annotation_position, (key, value) in enumerate(oci_projection.annotations):
+        annotations = list(oci_projection.annotations)
+        annotations[annotation_position] = (key, f"private-annotation-{annotation_position}")
+        corrupt_projection = forged_dataclass(
+            oci_projection,
+            annotations=tuple(annotations),
+        )
+        assert_ancestry_rejected(
+            forged_dataclass(prior, oci_manifest=corrupt_projection),
+            f"private-annotation-{annotation_position}",
+        )
+    for invalid_annotations in (
+        list(oci_projection.annotations),
+        oci_projection.annotations[:-1],
+        (*oci_projection.annotations, oci_projection.annotations[-1]),
+        tuple(reversed(oci_projection.annotations)),
+    ):
+        corrupt_projection = forged_dataclass(
+            oci_projection,
+            annotations=invalid_annotations,
+        )
+        assert_ancestry_rejected(forged_dataclass(prior, oci_manifest=corrupt_projection))
+
     alternate_identity = type(prior.runtime_identity)(
         schema_version=prior.runtime_identity.schema_version,
         sha256="a" * 64,
