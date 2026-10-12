@@ -133,6 +133,7 @@ class CorpusEvidence:
 @dataclass(frozen=True, slots=True)
 class ReadinessPolicy:
     policy_id: str
+    minimum_decision_confidence: float
     minimum_coverage: float
     minimum_accuracy: float
     minimum_selective_accuracy: float
@@ -145,6 +146,7 @@ class ReadinessPolicy:
 
     def __post_init__(self) -> None:
         all_thresholds = (
+            self.minimum_decision_confidence,
             self.minimum_coverage,
             self.minimum_accuracy,
             self.minimum_selective_accuracy,
@@ -158,6 +160,7 @@ class ReadinessPolicy:
         if any(not math.isfinite(value) for value in all_thresholds):
             raise ValueError("policy thresholds must be finite")
         bounded = (
+            self.minimum_decision_confidence,
             self.minimum_coverage,
             self.minimum_accuracy,
             self.minimum_selective_accuracy,
@@ -424,13 +427,9 @@ def evaluate_readiness(
     contract: ReadinessContract,
     predictions: tuple[OfflinePrediction, ...],
     *,
-    supply_verification: SupplyVerification,
+    artifact_root: Path,
 ) -> ReadinessReport:
-    if not isinstance(supply_verification, SupplyVerification):
-        raise TypeError("supply_verification must be a SupplyVerification")
-    expected_supply_digest = supply_identity_digest(contract.supply)
-    if supply_verification.supply_digest != expected_supply_digest:
-        raise ValueError("supply verification does not match the contract identity")
+    supply_verification = verify_supply_identity(contract.supply, artifact_root)
     _validate_prediction_evidence(contract, predictions)
     scientific_examples = tuple(
         example for example in contract.corpus.examples if example.site_id in SCIENTIFIC_SITES
@@ -438,6 +437,10 @@ def evaluate_readiness(
     scientific_ids = {example.example_id for example in scientific_examples}
     scientific_predictions = tuple(
         prediction for prediction in predictions if prediction.example_id in scientific_ids
+    )
+    scientific_predictions = tuple(
+        _apply_confidence_policy(prediction, contract.policy.minimum_decision_confidence)
+        for prediction in scientific_predictions
     )
     metrics = compute_metrics(scientific_examples, scientific_predictions)
     metrics_by_site = tuple(
@@ -470,6 +473,8 @@ def evaluate_readiness(
         decision = "BLOCKED_INSUFFICIENT_EVIDENCE"
     elif not supply_verification.verified:
         decision = "FAIL_SUPPLY"
+    elif failed_gates:
+        decision = "FAIL_QUALITY"
     else:
         decision = "BLOCKED_SCIENTIFIC_METHOD_PENDING"
         failed_gates = tuple(sorted((*failed_gates, "human_cross_site_protocol_not_implemented")))
@@ -526,17 +531,25 @@ def load_predictions(path: Path) -> tuple[OfflinePrediction, ...]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise ValueError("predictions must be a JSON array")
-    return tuple(
-        OfflinePrediction(
-            example_id=item["example_id"],
-            category=item["category"],
-            probabilities=tuple((name, float(value)) for name, value in item["probabilities"]),
-            latency_ms=float(item["latency_ms"]),
-            provider=item["provider"],
-            model_revision=item["model_revision"],
+    predictions: list[OfflinePrediction] = []
+    for item in raw:
+        probability_values = [value for _, value in item["probabilities"]]
+        if any(isinstance(value, bool) for value in probability_values):
+            raise ValueError("prediction probabilities must not be booleans")
+        latency = item["latency_ms"]
+        if isinstance(latency, bool):
+            raise ValueError("prediction latency must not be a boolean")
+        predictions.append(
+            OfflinePrediction(
+                example_id=item["example_id"],
+                category=item["category"],
+                probabilities=tuple((name, float(value)) for name, value in item["probabilities"]),
+                latency_ms=float(latency),
+                provider=item["provider"],
+                model_revision=item["model_revision"],
+            )
         )
-        for item in raw
-    )
+    return tuple(predictions)
 
 
 def _validate_prediction_evidence(
@@ -556,6 +569,25 @@ def _validate_prediction_evidence(
         raise ValueError("prediction model revision does not match the pinned checkpoint")
     if any(prediction.provider != "laya-http" for prediction in predictions):
         raise ValueError("prediction provider must be laya-http")
+
+
+def _apply_confidence_policy(
+    prediction: OfflinePrediction,
+    minimum_confidence: float,
+) -> OfflinePrediction:
+    if prediction.abstained:
+        return prediction
+    confidence = dict(prediction.probabilities)[prediction.category]
+    if confidence >= minimum_confidence:
+        return prediction
+    return OfflinePrediction(
+        example_id=prediction.example_id,
+        category="unclassified",
+        probabilities=prediction.probabilities,
+        latency_ms=prediction.latency_ms,
+        provider=prediction.provider,
+        model_revision=prediction.model_revision,
+    )
 
 
 def _failed_quality_gates(
