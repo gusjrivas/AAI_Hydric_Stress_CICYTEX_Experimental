@@ -15,12 +15,14 @@
 - [x] 3.2 Implementar GREEN `1e46ecd` para captura Linux descriptor-relative y evidencia agregada.
 - [x] 3.3 Registrar RED `f3db872` tras el NO-GO independiente para exigir que el presupuesto rootfs restante limite cada stream antes del sellado.
 - [x] 3.4 Implementar GREEN `436a234` con corte incremental `remaining + 1` y presupuesto agregado decreciente en el adaptador.
+- [x] 3.5 Registrar RED `423c1af` tras la segunda auditoría para probar el centinela real y una única fuente de verdad de caps.
+- [x] 3.6 Implementar GREEN `7b0b300` usando exclusivamente los caps públicos vivos del núcleo desde el adaptador.
 
 ## 4. Gates y alcance
 
 - [x] 4.1 Ejecutar suite focal: `60 passed, 5 skipped`.
 - [x] 4.2 Ejecutar gate real manual/serial Linux: `1 passed`, 12 revalidaciones blob y 10 verificaciones DiffID.
-- [x] 4.3 Ejecutar suite Laya completa después del fix de presupuesto: `981 passed, 34 skipped`; Black y Ruff limpios.
+- [x] 4.3 Ejecutar suite Laya completa después de los fixes de presupuesto: `983 passed, 34 skipped`; Black y Ruff limpios.
 - [x] 4.4 Elevar sólo `oci_layer_diff_ids_verified`; mantener falsos TAR/rootfs/origen/licencia/ancestry/materialización/ejecución.
 - [x] 4.5 Preservar cinco roles/runtime identity, blobs externos y ausencia de caller productivo.
 - [ ] 4.6 Completar auditoría independiente final y merge gate.
