@@ -33,6 +33,7 @@ IS_LINUX = sys.platform.startswith("linux")
 REAL_LAYOUT_RELEASE_GATE_ENV = "LAYA_RUNTIME_OCI_LAYOUT_ROOT"
 ADAPTER_RELATIVE_PATH = "src/human_feedback/adapters/filesystem_oci_layout.py"
 CORE_RELATIVE_PATH = "src/human_feedback/runtime_oci_layout.py"
+LAYER_CORE_RELATIVE_PATH = "src/human_feedback/runtime_oci_layers.py"
 TRUE_FLAGS = (
     "artifact_integrity_verified",
     "oci_manifest_semantics_verified",
@@ -253,6 +254,45 @@ def test_adapter_is_the_only_product_caller_of_both_private_layout_sealers():
     assert offenders == []
 
 
+def _layer_capture_contract_used(source: str) -> set[str]:
+    tree = ast.parse(source)
+    symbols = {
+        "verify_laya_oci_layer_diff_id_chunks",
+        "_seal_laya_oci_layer_diff_ids_capture_authority",
+        "_seal_laya_runtime_oci_layer_diff_ids_evidence",
+    }
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            found.update(alias.name for alias in node.names if alias.name in symbols)
+        if isinstance(node, ast.Name) and node.id in symbols:
+            found.add(node.id)
+        if isinstance(node, ast.Attribute) and node.attr in symbols:
+            found.add(node.attr)
+        if isinstance(node, ast.Constant) and node.value in symbols:
+            found.add(node.value)
+    return found
+
+
+def test_filesystem_adapter_is_the_only_product_caller_of_layer_engine_and_sealers():
+    repository = Path(__file__).parents[1]
+    adapter = repository / ADAPTER_RELATIVE_PATH
+    core = repository / LAYER_CORE_RELATIVE_PATH
+    expected = {
+        "verify_laya_oci_layer_diff_id_chunks",
+        "_seal_laya_oci_layer_diff_ids_capture_authority",
+        "_seal_laya_runtime_oci_layer_diff_ids_evidence",
+    }
+    assert _layer_capture_contract_used(adapter.read_text(encoding="utf-8")) == expected
+    offenders = []
+    for path in _product_python_files(repository):
+        if path in {adapter, core}:
+            continue
+        if _layer_capture_contract_used(path.read_text(encoding="utf-8")):
+            offenders.append(path.relative_to(repository).as_posix())
+    assert offenders == []
+
+
 def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
     module = _adapter()
     source = Path(module.__file__).read_text(encoding="utf-8")
@@ -260,6 +300,7 @@ def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
     allowed_imports = {
         "__future__",
         "human_feedback.runtime_oci_layout",
+        "human_feedback.runtime_oci_layers",
         "os",
         "stat",
         "sys",
@@ -282,7 +323,10 @@ def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and not node.name.startswith("_")
     }
-    assert public_functions == {"capture_and_verify_laya_oci_layout"}
+    assert public_functions == {
+        "capture_and_verify_laya_oci_layout",
+        "capture_and_verify_laya_oci_layer_diff_ids",
+    }
     public_classes = {
         node.name
         for node in tree.body
@@ -292,6 +336,166 @@ def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
         "OciLayoutCaptureError",
         "SecureOciLayoutCaptureUnavailableError",
     }
+
+
+def test_adapter_derives_layer_budgets_only_from_public_core_limits():
+    module = _adapter()
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    def constant_integer_expression(node):
+        if isinstance(node, ast.Constant) and type(node.value) is int:
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            left = constant_integer_expression(node.left)
+            right = constant_integer_expression(node.right)
+            if left is not None and right is not None:
+                return left * right
+        return None
+
+    forbidden_duplicates = {
+        "_MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        "_MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+    }
+    assigned_names = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for target in (node.targets if isinstance(node, ast.Assign) else (node.target,))
+        if isinstance(target, ast.Name)
+    }
+    core_limit_attributes = {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "runtime_oci_layers"
+        and node.attr
+        in {
+            "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+            "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+        }
+    }
+    duplicated_limit_literals = {
+        value
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for value in (constant_integer_expression(node.value),)
+        if value in {2 * 1_024 * 1_024 * 1_024, 3 * 1_024 * 1_024 * 1_024}
+    }
+
+    assert assigned_names.isdisjoint(forbidden_duplicates)
+    assert duplicated_limit_literals == set()
+    assert core_limit_attributes == {
+        "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+    }
+    assert callable(module._effective_layer_budget)
+
+
+def test_effective_layer_budget_uses_live_core_caps_and_validates_remaining(monkeypatch):
+    module = _adapter()
+    monkeypatch.setattr(
+        module.runtime_oci_layers,
+        "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        10,
+    )
+    monkeypatch.setattr(
+        module.runtime_oci_layers,
+        "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+        25,
+    )
+
+    remaining_values = (25, 17, 9)
+    budgets = tuple(module._effective_layer_budget(value) for value in remaining_values)
+    assert budgets == (10, 10, 9)
+    assert all(later < earlier for earlier, later in zip(remaining_values, remaining_values[1:]))
+    assert all(later <= earlier for earlier, later in zip(budgets, budgets[1:]))
+
+    for invalid in (True, False, 0, -1, 26, 1.0, None, "9"):
+        with pytest.raises((TypeError, ValueError), match="remaining|budget|integer|positive"):
+            module._effective_layer_budget(invalid)
+
+
+@pytest.mark.parametrize("extra_byte", [False, True])
+def test_blob_chunks_coalesce_short_reads_into_bounded_logical_chunks(monkeypatch, extra_byte):
+    module = _adapter()
+    logical_chunk_bytes = 16
+    expected_size = logical_chunk_bytes * 2 + 5
+    payload = bytes(range(expected_size + int(extra_byte)))
+    position = 0
+    requests = []
+    eof_requests = 0
+    sentinel_executed = False
+
+    monkeypatch.setattr(
+        module.runtime_oci_layout,
+        "MAX_OCI_BLOB_CHUNK_BYTES",
+        logical_chunk_bytes,
+    )
+
+    def short_read(descriptor, amount):
+        nonlocal position, eof_requests, sentinel_executed
+        assert descriptor == 137
+        requests.append((amount, position))
+        if position == len(payload):
+            if extra_byte:
+                sentinel_executed = True
+                raise AssertionError("private-read-after-expected-plus-one")
+            eof_requests += 1
+            return b""
+        result = payload[position : position + min(7, amount)]
+        position += len(result)
+        return result
+
+    monkeypatch.setattr(module.os, "read", short_read)
+    chunks = tuple(module._blob_chunks(137, expected_size))
+
+    assert b"".join(chunks) == payload
+    assert all(type(chunk) is bytes and 0 < len(chunk) <= logical_chunk_bytes for chunk in chunks)
+    assert tuple(map(len, chunks)) == (
+        logical_chunk_bytes,
+        logical_chunk_bytes,
+        5 + int(extra_byte),
+    )
+    assert all(
+        0 < amount <= min(logical_chunk_bytes, expected_size + 1 - before)
+        for amount, before in requests
+    )
+    assert eof_requests == (0 if extra_byte else 1)
+    assert sentinel_executed is False
+
+
+def test_blob_chunking_is_stream_bounded_and_layer08_fits_the_receipt_cap():
+    module = _adapter()
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    blob_chunks = next(
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_blob_chunks"
+    )
+    forbidden_materializers = {
+        node.func.attr
+        for node in ast.walk(blob_chunks)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"join", "readall", "read_bytes", "readlines"}
+    } | {
+        node.func.id
+        for node in ast.walk(blob_chunks)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"list", "tuple"}
+    }
+    assert forbidden_materializers == set()
+
+    layer08_size = LAYERS[8][1]
+    assert layer08_size == 511_506_914
+    maximum = module.runtime_oci_layout.MAX_OCI_BLOB_CHUNK_BYTES
+    required_chunks = (layer08_size + maximum - 1) // maximum
+    assert required_chunks == 488
+    assert required_chunks <= module.runtime_oci_layout.MAX_OCI_BLOB_CHUNKS
 
 
 def test_missing_secure_capability_fails_before_open_or_root_coercion(monkeypatch):
@@ -360,6 +564,32 @@ def test_invalid_evidence_fails_before_root_coercion_or_open(monkeypatch):
         with pytest.raises((TypeError, ValueError), match="evidence|factory|seal|type"):
             module.capture_and_verify_laya_oci_layout(invalid, HostileRoot())
     assert root_coercions == 0
+
+
+def test_invalid_config_evidence_fails_before_layer_root_coercion_or_open(monkeypatch):
+    module = _adapter()
+    root_coercions = 0
+
+    class HostileRoot:
+        def __fspath__(self):
+            nonlocal root_coercions
+            root_coercions += 1
+            raise AssertionError("private layer root must not be coerced")
+
+    monkeypatch.setattr(
+        module.os,
+        "open",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("os.open must not run for invalid config evidence")
+        ),
+    )
+    with pytest.raises((TypeError, ValueError), match="config|evidence|valid") as captured:
+        module.capture_and_verify_laya_oci_layer_diff_ids(
+            SimpleNamespace(oci_config_semantics_verified=True),
+            HostileRoot(),
+        )
+    assert root_coercions == 0
+    _private_error(captured.value, "private layer root")
 
 
 @pytest.mark.skipif(not IS_LINUX, reason="requires Linux absolute root traversal")
@@ -1362,3 +1592,169 @@ def test_full_positive_is_an_external_opt_in_release_gate_not_a_normal_ci_fixtur
     assert os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV) is None
     assert {path.name for path in fixture_root.iterdir()} == {"index.json", "oci-layout"}
     assert not (fixture_root / "blobs").exists()
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+def test_opt_in_same_root_layer_diff_ids_are_all_or_nothing_and_conservative(monkeypatch):
+    from human_feedback import runtime_oci_layers
+    from human_feedback.runtime_oci_config import validate_laya_runtime_oci_config_semantics
+
+    assert "PYTEST_XDIST_WORKER" not in os.environ, "external OCI gate must run serially"
+    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    before = _tree_fingerprint(root)
+    layout_evidence = _capture(root)
+    config_blob = layout_evidence.plan.blobs[1]
+    config_payload = (root / config_blob.path).read_bytes()
+    config_evidence = validate_laya_runtime_oci_config_semantics(
+        layout_evidence,
+        config_payload,
+    )
+
+    module = _adapter()
+    blob_calls = []
+    layer_calls = []
+    layer_budgets = []
+    original_blob_verifier = module.runtime_oci_layout.verify_laya_oci_blob_chunks
+    original_layer_verifier = runtime_oci_layers.verify_laya_oci_layer_diff_id_chunks
+
+    def blob_spy(plan, digest, chunks):
+        blob_calls.append(digest)
+        return original_blob_verifier(plan, digest, chunks)
+
+    def layer_spy(plan, digest, chunks, *, max_uncompressed_bytes=None):
+        layer_calls.append(digest)
+        layer_budgets.append(max_uncompressed_bytes)
+        return original_layer_verifier(
+            plan,
+            digest,
+            chunks,
+            max_uncompressed_bytes=max_uncompressed_bytes,
+        )
+
+    monkeypatch.setattr(module.runtime_oci_layout, "verify_laya_oci_blob_chunks", blob_spy)
+    monkeypatch.setattr(
+        runtime_oci_layers,
+        "verify_laya_oci_layer_diff_id_chunks",
+        layer_spy,
+    )
+    evidence = module.capture_and_verify_laya_oci_layer_diff_ids(config_evidence, root)
+
+    assert type(evidence) is runtime_oci_layers.LayaRuntimeOciLayerDiffIdsEvidence
+    assert evidence.config_evidence is config_evidence
+    assert evidence.plan.config_evidence is config_evidence
+    assert evidence.layout_evidence is config_evidence.layout_evidence
+    assert evidence.layout_plan is config_evidence.layout_evidence.plan
+    assert evidence.runtime_identity is config_evidence.runtime_identity
+    assert type(evidence.receipts) is tuple
+    assert len(evidence.receipts) == 10
+    expected_layer_digests = tuple(blob.digest for blob in evidence.plan.layer_blobs)
+    assert tuple(layer_calls) == expected_layer_digests
+    cumulative = 0
+    expected_budgets = []
+    remaining_before_each = []
+    for receipt in evidence.receipts:
+        remaining = runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES - cumulative
+        assert remaining > 0
+        remaining_before_each.append(remaining)
+        expected_budgets.append(min(runtime_oci_layers.MAX_OCI_LAYER_UNCOMPRESSED_BYTES, remaining))
+        cumulative += receipt.uncompressed_size_bytes
+    assert tuple(layer_budgets) == tuple(expected_budgets)
+    assert all(
+        later < earlier for earlier, later in zip(remaining_before_each, remaining_before_each[1:])
+    )
+    assert all(later <= earlier for earlier, later in zip(layer_budgets, layer_budgets[1:]))
+    assert cumulative < runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+    assert layer_budgets[-1] > 0
+    expected_blob_calls = Counter(blob.digest for blob in evidence.layout_plan.blobs)
+    expected_blob_calls.update(expected_layer_digests)
+    assert Counter(blob_calls) == expected_blob_calls
+    assert all(
+        receipt.plan is evidence.plan
+        and receipt.layer_blob is evidence.plan.layer_blobs[position]
+        and receipt.compressed_receipt is evidence.plan.layer_receipts[position]
+        and receipt.layer_position == position
+        and receipt.layer_diff_id_verified is True
+        for position, receipt in enumerate(evidence.receipts)
+    )
+    true_flags = (
+        *TRUE_FLAGS,
+        "oci_config_semantics_verified",
+        "oci_layer_diff_ids_verified",
+    )
+    false_flags = (
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "runtime_config_semantics_verified",
+        "checkpoint_manifest_semantics_verified",
+        "checkpoint_bytes_verified",
+        "oci_rootfs_verified",
+        "tar_semantics_verified",
+        "origin_verified",
+        "license_verified",
+        "base_ancestry_verified",
+        "rootfs_materialized",
+        "runtime_materialized",
+        "executor_available",
+        "inference_executed",
+    )
+    for flag in true_flags:
+        assert getattr(evidence, flag) is True
+    for flag in false_flags:
+        assert getattr(evidence, flag) is False
+    assert (
+        sum(
+            (
+                77_885_440,
+                8_792_064,
+                47_493_632,
+                5_120,
+                53_649_408,
+                93_210_112,
+                41_984,
+                1_024,
+                1_908_688_896,
+                110_080,
+            )
+        )
+        < runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+    )
+
+    summary = runtime_oci_layers.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(evidence)
+    decoded = json.loads(summary)
+    assert decoded == {
+        "schema_version": runtime_oci_layers.OCI_LAYER_DIFF_IDS_EVIDENCE_SCHEMA,
+        "plan_schema_version": evidence.plan.schema_version,
+        "runtime_identity_schema_version": evidence.runtime_identity.schema_version,
+        "runtime_identity_sha256": evidence.runtime_identity.sha256,
+        **{flag: True for flag in true_flags},
+        **{flag: False for flag in false_flags},
+    }
+    rendered = repr(evidence) + summary.decode("ascii")
+    private_values = (
+        str(root),
+        *(blob.path for blob in evidence.plan.layer_blobs),
+        *(blob.digest for blob in evidence.plan.layer_blobs),
+        *evidence.plan.declared_diff_ids,
+    )
+    assert all(value not in rendered for value in private_values)
+    for field in fields(evidence):
+        if field.name.startswith("_"):
+            continue
+        with pytest.raises(FrozenInstanceError):
+            setattr(evidence, field.name, getattr(evidence, field.name))
+        with pytest.raises((TypeError, ValueError), match="factory|seal|token|valid"):
+            replace(evidence, **{field.name: getattr(evidence, field.name)})
+    corrupt = object.__new__(type(evidence))
+    for field in fields(evidence):
+        value = getattr(evidence, field.name)
+        if field.name == "receipts":
+            value = tuple(reversed(value))
+        object.__setattr__(corrupt, field.name, value)
+    with pytest.raises((TypeError, ValueError), match="receipt|order|evidence|valid") as captured:
+        runtime_oci_layers.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(corrupt)
+    _private_error(captured.value, str(root), *evidence.plan.declared_diff_ids)
+    assert _tree_fingerprint(root) == before

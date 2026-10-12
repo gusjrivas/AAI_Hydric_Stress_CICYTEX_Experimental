@@ -215,6 +215,7 @@ class ValidatedLayaRuntimeOciConfig:
     environment_count: int
     label_count: int
     diff_id_count: int
+    declared_diff_ids: tuple[str, ...] = field(repr=False)
     history_count: int
     non_empty_history_count: int
     _factory_token: InitVar[object]
@@ -233,6 +234,9 @@ class ValidatedLayaRuntimeOciConfig:
             or self.environment_count != 15
             or self.label_count != 10
             or self.diff_id_count != 10
+            or type(self.declared_diff_ids) is not tuple
+            or self.declared_diff_ids != _EXPECTED_DIFF_IDS
+            or self.diff_id_count != len(self.declared_diff_ids)
             or self.history_count != 21
             or self.non_empty_history_count != 10
         ):
@@ -424,6 +428,7 @@ def _validate_profile(value: object) -> ValidatedLayaRuntimeOciConfig:
         environment_count=len(environment),
         label_count=len(labels),
         diff_id_count=len(diff_ids),
+        declared_diff_ids=tuple(diff_ids),
         history_count=history_count,
         non_empty_history_count=non_empty_history_count,
         _factory_token=_FACTORY_TOKEN,
