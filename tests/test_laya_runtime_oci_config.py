@@ -2,6 +2,8 @@ import ast
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 import traceback
 from copy import deepcopy
@@ -793,9 +795,7 @@ def _uses_config_composition(source: str) -> bool:
                 alias.name == "runtime_oci_config" for alias in node.names
             ):
                 return True
-            if node.module == "human_feedback.runtime_oci_config" and any(
-                alias.name == "*" or alias.name in COMPOSITION_SYMBOLS for alias in node.names
-            ):
+            if node.module == "human_feedback.runtime_oci_config":
                 return True
             if node.level and (
                 node.module == "runtime_oci_config"
@@ -831,6 +831,22 @@ def test_no_product_module_calls_config_composition_contract():
             if _uses_config_composition(path.read_text(encoding="utf-8")):
                 offenders.append(path.relative_to(repository).as_posix())
     assert offenders == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import human_feedback.runtime_oci_config",
+        "from human_feedback import runtime_oci_config",
+        "from human_feedback.runtime_oci_config import ValidatedLayaRuntimeOciConfig",
+        "from human_feedback.runtime_oci_config import _parse_laya_runtime_oci_config_bytes",
+        "from human_feedback.runtime_oci_config import *",
+        "from . import runtime_oci_config",
+        "from .runtime_oci_config import ValidatedLayaRuntimeOciConfig",
+    ],
+)
+def test_config_composition_caller_detector_rejects_every_owner_import_form(source):
+    assert _uses_config_composition(source) is True
 
 
 def test_validator_rejects_proxy_subclass_and_unsealed_layout_before_config_access(monkeypatch):
@@ -899,12 +915,30 @@ def test_config_evidence_and_summary_reject_direct_proxy_and_unsealed_values():
 
 def test_normal_suite_has_no_committed_config_blob_or_fabricated_positive_gate(monkeypatch):
     monkeypatch.delenv(REAL_LAYOUT_GATE_ENV, raising=False)
-    fixture_root = Path(__file__).parent / "fixtures" / "laya"
+    repository = Path(__file__).parents[1]
     assert os.environ.get(REAL_LAYOUT_GATE_ENV) is None
-    assert not any(path.name == REAL_CONFIG_SHA256 for path in fixture_root.rglob("*"))
-    assert not any(
-        path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == REAL_CONFIG_SHA256
-        for path in fixture_root.rglob("*")
+    git = shutil.which("git")
+    if git is not None:
+        encoded_paths = subprocess.run(
+            [git, "-c", f"safe.directory={repository}", "ls-files", "-z"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+        ).stdout.split(b"\0")
+        paths = (repository / os.fsdecode(encoded) for encoded in encoded_paths if encoded)
+    else:
+        # Minimal test images may omit Git. Scanning every regular workspace file is a
+        # conservative superset of tracked files and still excludes the .git boundary.
+        paths = (
+            path
+            for path in repository.rglob("*")
+            if ".git" not in path.relative_to(repository).parts
+        )
+    candidates = [
+        path for path in paths if path.is_file() and path.stat().st_size == REAL_CONFIG_SIZE_BYTES
+    ]
+    assert all(
+        hashlib.sha256(path.read_bytes()).hexdigest() != REAL_CONFIG_SHA256 for path in candidates
     )
 
 
@@ -942,7 +976,17 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     assert len(payload) == REAL_CONFIG_SIZE_BYTES
     assert hashlib.sha256(payload).hexdigest() == REAL_CONFIG_SHA256
 
+    original_parser = module._parse_laya_runtime_oci_config_bytes
+    parsed_projections = []
+
+    def parser_spy(config_bytes):
+        projection = original_parser(config_bytes)
+        parsed_projections.append(projection)
+        return projection
+
+    monkeypatch.setattr(module, "_parse_laya_runtime_oci_config_bytes", parser_spy)
     evidence = module.validate_laya_runtime_oci_config_semantics(layout_evidence, payload)
+    assert len(parsed_projections) == 1
     assert type(evidence) is LayaRuntimeOciConfigEvidence
     assert is_dataclass(evidence)
     assert not hasattr(evidence, "__dict__")
@@ -950,6 +994,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     assert evidence.layout_evidence is layout_evidence
     assert evidence.config_receipt is receipt
     assert type(evidence.config) is module.ValidatedLayaRuntimeOciConfig
+    assert evidence.config is parsed_projections[0]
     assert evidence.runtime_identity is layout_evidence.runtime_identity
     for flag in CONFIG_TRUE_FLAGS:
         assert getattr(evidence, flag) is True
@@ -957,6 +1002,16 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         assert getattr(evidence, flag) is False
     assert not hasattr(evidence, "oci_config_same_fd_verified")
     assert not hasattr(evidence, "oci_config_current_path_verified")
+
+    def forged_dataclass(value, **changes):
+        forged = object.__new__(type(value))
+        for field in fields(value):
+            object.__setattr__(
+                forged,
+                field.name,
+                changes.get(field.name, getattr(value, field.name)),
+            )
+        return forged
 
     summary = module.canonical_laya_runtime_oci_config_summary_bytes(evidence)
     decoded = json.loads(summary)
@@ -986,15 +1041,50 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     )
     assert all(value not in rendered for value in private_values)
 
-    original_parser = module._parse_laya_runtime_oci_config_bytes
-    parsed = 0
+    class EvidenceSubclass(LayaRuntimeOciConfigEvidence):
+        pass
 
-    def parser_spy(config_bytes):
-        nonlocal parsed
-        parsed += 1
-        return original_parser(config_bytes)
+    for invalid in (
+        SimpleNamespace(schema_version=EVIDENCE_SCHEMA),
+        object.__new__(EvidenceSubclass),
+    ):
+        with pytest.raises((TypeError, ValueError), match="evidence|sealed|valid") as captured:
+            module.canonical_laya_runtime_oci_config_summary_bytes(invalid)
+        _private_error(captured.value, str(root), descriptor.digest)
 
-    monkeypatch.setattr(module, "_parse_laya_runtime_oci_config_bytes", parser_spy)
+    binding_mutations = (
+        ("schema_version", "private-schema-binding"),
+        ("layout_evidence", "private-layout-binding"),
+        ("config_receipt", "private-receipt-binding"),
+        ("config", "private-config-binding"),
+        ("runtime_identity", "private-runtime-binding"),
+    )
+    for field_name, marker in binding_mutations:
+        forged = forged_dataclass(evidence, **{field_name: marker})
+        with pytest.raises(
+            (TypeError, ValueError), match="evidence|schema|binding|valid"
+        ) as captured:
+            module.canonical_laya_runtime_oci_config_summary_bytes(forged)
+        _private_error(captured.value, marker, str(root), descriptor.digest)
+
+    for flag in CONFIG_TRUE_FLAGS:
+        for invalid in (False, 1, None):
+            forged = forged_dataclass(evidence, **{flag: invalid})
+            with pytest.raises(
+                (TypeError, ValueError), match="evidence|claim|flag|valid"
+            ) as captured:
+                module.canonical_laya_runtime_oci_config_summary_bytes(forged)
+            _private_error(captured.value, str(root), descriptor.digest)
+    for flag in CONFIG_FALSE_FLAGS:
+        for invalid in (True, 1, None):
+            forged = forged_dataclass(evidence, **{flag: invalid})
+            with pytest.raises(
+                (TypeError, ValueError), match="evidence|claim|flag|valid"
+            ) as captured:
+                module.canonical_laya_runtime_oci_config_summary_bytes(forged)
+            _private_error(captured.value, str(root), descriptor.digest)
+
+    parsed_projections.clear()
     mutations = (
         payload[:-1],
         payload + b"x",
@@ -1006,17 +1096,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         with pytest.raises((TypeError, ValueError), match="bytes|size|digest|config") as captured:
             module.validate_laya_runtime_oci_config_semantics(layout_evidence, mutation)
         _private_error(captured.value, str(root), descriptor.digest)
-    assert parsed == 0
-
-    def forged_dataclass(value, **changes):
-        forged = object.__new__(type(value))
-        for field in fields(value):
-            object.__setattr__(
-                forged,
-                field.name,
-                changes.get(field.name, getattr(value, field.name)),
-            )
-        return forged
+    assert parsed_projections == []
 
     corrupt_layouts = (
         forged_dataclass(layout_evidence, oci_bytes_verified=False),
@@ -1027,7 +1107,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     for corrupt in corrupt_layouts:
         with pytest.raises((TypeError, ValueError), match="layout|evidence|claim|receipt|valid"):
             module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
-    assert parsed == 0
+    assert parsed_projections == []
 
     def forged_graph(*, blob_position=position, **blob_changes):
         blobs = list(layout_evidence.plan.blobs)
@@ -1058,33 +1138,116 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         return forged_dataclass(layout_evidence, plan=plan, receipts=receipts)
 
     graph_mutations = (
-        forged_graph(role="private-not-config"),
-        forged_graph(blob_position=2, role="config"),
-        forged_graph(media_type="application/vnd.oci.image.config.v1+private"),
-        forged_graph(digest="sha256:" + "a" * 64),
-        forged_graph(size_bytes=REAL_CONFIG_SIZE_BYTES + 1),
-    )
-    for corrupt in graph_mutations:
-        with pytest.raises((TypeError, ValueError), match="config|descriptor|blob|layout|valid"):
-            module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
-    assert parsed == 0
-
-    receipt_mutations = (
-        SimpleNamespace(
-            plan=layout_evidence.plan,
-            blob=descriptor,
-            blob_bytes_verified=True,
+        (forged_graph(role="private-not-config"), "private-not-config"),
+        (forged_graph(blob_position=2, role="config"),),
+        (
+            forged_graph(media_type="application/vnd.oci.image.config.v1+private"),
+            "application/vnd.oci.image.config.v1+private",
         ),
-        forged_dataclass(receipt, blob=layout_evidence.plan.blobs[position + 1]),
-        forged_dataclass(receipt, blob_bytes_verified=False),
+        (forged_graph(digest="sha256:" + "a" * 64), "sha256:" + "a" * 64),
+        (forged_graph(size_bytes=REAL_CONFIG_SIZE_BYTES + 1),),
+        (
+            forged_graph(blob_position=2, media_type="private-nonconfig-media"),
+            "private-nonconfig-media",
+        ),
     )
-    for corrupt_receipt in receipt_mutations:
-        receipts = list(layout_evidence.receipts)
-        receipts[position] = corrupt_receipt
-        corrupt = forged_dataclass(layout_evidence, receipts=tuple(receipts))
-        with pytest.raises((TypeError, ValueError), match="receipt|blob|layout|valid"):
+    for corrupt, *markers in graph_mutations:
+        with pytest.raises(
+            (TypeError, ValueError), match="config|descriptor|blob|layout|valid"
+        ) as captured:
             module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
-    assert parsed == 0
+        _private_error(captured.value, *markers, str(root))
+    assert parsed_projections == []
+
+    def forged_plan_layout(**plan_changes):
+        plan = forged_dataclass(layout_evidence.plan, **plan_changes)
+        receipts = tuple(
+            forged_dataclass(receipt_item, plan=plan) for receipt_item in layout_evidence.receipts
+        )
+        return forged_dataclass(
+            layout_evidence,
+            plan=plan,
+            receipts=receipts,
+            runtime_identity=plan.runtime_identity,
+        )
+
+    plan_mutations = (
+        (forged_plan_layout(schema_version="private-plan-schema"), "private-plan-schema"),
+        (forged_plan_layout(oci_evidence="private-plan-oci-evidence"), "private-plan-oci-evidence"),
+        (
+            forged_plan_layout(control_paths=("private-control-path", "index.json")),
+            "private-control-path",
+        ),
+        (forged_plan_layout(control_file_count=3),),
+        (forged_plan_layout(index_manifest=layout_evidence.plan.blobs[1]),),
+        (forged_plan_layout(blob_count=11),),
+        (forged_plan_layout(logical_file_count=13),),
+        (
+            forged_plan_layout(
+                blob_total_size_bytes=layout_evidence.plan.blob_total_size_bytes + 1,
+                total_size_bytes=layout_evidence.plan.total_size_bytes + 1,
+            ),
+        ),
+        (forged_plan_layout(total_size_bytes=layout_evidence.plan.total_size_bytes + 1),),
+        (
+            forged_plan_layout(runtime_identity="private-plan-runtime-identity"),
+            "private-plan-runtime-identity",
+        ),
+    )
+    for corrupt, *markers in plan_mutations:
+        with pytest.raises(
+            (TypeError, ValueError),
+            match="plan|layout|evidence|control|index|count|total|identity|valid",
+        ) as captured:
+            module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
+        _private_error(captured.value, *markers, str(root))
+    assert parsed_projections == []
+
+    nonconfig_position = position + 1
+    nonconfig_receipt = layout_evidence.receipts[nonconfig_position]
+    receipt_mutations = (
+        (
+            position,
+            SimpleNamespace(plan=layout_evidence.plan, blob=descriptor, blob_bytes_verified=True),
+        ),
+        (position, forged_dataclass(receipt, blob=layout_evidence.plan.blobs[position + 1])),
+        (position, forged_dataclass(receipt, blob_bytes_verified=False)),
+        (
+            nonconfig_position,
+            SimpleNamespace(
+                plan=layout_evidence.plan,
+                blob=nonconfig_receipt.blob,
+                blob_bytes_verified=True,
+                marker="private-nonconfig-receipt",
+            ),
+        ),
+        (
+            nonconfig_position,
+            forged_dataclass(
+                nonconfig_receipt,
+                blob=layout_evidence.plan.blobs[nonconfig_position + 1],
+            ),
+        ),
+        (nonconfig_position, forged_dataclass(nonconfig_receipt, blob_bytes_verified=False)),
+    )
+    for receipt_position, corrupt_receipt in receipt_mutations:
+        receipts = list(layout_evidence.receipts)
+        receipts[receipt_position] = corrupt_receipt
+        corrupt = forged_dataclass(layout_evidence, receipts=tuple(receipts))
+        with pytest.raises((TypeError, ValueError), match="receipt|blob|layout|valid") as captured:
+            module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
+        _private_error(captured.value, "private-nonconfig-receipt", str(root))
+
+    reordered = list(layout_evidence.receipts)
+    reordered[nonconfig_position], reordered[nonconfig_position + 1] = (
+        reordered[nonconfig_position + 1],
+        reordered[nonconfig_position],
+    )
+    with pytest.raises((TypeError, ValueError), match="receipt|order|blob|layout|valid"):
+        module.validate_laya_runtime_oci_config_semantics(
+            forged_dataclass(layout_evidence, receipts=tuple(reordered)), payload
+        )
+    assert parsed_projections == []
 
     for field in fields(evidence):
         if field.name.startswith("_"):
