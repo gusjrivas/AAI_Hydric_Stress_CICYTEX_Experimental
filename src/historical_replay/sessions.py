@@ -43,6 +43,10 @@ class ReplaySession:
             raise ValueError("revealed_through cannot precede emission_date")
 
     def advance(self, last_observation: date) -> ReplaySession:
+        if type(last_observation) is not date:
+            raise ValueError("last_observation must be an exact date")
+        if last_observation < self.emission_date or last_observation < self.revealed_through:
+            raise ValueError("last_observation cannot precede the session clock")
         return replace(
             self,
             revealed_through=min(
