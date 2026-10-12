@@ -208,6 +208,62 @@ def _uses_oci_evidence_aggregate(source: str) -> bool:
     return False
 
 
+def _uses_only_direct_public_oci_metadata_validator(source: str) -> bool:
+    tree = ast.parse(source)
+    direct_imports = []
+    direct_calls = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == OCI_METADATA_MODULE for alias in node.names
+        ):
+            return False
+        if isinstance(node, ast.ImportFrom):
+            if node.module == OCI_METADATA_MODULE and node.level == 0:
+                direct_imports.append(node)
+                if len(node.names) != 1:
+                    return False
+                imported = node.names[0]
+                if (
+                    imported.name != "validate_laya_runtime_oci_metadata"
+                    or imported.asname is not None
+                ):
+                    return False
+            elif (
+                node.module == "human_feedback"
+                and any(alias.name == "runtime_oci_metadata" for alias in node.names)
+            ) or (
+                node.level > 0
+                and node.module in {None, "", "runtime_oci_metadata"}
+                and any(
+                    alias.name in {"runtime_oci_metadata", *OCI_EVIDENCE_SYMBOLS}
+                    for alias in node.names
+                )
+            ):
+                return False
+        if isinstance(node, ast.Call):
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "validate_laya_runtime_oci_metadata"
+            ):
+                direct_calls += 1
+            if isinstance(node.func, ast.Attribute) and node.func.attr in OCI_EVIDENCE_SYMBOLS:
+                return False
+            if isinstance(node.func, ast.Name) and node.func.id in {"__import__", "getattr"}:
+                if any(
+                    isinstance(argument, ast.Constant)
+                    and argument.value in {OCI_METADATA_MODULE, *OCI_EVIDENCE_SYMBOLS}
+                    for argument in node.args
+                ):
+                    return False
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and (node.value == OCI_METADATA_MODULE or node.value in OCI_EVIDENCE_SYMBOLS)
+        ):
+            return False
+    return len(direct_imports) == 1 and direct_calls >= 1
+
+
 def test_committed_oci_manifest_fixture_is_exact_captured_local_profile_bytes():
     payload = _fixture_bytes()
     value = _fixture_object()
@@ -1005,14 +1061,52 @@ def test_oci_evidence_isolation_detector_ignores_unrelated_parser_usage(source):
     assert _uses_oci_evidence_aggregate(source) is False
 
 
-def test_only_exact_oci_layout_successor_uses_oci_evidence_aggregator():
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import human_feedback.runtime_oci_metadata",
+        "from human_feedback import runtime_oci_metadata",
+        "from .runtime_oci_metadata import validate_laya_runtime_oci_metadata",
+        "from human_feedback.runtime_oci_metadata import *",
+        (
+            "from human_feedback.runtime_oci_metadata import "
+            "validate_laya_runtime_oci_metadata as validate"
+        ),
+        "from human_feedback.runtime_oci_metadata import LayaRuntimeOciEvidence",
+        (
+            "import human_feedback.runtime_oci_metadata as metadata\n"
+            "metadata.validate_laya_runtime_oci_metadata(snapshot)"
+        ),
+        ("getattr(module, 'validate_laya_runtime_oci_metadata')" "(snapshot)"),
+        "__import__('human_feedback.runtime_oci_metadata')",
+    ],
+)
+def test_oci_config_successor_detector_rejects_import_and_call_bypasses(source):
+    assert _uses_only_direct_public_oci_metadata_validator(source) is False
+
+
+def test_oci_config_successor_detector_accepts_only_direct_public_validator_call():
+    source = (
+        "from human_feedback.runtime_oci_metadata import "
+        "validate_laya_runtime_oci_metadata\n"
+        "evidence = validate_laya_runtime_oci_metadata(snapshot)"
+    )
+    assert _uses_only_direct_public_oci_metadata_validator(source) is True
+
+
+def test_only_exact_oci_layout_and_config_successors_use_oci_evidence_aggregator():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_oci_metadata.py"
-    successor = repository / "src" / "human_feedback" / "runtime_oci_layout.py"
-    assert successor.is_file(), "the authorized OCI layout successor must exist"
-    assert _uses_oci_evidence_aggregate(successor.read_text(encoding="utf-8")) is True
+    layout_successor = repository / "src" / "human_feedback" / "runtime_oci_layout.py"
+    config_successor = repository / "src" / "human_feedback" / "runtime_oci_config.py"
+    assert layout_successor.is_file(), "the authorized OCI layout successor must exist"
+    assert config_successor.is_file(), "the authorized OCI config successor must exist"
+    assert _uses_oci_evidence_aggregate(layout_successor.read_text(encoding="utf-8")) is True
+    config_source = config_successor.read_text(encoding="utf-8")
+    assert _uses_oci_evidence_aggregate(config_source) is True
+    assert _uses_only_direct_public_oci_metadata_validator(config_source) is True
 
-    allowed_consumers = {owner, successor}
+    allowed_consumers = {owner, layout_successor, config_successor}
     offenders: list[str] = []
     production_roots = (
         repository / "backend",

@@ -1,8 +1,10 @@
 import hashlib
 import json
+import traceback
 from copy import deepcopy
-from dataclasses import FrozenInstanceError, is_dataclass, replace
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -64,6 +66,27 @@ def _raw_values(payloads: dict[str, bytes]) -> tuple[str, ...]:
     return tuple(content.decode("ascii") for content in payloads.values())
 
 
+def _populated_clone(value, target_type=None):
+    clone = object.__new__(type(value) if target_type is None else target_type)
+    for field in fields(value):
+        object.__setattr__(clone, field.name, getattr(value, field.name))
+    return clone
+
+
+def _populated_proxy(value, *, marker: str):
+    return SimpleNamespace(
+        **{field.name: getattr(value, field.name) for field in fields(value)},
+        marker=marker,
+    )
+
+
+def _assert_private_error(error: BaseException, marker: str) -> None:
+    rendered = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
+    assert marker not in str(error)
+    assert marker not in rendered
+    assert error.__cause__ is None
+
+
 def test_exact_in_memory_bundle_verification_succeeds():
     from human_feedback.runtime_bundle import (
         CapturedRuntimeArtifact,
@@ -79,6 +102,76 @@ def test_exact_in_memory_bundle_verification_succeeds():
     assert tuple(artifact.spec.kind for artifact in snapshot.artifacts) == ARTIFACT_KINDS
     assert all(isinstance(artifact, CapturedRuntimeArtifact) for artifact in snapshot.artifacts)
     assert snapshot.artifact_integrity_verified is True
+
+
+@pytest.mark.parametrize("clone_mode", ["object-new", "dataclass-replace"])
+def test_exact_class_semantic_clones_are_canonicalized_to_a_new_exact_snapshot(clone_mode):
+    from human_feedback.runtime_bundle import (
+        CapturedRuntimeArtifact,
+        LayaRuntimeBundleSnapshot,
+    )
+    from human_feedback.runtime_identity import LayaRuntimeManifest, RuntimeArtifactSpec
+
+    original = _manifest()
+    if clone_mode == "object-new":
+        cloned_specs = tuple(_populated_clone(spec) for spec in original.artifacts)
+        cloned_manifest = _populated_clone(original)
+        object.__setattr__(cloned_manifest, "artifacts", cloned_specs)
+    else:
+        cloned_specs = tuple(replace(spec) for spec in original.artifacts)
+        cloned_manifest = replace(original, artifacts=cloned_specs)
+
+    snapshot = _verify(cloned_manifest)
+
+    assert type(cloned_manifest) is LayaRuntimeManifest
+    assert all(type(spec) is RuntimeArtifactSpec for spec in cloned_manifest.artifacts)
+    assert type(snapshot) is LayaRuntimeBundleSnapshot
+    assert snapshot is not original
+    assert snapshot.manifest is cloned_manifest
+    assert tuple(item.spec for item in snapshot.artifacts) == cloned_manifest.artifacts
+    assert all(type(item) is CapturedRuntimeArtifact for item in snapshot.artifacts)
+    assert all(
+        item.spec is cloned_manifest.artifacts[index]
+        for index, item in enumerate(snapshot.artifacts)
+    )
+    assert tuple(item.spec.kind for item in snapshot.artifacts) == ARTIFACT_KINDS
+
+
+@pytest.mark.parametrize(
+    "boundary", ["manifest-subclass", "manifest-proxy", "spec-subclass", "spec-proxy"]
+)
+def test_runtime_bundle_schema_boundaries_require_exact_public_value_types(boundary):
+    from human_feedback.runtime_identity import LayaRuntimeManifest, RuntimeArtifactSpec
+
+    manifest = _manifest()
+    marker = f"private-{boundary}-marker"
+    if boundary == "manifest-subclass":
+
+        marker = "PrivateManifestSubclassMarker"
+        ManifestSubclass = type(marker, (LayaRuntimeManifest,), {"__slots__": ()})
+
+        invalid_manifest = _populated_clone(manifest, ManifestSubclass)
+    elif boundary == "manifest-proxy":
+        invalid_manifest = _populated_proxy(manifest, marker=marker)
+    else:
+        original_spec = manifest.artifacts[0]
+        if boundary == "spec-subclass":
+
+            marker = "PrivateSpecSubclassMarker"
+            SpecSubclass = type(marker, (RuntimeArtifactSpec,), {"__slots__": ()})
+
+            invalid_spec = _populated_clone(original_spec, SpecSubclass)
+        else:
+            invalid_spec = _populated_proxy(original_spec, marker=marker)
+        specs = (invalid_spec, *manifest.artifacts[1:])
+        invalid_manifest = _populated_clone(manifest)
+        object.__setattr__(invalid_manifest, "artifacts", specs)
+
+    with pytest.raises(
+        (TypeError, ValueError), match="manifest|artifact|spec|type|exact"
+    ) as captured:
+        _verify(invalid_manifest)
+    _assert_private_error(captured.value, marker)
 
 
 @pytest.mark.parametrize("case", ["missing", "additional"])
