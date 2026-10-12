@@ -23,7 +23,7 @@
 - [x] 4.2 Ejecutar el gate manual serial con `LAYA_RUNTIME_OCI_LAYOUT_ROOT`, sin xdist: `224 passed, 1 skipped`, incluido el hardening posterior del cap de traversal y únicamente el test Windows como skip; no presentarlo como CI.
 - [x] 4.3 Elevar sólo claims de bytes, inventario y same-root; mantener falsos semántica config/diffIDs/rootfs y todos los claims de origen/operación.
 - [x] 4.4 Mantener cinco roles de artefactos sin cambios y ningún caller productivo.
-- [ ] 4.5 Completar auditoría independiente final del board y merge gate.
+- [x] 4.5 Completar auditoría independiente final y merge gate: GO sobre `7ea8d94`, cero hallazgos P0-P2; Windows focal `159 passed, 66 skipped`, suite Laya `705 passed, 91 skipped`, Linux real `224 passed, 1 skipped`, OpenSpec strict y quality gates limpios.
 
 ## 5. Próximos slices
 
