@@ -190,6 +190,7 @@ def test_loader_accepts_bytes_only_and_rejects_invalid_utf8():
         ("source", "https://github.com/NandhaKishorM/laya@6880462"),
         ("source", f"https://github.com/NandhaKishorM/laya@{SOURCE_COMMIT.upper()}"),
         ("source", f"https://github.com/NandhaKishorM/laya@{'g' * 40}"),
+        ("source", f"https://github.com/NandhaKishorM/laya@{'a' * 40}"),
         ("source", f"https://github.com/convaiinnovations/laya@{SOURCE_COMMIT}"),
         ("source", f"https://example.test/laya@{SOURCE_COMMIT}"),
         ("license", "MIT"),
@@ -271,6 +272,38 @@ def test_manifest_requires_unique_paths_across_artifact_roles():
     manifest["artifacts"][1]["path"] = manifest["artifacts"][0]["path"]  # type: ignore[index]
 
     with pytest.raises(ValueError, match="artifact|path|duplicate|unique"):
+        _load(manifest)
+
+
+@pytest.mark.parametrize(
+    ("kind", "different_path"),
+    [
+        ("dependency_lock", "alternate/uv.lock"),
+        ("sbom", "alternate/laya-runtime.cdx.json"),
+        ("runtime_config", "alternate/runtime.json"),
+        ("checkpoint_manifest", "alternate/checkpoint.json"),
+        ("oci_manifest", "alternate/oci.json"),
+    ],
+)
+def test_each_artifact_kind_requires_its_exact_contractual_path(
+    kind: str,
+    different_path: str,
+):
+    manifest = _manifest_object()
+    artifact = next(item for item in manifest["artifacts"] if item["kind"] == kind)  # type: ignore[union-attr]
+    artifact["path"] = different_path
+
+    with pytest.raises(ValueError, match="artifact|kind|path|contract|expected"):
+        _load(manifest)
+
+
+def test_artifact_paths_cannot_be_swapped_between_roles():
+    manifest = _manifest_object()
+    first = manifest["artifacts"][0]  # type: ignore[index]
+    second = manifest["artifacts"][1]  # type: ignore[index]
+    first["path"], second["path"] = second["path"], first["path"]
+
+    with pytest.raises(ValueError, match="artifact|kind|path|contract|expected"):
         _load(manifest)
 
 
