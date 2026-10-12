@@ -30,6 +30,7 @@ ALLOWED_PARSER_IMPORTS = {
     "dataclasses",
     "hashlib",
     "human_feedback.runtime_oci_layout",
+    "human_feedback.runtime_oci_metadata",
     "json",
     "re",
     "typing",
@@ -966,6 +967,7 @@ def test_normal_suite_has_no_committed_config_blob_or_fabricated_positive_gate(m
 )
 def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(monkeypatch):
     from human_feedback import runtime_oci_config as module
+    from human_feedback import runtime_oci_metadata
     from human_feedback.adapters.filesystem_oci_layout import (
         capture_and_verify_laya_oci_layout,
     )
@@ -1003,8 +1005,27 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         return projection
 
     monkeypatch.setattr(module, "_parse_laya_runtime_oci_config_bytes", parser_spy)
+    original_metadata_validator = runtime_oci_metadata.validate_laya_runtime_oci_metadata
+    validated_snapshots = []
+
+    def metadata_validator_spy(snapshot):
+        validated_snapshots.append(snapshot)
+        return original_metadata_validator(snapshot)
+
+    monkeypatch.setattr(
+        runtime_oci_metadata,
+        "validate_laya_runtime_oci_metadata",
+        metadata_validator_spy,
+    )
+    monkeypatch.setattr(
+        module,
+        "validate_laya_runtime_oci_metadata",
+        metadata_validator_spy,
+        raising=False,
+    )
     evidence = module.validate_laya_runtime_oci_config_semantics(layout_evidence, payload)
     assert len(parsed_projections) == 1
+    assert validated_snapshots == [layout_evidence.plan.oci_evidence.snapshot]
     assert type(evidence) is LayaRuntimeOciConfigEvidence
     assert is_dataclass(evidence)
     assert not hasattr(evidence, "__dict__")
@@ -1047,6 +1068,324 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             config_receipt=corrupt_layout.receipts[position],
             runtime_identity=corrupt_layout.runtime_identity,
         )
+
+    def layout_with_prior(corrupt_prior, *, runtime_identity=None):
+        identity = (
+            layout_evidence.runtime_identity if runtime_identity is None else runtime_identity
+        )
+        plan = forged_dataclass(
+            layout_evidence.plan,
+            oci_evidence=corrupt_prior,
+            runtime_identity=identity,
+        )
+        receipts = tuple(forged_dataclass(item, plan=plan) for item in layout_evidence.receipts)
+        return forged_dataclass(
+            layout_evidence,
+            plan=plan,
+            receipts=receipts,
+            runtime_identity=identity,
+        )
+
+    original_config_hashlib = module.hashlib
+    config_hash_calls = []
+
+    def config_hash_spy(config_bytes):
+        config_hash_calls.append(config_bytes)
+        return original_config_hashlib.sha256(config_bytes)
+
+    def assert_ancestry_rejected(corrupt_prior, *markers, runtime_identity=None):
+        corrupt_layout = layout_with_prior(
+            corrupt_prior,
+            runtime_identity=runtime_identity,
+        )
+        corrupt_evidence = evidence_with_layout(corrupt_layout)
+        parsed_projections.clear()
+        config_hash_calls.clear()
+        metadata_call_count = len(validated_snapshots)
+        try:
+            corrupt_snapshot = corrupt_prior.snapshot
+        except Exception:
+            corrupt_snapshot = None
+        monkeypatch.setattr(
+            module,
+            "hashlib",
+            SimpleNamespace(sha256=config_hash_spy),
+        )
+        with pytest.raises(
+            (TypeError, ValueError),
+            match="metadata|ancestry|snapshot|manifest|identity|layout|evidence|valid",
+        ) as validator_error:
+            module.validate_laya_runtime_oci_config_semantics(corrupt_layout, payload)
+        with pytest.raises(
+            (TypeError, ValueError),
+            match="metadata|ancestry|snapshot|manifest|identity|layout|evidence|valid",
+        ) as summary_error:
+            module.canonical_laya_runtime_oci_config_summary_bytes(corrupt_evidence)
+        assert parsed_projections == []
+        assert config_hash_calls == []
+        if type(corrupt_prior) is type(prior) and corrupt_snapshot is not None:
+            assert len(validated_snapshots) == metadata_call_count + 2
+            assert validated_snapshots[-2:] == [corrupt_snapshot, corrupt_snapshot]
+        _private_error(validator_error.value, *markers, str(root), descriptor.digest)
+        _private_error(summary_error.value, *markers, str(root), descriptor.digest)
+
+    prior = layout_evidence.plan.oci_evidence
+    prior_true_flags = (
+        "artifact_integrity_verified",
+        "oci_manifest_semantics_verified",
+    )
+    prior_false_flags = (
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "runtime_config_semantics_verified",
+        "checkpoint_manifest_semantics_verified",
+        "checkpoint_bytes_verified",
+        "oci_bytes_verified",
+        "origin_verified",
+        "runtime_materialized",
+        "executor_available",
+        "inference_executed",
+    )
+    for flag in prior_true_flags:
+        for invalid in (False, 1, None):
+            assert_ancestry_rejected(forged_dataclass(prior, **{flag: invalid}))
+    for flag in prior_false_flags:
+        for invalid in (True, 1, None):
+            assert_ancestry_rejected(forged_dataclass(prior, **{flag: invalid}))
+
+    class PriorSubclass(type(prior)):
+        pass
+
+    class ManifestSubclass(type(prior.oci_manifest)):
+        pass
+
+    class SnapshotSubclass(type(prior.snapshot)):
+        pass
+
+    class HostilePrior:
+        @property
+        def snapshot(self):
+            raise AssertionError("private-hostile-prior-property")
+
+    class HostileManifest:
+        @property
+        def schema_version(self):
+            raise AssertionError("private-hostile-manifest-property")
+
+    class HostileSnapshot:
+        @property
+        def artifact_integrity_verified(self):
+            raise AssertionError("private-hostile-snapshot-property")
+
+    invalid_priors = (
+        (SimpleNamespace(schema_version=prior.schema_version), "private-prior-proxy"),
+        (object.__new__(PriorSubclass), "private-prior-subclass"),
+        (object.__new__(type(prior)), "private-prior-unsealed"),
+        (HostilePrior(), "private-hostile-prior-property"),
+        (
+            forged_dataclass(
+                prior,
+                oci_manifest=SimpleNamespace(marker="private-manifest-proxy"),
+            ),
+            "private-manifest-proxy",
+        ),
+        (
+            forged_dataclass(prior, oci_manifest=object.__new__(ManifestSubclass)),
+            "private-manifest-subclass",
+        ),
+        (
+            forged_dataclass(prior, oci_manifest=object.__new__(type(prior.oci_manifest))),
+            "private-manifest-unsealed",
+        ),
+        (
+            forged_dataclass(prior, oci_manifest=HostileManifest()),
+            "private-hostile-manifest-property",
+        ),
+        (
+            forged_dataclass(
+                prior,
+                snapshot=SimpleNamespace(marker="private-snapshot-proxy"),
+            ),
+            "private-snapshot-proxy",
+        ),
+        (
+            forged_dataclass(prior, snapshot=object.__new__(SnapshotSubclass)),
+            "private-snapshot-subclass",
+        ),
+        (
+            forged_dataclass(prior, snapshot=object.__new__(type(prior.snapshot))),
+            "private-snapshot-unsealed",
+        ),
+        (
+            forged_dataclass(prior, snapshot=HostileSnapshot()),
+            "private-hostile-snapshot-property",
+        ),
+    )
+    for corrupt_prior, marker in invalid_priors:
+        assert_ancestry_rejected(corrupt_prior, marker)
+
+    invalid_reconstructed_priors = (
+        (SimpleNamespace(marker="private-reconstructed-proxy"), "private-reconstructed-proxy"),
+        (object.__new__(PriorSubclass), "private-reconstructed-subclass"),
+        (object.__new__(type(prior)), "private-reconstructed-unsealed"),
+        (
+            forged_dataclass(prior, artifact_integrity_verified=False),
+            "private-reconstructed-mismatch",
+        ),
+    )
+    for reconstructed, marker in invalid_reconstructed_priors:
+        monkeypatch.setattr(
+            module,
+            "validate_laya_runtime_oci_metadata",
+            lambda _snapshot, value=reconstructed: value,
+        )
+        parsed_projections.clear()
+        config_hash_calls.clear()
+        monkeypatch.setattr(
+            module,
+            "hashlib",
+            SimpleNamespace(sha256=config_hash_spy),
+        )
+        with pytest.raises(
+            (TypeError, ValueError), match="metadata|ancestry|layout|evidence|valid"
+        ) as validator_error:
+            module.validate_laya_runtime_oci_config_semantics(layout_evidence, payload)
+        with pytest.raises(
+            (TypeError, ValueError), match="metadata|ancestry|layout|evidence|valid"
+        ) as summary_error:
+            module.canonical_laya_runtime_oci_config_summary_bytes(evidence)
+        assert parsed_projections == []
+        assert config_hash_calls == []
+        _private_error(validator_error.value, marker, str(root), descriptor.digest)
+        _private_error(summary_error.value, marker, str(root), descriptor.digest)
+    monkeypatch.setattr(
+        module,
+        "validate_laya_runtime_oci_metadata",
+        metadata_validator_spy,
+    )
+
+    manifest = prior.oci_manifest
+    descriptor_projection = manifest.config
+
+    class DescriptorSubclass(type(descriptor_projection)):
+        pass
+
+    class HostileDescriptor:
+        @property
+        def media_type(self):
+            raise AssertionError("private-hostile-descriptor-property")
+
+    for invalid_descriptor, marker in (
+        (SimpleNamespace(marker="private-descriptor-proxy"), "private-descriptor-proxy"),
+        (object.__new__(DescriptorSubclass), "private-descriptor-subclass"),
+        (object.__new__(type(descriptor_projection)), "private-descriptor-unsealed"),
+        (HostileDescriptor(), "private-hostile-descriptor-property"),
+    ):
+        corrupt_manifest = forged_dataclass(manifest, config=invalid_descriptor)
+        assert_ancestry_rejected(
+            forged_dataclass(prior, oci_manifest=corrupt_manifest),
+            marker,
+        )
+
+    non_manifest_positions = tuple(
+        index
+        for index, artifact in enumerate(prior.snapshot.artifacts)
+        if artifact.spec.kind != "oci_manifest"
+    )
+    assert len(non_manifest_positions) == 4
+    for artifact_position in non_manifest_positions:
+        artifact = prior.snapshot.artifacts[artifact_position]
+        marker = f"private-artifact-{artifact_position}"
+        corrupt_artifacts = []
+        corrupt_artifacts.append(forged_dataclass(artifact, content=marker.encode("ascii")))
+        corrupt_artifacts.append(
+            forged_dataclass(
+                artifact,
+                spec=forged_dataclass(artifact.spec, sha256="a" * 64),
+            )
+        )
+        corrupt_artifacts.append(
+            SimpleNamespace(
+                spec=artifact.spec,
+                content=artifact.content,
+                marker=marker + "-proxy",
+            )
+        )
+        for corrupt_artifact in corrupt_artifacts:
+            artifacts = list(prior.snapshot.artifacts)
+            artifacts[artifact_position] = corrupt_artifact
+            corrupt_snapshot = forged_dataclass(prior.snapshot, artifacts=tuple(artifacts))
+            assert_ancestry_rejected(
+                forged_dataclass(prior, snapshot=corrupt_snapshot),
+                marker,
+                marker + "-proxy",
+                "a" * 64,
+            )
+    for invalid in (False, 1, None):
+        corrupt_snapshot = forged_dataclass(
+            prior.snapshot,
+            artifact_integrity_verified=invalid,
+        )
+        assert_ancestry_rejected(forged_dataclass(prior, snapshot=corrupt_snapshot))
+
+    alternate_identity = type(prior.runtime_identity)(
+        schema_version=prior.runtime_identity.schema_version,
+        sha256="a" * 64,
+    )
+    alternate_snapshot = forged_dataclass(
+        prior.snapshot,
+        runtime_identity=alternate_identity,
+    )
+    alternate_prior = forged_dataclass(
+        prior,
+        snapshot=alternate_snapshot,
+        runtime_identity=alternate_identity,
+    )
+
+    class RuntimeIdentitySubclass(type(prior.runtime_identity)):
+        pass
+
+    class HostileRuntimeIdentity:
+        @property
+        def schema_version(self):
+            raise AssertionError("private-hostile-runtime-identity")
+
+    for invalid_identity, marker in (
+        (
+            SimpleNamespace(
+                schema_version=prior.runtime_identity.schema_version,
+                sha256="b" * 64,
+                marker="private-runtime-identity-proxy",
+            ),
+            "private-runtime-identity-proxy",
+        ),
+        (object.__new__(RuntimeIdentitySubclass), "private-runtime-identity-subclass"),
+        (object.__new__(type(prior.runtime_identity)), "private-runtime-identity-unsealed"),
+        (HostileRuntimeIdentity(), "private-hostile-runtime-identity"),
+    ):
+        corrupt_snapshot = forged_dataclass(
+            prior.snapshot,
+            runtime_identity=invalid_identity,
+        )
+        corrupt_prior = forged_dataclass(
+            prior,
+            snapshot=corrupt_snapshot,
+            runtime_identity=invalid_identity,
+        )
+        assert_ancestry_rejected(
+            corrupt_prior,
+            marker,
+            runtime_identity=invalid_identity,
+        )
+
+    assert_ancestry_rejected(
+        alternate_prior,
+        "a" * 64,
+        runtime_identity=alternate_identity,
+    )
+    monkeypatch.setattr(module, "hashlib", original_config_hashlib)
+    parsed_projections.clear()
 
     summary = module.canonical_laya_runtime_oci_config_summary_bytes(evidence)
     decoded = json.loads(summary)

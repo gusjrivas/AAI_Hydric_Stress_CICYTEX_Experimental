@@ -261,6 +261,49 @@ def _oci_config_successor_layout_violations(source: str) -> tuple[str, ...]:
     return tuple(sorted(set(violations)))
 
 
+def _oci_config_successor_metadata_violations(source: str) -> tuple[str, ...]:
+    """Permit only the public PR19 snapshot validator in the PR21 successor."""
+    tree = ast.parse(source)
+    expected_module = "human_feedback.runtime_oci_metadata"
+    expected_symbol = "validate_laya_runtime_oci_metadata"
+    imports = []
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == expected_module for alias in node.names
+        ):
+            violations.append("metadata-module-import-forbidden")
+        if isinstance(node, ast.ImportFrom) and node.module == expected_module:
+            imports.extend(alias.name for alias in node.names)
+            if any(
+                alias.name != expected_symbol or alias.asname is not None for alias in node.names
+            ):
+                violations.append("metadata-import-not-exact")
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and (
+                node.value == expected_module
+                or node.value.startswith("_validate_laya_runtime_oci_metadata")
+            )
+        ):
+            violations.append("dynamic-metadata-symbol-forbidden")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"__import__", "getattr", "import_module"}
+            and any(
+                isinstance(argument, ast.Constant)
+                and argument.value in {expected_module, expected_symbol}
+                for argument in node.args
+            )
+        ):
+            violations.append("dynamic-metadata-access-forbidden")
+    if imports != [expected_symbol]:
+        violations.append("exactly-one-public-metadata-validator-required")
+    return tuple(sorted(set(violations)))
+
+
 def test_committed_layout_control_fixtures_are_exact_captured_profile_bytes():
     assert len(_layout_bytes()) == LAYOUT_SIZE_BYTES
     assert hashlib.sha256(_layout_bytes()).hexdigest() == LAYOUT_SHA256
@@ -1491,6 +1534,48 @@ def test_oci_config_successor_uses_only_closed_public_layout_contract(source, ex
     assert _oci_config_successor_layout_violations(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "from human_feedback.runtime_oci_metadata import " "validate_laya_runtime_oci_metadata",
+            (),
+        ),
+        (
+            "import human_feedback.runtime_oci_metadata as metadata",
+            (
+                "exactly-one-public-metadata-validator-required",
+                "metadata-module-import-forbidden",
+            ),
+        ),
+        (
+            "from human_feedback.runtime_oci_metadata import *",
+            (
+                "exactly-one-public-metadata-validator-required",
+                "metadata-import-not-exact",
+            ),
+        ),
+        (
+            "from human_feedback.runtime_oci_metadata import "
+            "_validate_laya_runtime_oci_metadata",
+            (
+                "exactly-one-public-metadata-validator-required",
+                "metadata-import-not-exact",
+            ),
+        ),
+        (
+            "value = getattr(owner, 'validate_laya_runtime_oci_metadata')",
+            (
+                "dynamic-metadata-access-forbidden",
+                "exactly-one-public-metadata-validator-required",
+            ),
+        ),
+    ],
+)
+def test_oci_config_successor_uses_only_public_metadata_validator(source, expected):
+    assert _oci_config_successor_metadata_violations(source) == expected
+
+
 def test_only_oci_config_successor_imports_or_uses_layout_plan_api():
     repository_root = Path(__file__).parents[1]
     target = repository_root / "src" / "human_feedback" / "runtime_oci_layout.py"
@@ -1499,6 +1584,7 @@ def test_only_oci_config_successor_imports_or_uses_layout_plan_api():
     successor_source = successor.read_text(encoding="utf-8")
     assert _uses_layout_plan_api(successor_source) is True
     assert _oci_config_successor_layout_violations(successor_source) == ()
+    assert _oci_config_successor_metadata_violations(successor_source) == ()
     allowed_consumers = {target, adapter, successor}
     offenders = []
     for relative_root in ("backend", "src", "scripts"):
