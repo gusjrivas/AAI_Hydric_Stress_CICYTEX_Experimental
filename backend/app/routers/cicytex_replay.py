@@ -302,9 +302,6 @@ def create_feedback(
         return entry
 
     try:
-        if not hasattr(sessions, "with_session"):
-            sessions.get(session_id)
-            return register(sessions.get(session_id))
         return sessions.with_session(session_id, register)
     except ReplaySessionNotFound:
         raise HTTPException(404, "Sesion inexistente")
