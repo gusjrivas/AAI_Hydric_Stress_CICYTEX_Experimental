@@ -500,11 +500,11 @@ def test_layout_plan_blob_graph_is_a_deeply_immutable_factory_sealed_tuple():
     for blob in plan.blobs:
         assert is_dataclass(blob)
         assert not hasattr(blob, "__dict__")
-        for field_name in ("role", "path", "digest", "size_bytes"):
+        for field_name in ("role", "path", "media_type", "digest", "size_bytes"):
             with pytest.raises(FrozenInstanceError):
                 setattr(blob, field_name, getattr(blob, field_name))
-        with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
-            replace(blob, size_bytes=blob.size_bytes)
+            with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
+                replace(blob, **{field_name: getattr(blob, field_name)})
         with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
             type(blob)(
                 **{field.name: getattr(blob, field.name) for field in fields(blob) if field.init}
