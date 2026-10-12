@@ -20,6 +20,9 @@
 - [x] 3.4 Documentar que el sweep final no equivale a atomicidad filesystem absoluta.
 - [x] 3.5 Fallar en Windows/capabilities insuficientes sin abrir archivos ni degradar seguridad.
 - [x] 3.6 Mantener runtime bundle sin caller productivo y aislado de readiness/operación.
+- [x] 3.7 Registrar RED3 `4445eb3` para impedir filtración de paths/digests y rechazar roots no canónicas antes de abrir.
+- [x] 3.8 Implementar GREEN3 `c0fc709` cerrando las brechas de privacidad y canonicalidad sin ampliar claims.
+- [ ] 3.9 Cerrar la reauditoría independiente del gatekeeper sobre GREEN3 y su regresión completa.
 
 ## 4. PR17: semántica y supply
 
