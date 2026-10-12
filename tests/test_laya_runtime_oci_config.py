@@ -1,6 +1,7 @@
 import ast
 import json
 import traceback
+from copy import deepcopy
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
 
@@ -9,7 +10,6 @@ import pytest
 REAL_CONFIG_SIZE_BYTES = 10_261
 REAL_CONFIG_SHA256 = "bdd27ffe0d14dd637985f09bcdf461e58a64348829a4b3ad3cb7886ff56e20c5"
 PROFILE_SCHEMA = "laya-runtime-oci-config-profile-v1"
-EVIDENCE_SCHEMA = "laya-runtime-oci-config-evidence-v1"
 MAX_CONFIG_BYTES = 64 * 1024
 MAX_JSON_DEPTH = 32
 MAX_OBJECT_MEMBERS = 64
@@ -58,6 +58,18 @@ LABELS = {
     "org.opencontainers.image.revision": "68804629e8ccd9d616d48a40e87de9fabbeae069",
     "org.opencontainers.image.source": "https://github.com/NandhaKishorM/laya",
     "org.opencontainers.image.version": "0.4.2",
+}
+MUTATED_LABEL_VALUES = {
+    "org.aai-hydric.runtime.checkpoint-manifest.sha256": "a" * 64,
+    "org.aai-hydric.runtime.config.sha256": "b" * 64,
+    "org.aai-hydric.runtime.sbom.sha256": "c" * 64,
+    "org.aai-hydric.runtime.uv-lock.sha256": "d" * 64,
+    "org.opencontainers.image.base.digest": "sha256:" + "e" * 64,
+    "org.opencontainers.image.base.name": "docker.io/library/python:3.11.11-slim-bookworm",
+    "org.opencontainers.image.licenses": "MIT",
+    "org.opencontainers.image.revision": "a" * 40,
+    "org.opencontainers.image.source": "https://github.com/NandhaKishorM/laya-mutated",
+    "org.opencontainers.image.version": "0.4.3",
 }
 DIFF_IDS = (
     "sha256:c0f1022b22a9b36851b358f44e5475e39d166e71a8073cf53c894a299239b1c5",
@@ -128,7 +140,9 @@ def _private_error(error: BaseException, *markers: str) -> None:
     assert error.__suppress_context__ is True
 
 
-def test_synthetic_profile_matches_observed_config_shape_without_committing_real_blob():
+def test_synthetic_profile_builder_sanity_does_not_embed_real_config_blob():
+    # Constants were derived once from the read-only captured layout. This sanity test
+    # deliberately proves that neither that blob nor its real history commands are a fixture.
     value = _config_object()
     payload = _encoded()
     assert set(value) == {"architecture", "config", "created", "history", "os", "rootfs"}
@@ -223,10 +237,20 @@ def test_json_resource_caps_fail_closed_after_parse(monkeypatch, case):
     elif case == "string":
         value = "x" * (MAX_STRING_LENGTH + 1)
     else:
-        value = [[index] for index in range(MAX_JSON_NODES)]
+        value = "leaf"
+        for _level in range(4):
+            value = [deepcopy(value) for _branch in range(8)]
     monkeypatch.setattr(module.json, "loads", lambda *_args, **_kwargs: value)
     with pytest.raises(ValueError, match="depth|member|list|string|node|limit|config"):
         module._parse_laya_runtime_oci_config_bytes(b'{"bounded":"synthetic"}')
+
+
+def test_decoder_recursion_failure_is_private_and_normalized():
+    marker = "private-recursion-payload-marker"
+    payload = b"[" * 2_000 + json.dumps(marker).encode("ascii") + b"]" * 2_000
+    with pytest.raises(ValueError, match="JSON|depth|config|payload") as captured:
+        _parse(payload)
+    _private_error(captured.value, marker)
 
 
 @pytest.mark.parametrize("key", ["architecture", "config", "created", "history", "os", "rootfs"])
@@ -256,8 +280,12 @@ def test_top_level_schema_is_closed_and_complete(key):
 def test_platform_and_created_are_exact(field, invalid):
     value = _config_object()
     value[field] = invalid
-    with pytest.raises(ValueError, match="architecture|platform|created|RFC|profile|config"):
+    with pytest.raises(
+        ValueError, match="architecture|platform|created|RFC|profile|config"
+    ) as captured:
         _parse(_encoded(value))
+    if invalid == "not-rfc3339-private":
+        _private_error(captured.value, invalid)
 
 
 @pytest.mark.parametrize("key", ["User", "Env", "Entrypoint", "WorkingDir", "Labels"])
@@ -291,7 +319,19 @@ def test_runtime_process_fields_match_observed_profile(field, invalid):
         _parse(_encoded(value))
 
 
-@pytest.mark.parametrize("mutation", ["missing", "extra", "duplicate", "reorder", "wrong-value"])
+@pytest.mark.parametrize("index", range(len(ENVIRONMENT)))
+def test_each_environment_declaration_is_exact_and_private(index):
+    value = _config_object()
+    environment = value["config"]["Env"]
+    name = environment[index].split("=", 1)[0]
+    marker = f"private-mutated-environment-{index}"
+    environment[index] = f"{name}={marker}"
+    with pytest.raises(ValueError, match="environment|Env|offline|profile|config") as captured:
+        _parse(_encoded(value))
+    _private_error(captured.value, marker, environment[index])
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "duplicate", "reorder"])
 def test_environment_is_exact_unique_ordered_and_offline(mutation):
     value = _config_object()
     environment = value["config"]["Env"]
@@ -303,13 +343,21 @@ def test_environment_is_exact_unique_ordered_and_offline(mutation):
         environment[-1] = environment[0]
     elif mutation == "reorder":
         environment[0], environment[1] = environment[1], environment[0]
-    else:
-        environment[-1] = "HF_HUB_OFFLINE=0"
     with pytest.raises(ValueError, match="environment|Env|offline|profile|config"):
         _parse(_encoded(value))
 
 
-@pytest.mark.parametrize("mutation", ["missing", "extra", "wrong-value", "wrong-type"])
+@pytest.mark.parametrize("key", tuple(LABELS))
+def test_each_label_declaration_is_exact_type_valid_and_private(key):
+    value = _config_object()
+    marker = MUTATED_LABEL_VALUES[key]
+    value["config"]["Labels"][key] = marker
+    with pytest.raises(ValueError, match="label|profile|config") as captured:
+        _parse(_encoded(value))
+    _private_error(captured.value, marker)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "wrong-type"])
 def test_labels_are_exact_closed_and_typed(mutation):
     value = _config_object()
     labels = value["config"]["Labels"]
@@ -318,8 +366,6 @@ def test_labels_are_exact_closed_and_typed(mutation):
         del labels[key]
     elif mutation == "extra":
         labels["private.extra.label"] = "private-label-marker"
-    elif mutation == "wrong-value":
-        labels[key] = "0.4.3"
     else:
         labels[key] = True
     with pytest.raises(ValueError, match="label|profile|config") as captured:
@@ -348,15 +394,38 @@ def test_rootfs_is_exact_ordered_unique_sha256_profile(mutation):
         rootfs["diff_ids"][1] = rootfs["diff_ids"][0]
     else:
         rootfs["diff_ids"][0] = "sha512:" + "a" * 64
-    with pytest.raises(ValueError, match="rootfs|diff|layer|profile|config"):
+    with pytest.raises(ValueError, match="rootfs|diff|layer|profile|config") as captured:
         _parse(_encoded(value))
+    if mutation == "type":
+        _private_error(captured.value, "private-other-rootfs")
+
+
+@pytest.mark.parametrize("index", range(len(DIFF_IDS)))
+def test_each_declared_diff_id_is_exact_but_does_not_claim_layer_verification(index):
+    """This closes the expected declaration; it does not verify layers, rootfs, or origin."""
+
+    value = _config_object()
+    marker = "sha256:" + f"{index + 1:064x}"
+    assert marker not in DIFF_IDS
+    value["rootfs"]["diff_ids"][index] = marker
+    with pytest.raises(ValueError, match="rootfs|diff|layer|profile|config") as captured:
+        _parse(_encoded(value))
+    _private_error(captured.value, marker)
 
 
 @pytest.mark.parametrize(
     "mutation",
-    ["count", "non-empty-count", "keys", "timestamp", "empty-false", "comment", "command-type"],
+    [
+        "count",
+        "non-empty-count",
+        "keys",
+        "timestamp",
+        "empty-false",
+        "comment-type",
+        "command-type",
+    ],
 )
-def test_history_shape_is_exact_bounded_and_commands_are_not_semantic_output(mutation):
+def test_history_schema_types_counts_and_timestamp_rules_are_enforced(mutation):
     value = _config_object()
     history = value["history"]
     if mutation == "count":
@@ -366,18 +435,36 @@ def test_history_shape_is_exact_bounded_and_commands_are_not_semantic_output(mut
     elif mutation == "keys":
         history[0]["private"] = "private-history-marker"
     elif mutation == "timestamp":
-        history[0]["created"] = "2024-10-18T23:23:40+00:00"
+        history[0]["created"] = "private-invalid-timestamp"
     elif mutation == "empty-false":
         history[1]["empty_layer"] = False
-    elif mutation == "comment":
-        history[0]["comment"] = "private-comment"
+    elif mutation == "comment-type":
+        history[0]["comment"] = ["private-comment"]
     else:
         history[0]["created_by"] = ["private-command"]
     with pytest.raises(
         ValueError, match="history|created|RFC|comment|command|profile|config"
     ) as captured:
         _parse(_encoded(value))
-    _private_error(captured.value, "private-history-marker", "private-comment", "private-command")
+    _private_error(
+        captured.value,
+        "private-history-marker",
+        "private-invalid-timestamp",
+        "private-comment",
+        "private-command",
+    )
+
+
+def test_history_command_comment_timestamp_values_and_empty_positions_are_not_overfit():
+    expected = _parse()
+    value = _config_object()
+    for index, item in enumerate(value["history"]):
+        item["created"] = "2025-02-03T04:05:06Z"
+        item["created_by"] = f"alternate-private-command-{index}"
+        item["comment"] = f"alternate-private-comment-{index}"
+    del value["history"][1]["empty_layer"]
+    value["history"][0]["empty_layer"] = True
+    assert _parse(_encoded(value)) == expected
 
 
 def test_validated_projection_is_frozen_slotted_factory_sealed_and_opaque():
@@ -387,8 +474,21 @@ def test_validated_projection_is_frozen_slotted_factory_sealed_and_opaque():
     assert is_dataclass(parsed)
     assert not hasattr(parsed, "__dict__")
     rendered = repr(parsed)
-    private_values = (*ENVIRONMENT, *LABELS, *LABELS.values(), *DIFF_IDS, "synthetic-private")
+    private_values = (
+        *ENVIRONMENT,
+        *LABELS,
+        *LABELS.values(),
+        *MUTATED_LABEL_VALUES.values(),
+        *DIFF_IDS,
+        BASE_CREATED,
+        EPOCH_CREATED,
+        "synthetic-private",
+        "alternate-private",
+        *(f"private-mutated-environment-{index}" for index in range(len(ENVIRONMENT))),
+    )
     assert all(value not in rendered for value in private_values)
+    retained_projection = repr(tuple(getattr(parsed, field.name) for field in fields(parsed)))
+    assert "synthetic-private-history-command" not in retained_projection
     for field in fields(parsed):
         if field.name.startswith("_"):
             continue
@@ -434,10 +534,19 @@ def test_module_public_surface_and_purity_are_exactly_allowlisted():
         "json",
         "re",
         "typing",
-        "human_feedback.runtime_oci_layout",
     }
     assert imports.isdisjoint(
-        {"os", "pathlib", "subprocess", "socket", "urllib", "requests", "docker"}
+        {
+            "os",
+            "pathlib",
+            "subprocess",
+            "socket",
+            "http",
+            "urllib",
+            "requests",
+            "docker",
+            "human_feedback.runtime_oci_layout",
+        }
     )
     public_functions = {
         node.name
@@ -445,19 +554,13 @@ def test_module_public_surface_and_purity_are_exactly_allowlisted():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and not node.name.startswith("_")
     }
-    assert public_functions == {
-        "validate_laya_runtime_oci_config_semantics",
-        "canonical_laya_runtime_oci_config_summary_bytes",
-    }
+    assert public_functions == set()
     public_classes = {
         node.name
         for node in tree.body
         if isinstance(node, ast.ClassDef) and not node.name.startswith("_")
     }
-    assert public_classes == {
-        "ValidatedLayaRuntimeOciConfig",
-        "LayaRuntimeOciConfigEvidence",
-    }
+    assert public_classes == {"ValidatedLayaRuntimeOciConfig"}
     public_constants = {
         target.id
         for node in tree.body
@@ -473,7 +576,6 @@ def test_module_public_surface_and_purity_are_exactly_allowlisted():
         "MAX_OCI_CONFIG_STRING_LENGTH",
         "MAX_OCI_CONFIG_JSON_NODES",
         "OCI_CONFIG_PROFILE_SCHEMA",
-        "OCI_CONFIG_EVIDENCE_SCHEMA",
     }
     forbidden_calls = {"open", "read_bytes", "read_text", "run", "Popen", "urlopen", "socket"}
     called = {
