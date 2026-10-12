@@ -111,13 +111,12 @@ def test_manifest_loads_exact_runtime_and_artifact_identity():
 
 
 def test_runtime_types_are_frozen_slotted_and_reference_is_shared():
+    from human_feedback.evaluation_execution import RuntimeIdentityRef as ExecutionRef
     from human_feedback.runtime_identity import (
         RuntimeArtifactSpec,
         RuntimeIdentityRef,
         runtime_identity_ref,
     )
-
-    from human_feedback.evaluation_execution import RuntimeIdentityRef as ExecutionRef
 
     manifest = _load()
     reference = runtime_identity_ref(manifest)
@@ -182,6 +181,7 @@ def test_loader_accepts_bytes_only_and_rejects_invalid_utf8():
     ("field", "value"),
     [
         ("schema_version", "laya-runtime-manifest-v2"),
+        ("runtime_id", "other-runtime"),
         ("runtime_id", " laya-runtime"),
         ("runtime_id", "laya-runtimé"),
         ("provider", "other-provider"),
@@ -265,6 +265,14 @@ def test_manifest_requires_each_exact_artifact_kind_once():
         _load(duplicate)
 
 
+def test_manifest_requires_unique_paths_across_artifact_roles():
+    manifest = _manifest_object()
+    manifest["artifacts"][1]["path"] = manifest["artifacts"][0]["path"]  # type: ignore[index]
+
+    with pytest.raises(ValueError, match="artifact|path|duplicate|unique"):
+        _load(manifest)
+
+
 def test_artifacts_are_canonically_ordered_and_digest_ignores_json_layout():
     from human_feedback.runtime_identity import (
         canonical_laya_runtime_manifest_bytes,
@@ -335,12 +343,11 @@ def test_manifest_flags_are_structural_only_and_cannot_be_forged():
 
 
 def test_execution_summary_bytes_remain_pr14_golden(tmp_path: Path):
-    from human_feedback.runtime_identity import RuntimeIdentityRef
-
     from human_feedback.evaluation_execution import (
         canonical_loso_execution_summary_bytes,
         validate_loso_prediction_set,
     )
+    from human_feedback.runtime_identity import RuntimeIdentityRef
     from tests.test_laya_evaluation_execution import _contract, _predictions
 
     contract, _ = _contract(tmp_path)
