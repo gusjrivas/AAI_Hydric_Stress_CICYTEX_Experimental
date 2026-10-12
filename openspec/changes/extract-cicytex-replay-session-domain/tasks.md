@@ -9,13 +9,13 @@
 
 ## 2. Dominio y aplicación
 
-- [ ] 2.1 Implementar `ReplaySession` inmutable y el caso de uso de sesiones.
-- [ ] 2.2 Implementar `SessionRepository` y el adaptador in-memory sincronizado.
-- [ ] 2.3 Inyectar el caso de uso y traducir errores sin cambiar HTTP.
-- [ ] 2.4 Mantener feedback fuera del repositorio y distinguir su lock del estado de sesión.
+- [x] 2.1 Implementar `ReplaySession` inmutable y el caso de uso de sesiones.
+- [x] 2.2 Implementar `SessionRepository` y el adaptador in-memory sincronizado.
+- [x] 2.3 Inyectar el caso de uso y traducir errores sin cambiar HTTP.
+- [x] 2.4 Mantener feedback fuera del repositorio y distinguir su lock del estado de sesión.
 
 ## 3. Verificación
 
-- [ ] 3.1 Dejar verdes las pruebas unitarias y HTTP de replay CICYTEX.
-- [ ] 3.2 Ejecutar regresiones CICYTEX, Melchor, Pergamino, Laboratorio y Laya.
-- [ ] 3.3 Validar formato, lint, OpenSpec y diff-check.
+- [x] 3.1 Dejar verdes las pruebas unitarias y HTTP de replay CICYTEX.
+- [x] 3.2 Ejecutar regresiones CICYTEX, Melchor, Pergamino, Laboratorio y Laya.
+- [x] 3.3 Validar formato, lint, OpenSpec y diff-check.

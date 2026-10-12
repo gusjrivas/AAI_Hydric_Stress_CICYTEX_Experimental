@@ -33,4 +33,3 @@ ese lock no administra sesiones y su extracción queda fuera de alcance.
 No se agrega persistencia durable, recuperación tras reinicio, TTL, feedback en el
 repositorio de sesiones, cambios de concurrencia distribuida ni modificación del
 paquete causal. Esas decisiones requieren cambios independientes.
-

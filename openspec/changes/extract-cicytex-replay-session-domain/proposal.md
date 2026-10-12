@@ -22,4 +22,3 @@ reloj sin levantar FastAPI.
 
 Refactor interno de `historical-replay` y del router CICYTEX. Las corridas de
 CICYTEX, Melchor Romero, Pergamino, Laboratorio y Laya permanecen aisladas.
-
