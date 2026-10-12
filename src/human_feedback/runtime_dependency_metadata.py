@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from copy import deepcopy
 from dataclasses import InitVar, dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -46,6 +47,7 @@ _TORCH_WHEEL = (
 _ALLOWED_REGISTRIES = frozenset({_PYPI_INDEX, _PYTORCH_INDEX})
 _ALLOWED_ARTIFACT_HOSTS = frozenset({"files.pythonhosted.org", "download-r2.pytorch.org"})
 _EXPECTED_PROFILE_SHA256 = "6aeabdd83e78efb1a8a0bfeba61f2d9f4c9505cbde40dcee22020866451c75ed"
+_EXPECTED_SEMANTICS_SHA256 = "c4e1d2876569217c106d9a32fdfacb5a88c1fbd4808fe90c828ba8073a9ab45e"
 _PACKAGE_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _FACTORY_TOKEN = object()
@@ -108,6 +110,7 @@ class ValidatedLayaUvLock:
     exclude_newer: str
     build_constraints: tuple[tuple[str, str], ...]
     packages: tuple[LockedPackage, ...]
+    semantics_sha256: str
     _factory_token: InitVar[object]
 
     def __post_init__(self, _factory_token: object) -> None:
@@ -115,6 +118,8 @@ class ValidatedLayaUvLock:
             raise ValueError("lock construction is factory-sealed")
         if type(self.version) is not int or type(self.revision) is not int:
             raise TypeError("lock version and revision must be plain integers")
+        if self.semantics_sha256 != _EXPECTED_SEMANTICS_SHA256:
+            raise ValueError("lock semantic commitment is invalid")
 
     __repr__ = _private_repr
 
@@ -176,8 +181,8 @@ def _parse_distribution(
             and parsed.hostname in _ALLOWED_ARTIFACT_HOSTS
             and parsed.port is None
         )
-    except ValueError as error:
-        raise ValueError("distribution URL is not allowed") from error
+    except ValueError:
+        raise ValueError("distribution URL is not allowed") from None
     if not allowed:
         raise ValueError("distribution URL is not allowed")
     raw_hash = _string(item.get("hash"), context="distribution hash")
@@ -223,7 +228,7 @@ def _parse_optional_dependencies(value: object) -> tuple[tuple[str, tuple[str, .
 def _validate_root_profile(
     item: dict[str, Any], dependencies: list[tuple[str, tuple[str, ...]]]
 ) -> None:
-    if dependencies != [("laya", ("serve",)), ("torch", ())]:
+    if sorted(dependencies) != [("laya", ("serve",)), ("torch", ())]:
         raise ValueError("root package serve profile is invalid")
     metadata = _mapping(item.get("metadata"), context="root package metadata")
     _exact_keys(metadata, {"requires-dist"}, context="root package metadata")
@@ -232,8 +237,48 @@ def _validate_root_profile(
         {"name": "laya", "extras": ["serve"], "git": _LAYA_METADATA_GIT},
         {"name": "torch", "specifier": "==2.14.0", "index": _PYTORCH_INDEX},
     ]
-    if required != expected:
+    if not isinstance(required, list) or sorted(
+        required, key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))
+    ) != sorted(
+        expected, key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))
+    ):
         raise ValueError("root package metadata profile is invalid")
+
+
+def _canonical_semantics_sha256(value: dict[str, Any]) -> str:
+    normalized = deepcopy(value)
+    packages = normalized["package"]
+    for package in packages:
+        for collection in ("dependencies", "wheels"):
+            if collection in package:
+                package[collection].sort(
+                    key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"))
+                )
+        if "optional-dependencies" in package:
+            optional = package["optional-dependencies"]
+            package["optional-dependencies"] = {
+                name: sorted(
+                    dependencies,
+                    key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+                )
+                for name, dependencies in sorted(optional.items())
+            }
+        if "metadata" in package:
+            package["metadata"]["requires-dist"].sort(
+                key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"))
+            )
+    packages.sort(key=lambda package: package["name"])
+    try:
+        encoded = json.dumps(
+            normalized,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("ascii")
+    except (TypeError, ValueError, RecursionError):
+        raise ValueError("lock semantic profile cannot be canonicalized") from None
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _parse_package(value: object) -> LockedPackage:
@@ -380,12 +425,12 @@ def validate_laya_uv_lock_bytes(payload: bytes) -> ValidatedLayaUvLock:
         raise ValueError("lock payload size exceeds limit")
     try:
         text = payload.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise ValueError("lock payload is not strict UTF-8") from error
+    except UnicodeDecodeError:
+        raise ValueError("lock payload is not strict UTF-8") from None
     try:
         parsed = tomllib.loads(text)
-    except (tomllib.TOMLDecodeError, RecursionError) as error:
-        raise ValueError("lock payload is not valid TOML") from error
+    except Exception:
+        raise ValueError("lock payload is not valid TOML") from None
     root = _mapping(parsed, context="lock payload")
     _exact_keys(
         root,
@@ -433,6 +478,9 @@ def validate_laya_uv_lock_bytes(payload: bytes) -> ValidatedLayaUvLock:
         )
     ):
         raise ValueError("lock dependency closure references a missing package")
+    semantics_sha256 = _canonical_semantics_sha256(root)
+    if semantics_sha256 != _EXPECTED_SEMANTICS_SHA256:
+        raise ValueError("lock semantic profile is not exact")
     requires_python, resolution, supported, required, exclude_newer, constraints = header
     return ValidatedLayaUvLock(
         1,
@@ -444,5 +492,6 @@ def validate_laya_uv_lock_bytes(payload: bytes) -> ValidatedLayaUvLock:
         exclude_newer,
         constraints,
         packages,
+        semantics_sha256,
         _factory_token=_FACTORY_TOKEN,
     )
