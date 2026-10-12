@@ -1440,3 +1440,81 @@ def test_dependency_combinator_errors_do_not_leak_captured_payloads():
     assert marker not in rendered_chain
     assert error.__cause__ is None
     assert error.__suppress_context__ is True
+
+
+def _assert_exact_byte_binding_error_is_private(error: BaseException, payload: bytes) -> None:
+    rendered_chain = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
+    assert payload.decode("utf-8") not in str(error)
+    assert payload.decode("utf-8") not in rendered_chain
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
+
+
+def test_exact_dependency_fixture_bytes_still_produce_consistent_evidence():
+    snapshot = _dependency_snapshot()
+    evidence = _validate_dependency_metadata(snapshot)
+
+    lock_artifact = next(
+        artifact for artifact in snapshot.artifacts if artifact.spec.kind == "dependency_lock"
+    )
+    sbom_artifact = next(
+        artifact for artifact in snapshot.artifacts if artifact.spec.kind == "sbom"
+    )
+    assert lock_artifact.spec.size_bytes == FIXTURE_SIZE_BYTES == 37_599
+    assert lock_artifact.spec.sha256 == FIXTURE_SHA256
+    assert sbom_artifact.spec.size_bytes == SBOM_FIXTURE_SIZE_BYTES == 65_198
+    assert sbom_artifact.spec.sha256 == SBOM_FIXTURE_SHA256
+    assert evidence.artifact_integrity_verified is True
+    assert evidence.lock_verified is True
+    assert evidence.sbom_verified is True
+    assert evidence.lock_sbom_consistent is True
+
+
+def test_semantically_equivalent_sbom_bytes_cannot_issue_dependency_evidence():
+    exact = _sbom_fixture_bytes()
+    variant = json.dumps(
+        _sbom_fixture_object(),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("ascii")
+
+    assert len(variant) != SBOM_FIXTURE_SIZE_BYTES
+    assert hashlib.sha256(variant).hexdigest() != SBOM_FIXTURE_SHA256
+    assert _validate_sbom(variant) == _validate_sbom(exact)
+    snapshot = _dependency_snapshot(sbom_payload=variant)
+    assert snapshot.artifact_integrity_verified is True
+    assert snapshot.lock_verified is False
+    assert snapshot.sbom_verified is False
+    assert snapshot.lock_sbom_consistent is False
+
+    with pytest.raises(ValueError, match="dependency|SBOM|artifact|exact|byte") as captured:
+        _validate_dependency_metadata(snapshot)
+
+    _assert_exact_byte_binding_error_is_private(captured.value, variant)
+    assert snapshot.lock_verified is False
+    assert snapshot.sbom_verified is False
+    assert snapshot.lock_sbom_consistent is False
+
+
+def test_semantically_equivalent_lock_bytes_cannot_issue_dependency_evidence():
+    exact = _fixture_bytes()
+    variant = exact.replace(b"\n", b"\r\n")
+
+    assert len(variant) != FIXTURE_SIZE_BYTES
+    assert hashlib.sha256(variant).hexdigest() != FIXTURE_SHA256
+    assert _validate(variant) == _validate(exact)
+    snapshot = _dependency_snapshot(lock_payload=variant)
+    assert snapshot.artifact_integrity_verified is True
+    assert snapshot.lock_verified is False
+    assert snapshot.sbom_verified is False
+    assert snapshot.lock_sbom_consistent is False
+
+    with pytest.raises(ValueError, match="dependency|lock|artifact|exact|byte") as captured:
+        _validate_dependency_metadata(snapshot)
+
+    _assert_exact_byte_binding_error_is_private(captured.value, variant)
+    assert snapshot.lock_verified is False
+    assert snapshot.sbom_verified is False
+    assert snapshot.lock_sbom_consistent is False
