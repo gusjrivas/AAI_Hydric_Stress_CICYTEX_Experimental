@@ -5,7 +5,7 @@
 - [x] 1.3 Implementar GREEN `9435c42` como validador puro desde el snapshot PR16.
 - [x] 1.4 Registrar RED `8a79720` para caps 16/64 KiB, recursión fail-closed y cardinalidad cinco previa.
 - [x] 1.5 Implementar GREEN `17a19d9` para los límites de parsing de RED `8a79720` sin ampliar claims.
-- [ ] 1.6 Completar auditoría independiente y regresión del GREEN de límites.
+- [x] 1.6 Completar auditoría independiente y regresión del GREEN de límites.
 
 ## 2. Conformidad y enlaces internos
 
