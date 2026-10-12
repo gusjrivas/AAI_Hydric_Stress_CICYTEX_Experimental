@@ -223,8 +223,7 @@ def test_human_evidence_cannot_hide_a_failed_site_behind_the_global_average():
                 prediction,
                 category="other",
                 probabilities=tuple(
-                    (category, 1.0 if category == "other" else 0.0)
-                    for category in CATEGORIES
+                    (category, 1.0 if category == "other" else 0.0) for category in CATEGORIES
                 ),
             )
             if prediction.example_id.startswith("m-")
