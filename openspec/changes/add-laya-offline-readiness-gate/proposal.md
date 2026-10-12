@@ -1,0 +1,36 @@
+# Change: Gate offline de readiness para Laya
+
+Estado: implementado como evaluación offline; Laya permanece desactivada por defecto.
+
+## Why
+
+La integración consultiva existente valida el contrato HTTP y su fallback, pero no
+demuestra calidad científica ni seguridad de la cadena de suministro. Antes de
+mostrar sugerencias de Laya se necesita una evaluación reproducible, separada por
+sitio y capaz de bloquear evidencia sintética, artefactos no verificados o degradación
+oculta por promedios globales.
+
+## What Changes
+
+- Contrato inmutable y versionado para identidad de Laya, checkpoint, corpus y
+  política de aceptación.
+- Verificación local fail-closed de artefactos por tamaño y SHA-256, incluyendo el
+  rechazo explícito de punteros Git LFS.
+- Baseline determinista, independiente del sitio, para comparaciones posteriores.
+- Métricas offline de exactitud, macro-F1, Brier, ECE, cobertura, exactitud selectiva,
+  costo de abstención y latencia, con desglose por sitio.
+- Reporte JSON canónico sin comentarios humanos, timestamps, rutas locales ni datos
+  secretos.
+- CLI exclusivamente offline para reproducir el gate con evidencia grabada.
+
+## Impact
+
+El cambio es aditivo y queda aislado en `human_feedback.offline_readiness`. No modifica
+el endpoint actual, variables `LAYA_*`, adaptador HTTP, forecast, ingesta,
+recalibración, training, registry, MLflow, frontend ni experimentos históricos.
+Preserva las corridas de CICYTEX, Pergamino, Melchor Romero y laboratorio mock.
+
+El corpus incluido es sintético y sólo prueba el contrato. Su decisión obligatoria es
+`CHARACTERIZATION_ONLY`. Aun con corpus humano y todos los gates aprobados, el máximo
+estado posible es `ELIGIBLE_FOR_SHADOW_REVIEW` y
+`production_enablement_authorized` permanece siempre en `false`.
