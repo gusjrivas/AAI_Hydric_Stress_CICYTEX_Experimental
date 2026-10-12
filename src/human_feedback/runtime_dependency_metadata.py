@@ -181,7 +181,9 @@ class SbomComponent:
             raise ValueError("SBOM component construction is factory-sealed")
         if not _PACKAGE_NAME.fullmatch(self.name):
             raise ValueError("SBOM component name is not canonical")
-        if self.bom_ref != self.purl:
+        expected_bom_ref = f"pkg:pypi/{self.name}@{self.version}"
+        expected_purl = expected_bom_ref.replace("+", "%2B")
+        if self.bom_ref != expected_bom_ref or self.purl != expected_purl:
             raise ValueError("SBOM component identity is invalid")
         if self.hashes:
             raise ValueError("SBOM component hash claims are forbidden")
@@ -739,7 +741,7 @@ def _parse_sbom_component(value: object) -> SbomComponent:
         name,
         version,
         component_type,
-        canonical_ref,
+        purl,
         bom_ref,
         references,
         properties,
