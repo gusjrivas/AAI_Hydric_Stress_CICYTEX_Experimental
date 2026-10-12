@@ -13,3 +13,5 @@
 /tests/fixtures/laya/runtime_dependency/uv.lock -text
 /tests/fixtures/laya/runtime_dependency/laya-runtime.cdx.json -text
 /tests/fixtures/laya/runtime_oci/oci-manifest.json -text
+/tests/fixtures/laya/runtime_oci_layout/oci-layout -text
+/tests/fixtures/laya/runtime_oci_layout/index.json -text
