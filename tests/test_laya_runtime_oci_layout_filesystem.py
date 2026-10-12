@@ -1,6 +1,8 @@
 import ast
+import hashlib
 import json
 import os
+import shutil
 import sys
 import traceback
 from collections import Counter
@@ -59,6 +61,66 @@ FALSE_FLAGS = (
     "executor_available",
     "inference_executed",
 )
+
+
+def _tree_fingerprint(root: Path) -> tuple[tuple[object, ...], ...]:
+    records = []
+    for path in sorted((root, *root.rglob("*"))):
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        status = path.lstat()
+        control_digest = None
+        if relative in {"oci-layout", "index.json", f"blobs/sha256/{MANIFEST_SHA256}"}:
+            control_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        records.append(
+            (
+                relative,
+                status.st_mode,
+                status.st_size,
+                status.st_mtime_ns,
+                status.st_ino,
+                control_digest,
+            )
+        )
+    return tuple(records)
+
+
+def _clone_file_reflink_or_copy(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import fcntl
+
+        with source.open("rb") as source_stream, destination.open("xb") as destination_stream:
+            fcntl.ioctl(destination_stream.fileno(), 0x40049409, source_stream.fileno())
+    except (ImportError, OSError):
+        destination.unlink(missing_ok=True)
+        shutil.copyfile(source, destination)
+
+
+@pytest.fixture(scope="module")
+def disposable_real_layout(tmp_path_factory):
+    source_value = os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV)
+    if not IS_LINUX or not source_value:
+        pytest.skip("requires opt-in real external OCI layout on Linux")
+    assert "PYTEST_XDIST_WORKER" not in os.environ, "external OCI gate must run serially"
+    canonical = Path(source_value)
+    canonical_before = _tree_fingerprint(canonical)
+    clone_parent = tmp_path_factory.mktemp("laya-oci-layout-gate")
+    lock = clone_parent / ".serial-capture.lock"
+    lock_descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    clone = clone_parent / "layout"
+    clone.mkdir()
+    try:
+        for source in sorted(canonical.rglob("*")):
+            destination = clone / source.relative_to(canonical)
+            if source.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+            else:
+                _clone_file_reflink_or_copy(source, destination)
+        yield clone
+        assert _tree_fingerprint(canonical) == canonical_before
+    finally:
+        os.close(lock_descriptor)
+        lock.unlink(missing_ok=True)
 
 
 def _adapter():
@@ -657,11 +719,13 @@ def test_inventory_stops_on_thirteenth_unexpected_entry_without_consuming_fourte
     not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
     reason="requires opt-in real external OCI layout on Linux",
 )
-def test_opt_in_real_same_root_capture_produces_conservative_evidence(monkeypatch):
+def test_opt_in_real_same_root_capture_produces_conservative_evidence(
+    monkeypatch, disposable_real_layout
+):
     from human_feedback import runtime_oci_layout
     from human_feedback.runtime_oci_metadata import canonical_laya_runtime_oci_summary_bytes
 
-    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    root = disposable_real_layout
     oci_evidence = _oci_evidence()
     prior_summary = canonical_laya_runtime_oci_summary_bytes(oci_evidence)
     module = _adapter()
@@ -765,10 +829,12 @@ def test_opt_in_real_same_root_capture_produces_conservative_evidence(monkeypatc
     not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
     reason="requires opt-in real external OCI layout on Linux",
 )
-def test_opt_in_real_receipts_close_authority_matrix_without_shortcuts():
+def test_opt_in_real_receipts_close_authority_matrix_without_shortcuts(
+    disposable_real_layout,
+):
     from human_feedback import runtime_oci_layout
 
-    evidence = _capture(Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV]))
+    evidence = _capture(disposable_real_layout)
     plan = evidence.plan
     receipts = evidence.receipts
     assert len(receipts) == 12
@@ -836,9 +902,25 @@ def test_opt_in_real_receipts_close_authority_matrix_without_shortcuts():
     not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
     reason="requires opt-in real external OCI layout on Linux",
 )
-def test_opt_in_atomic_capture_order_is_observable_and_exact(monkeypatch):
+def test_opt_in_atomic_capture_order_is_observable_and_exact(monkeypatch, disposable_real_layout):
     module = _adapter()
     events = []
+    opened = Counter()
+    closed = Counter()
+    original_open = module.os.open
+    original_close = module.os.close
+
+    def tracked_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        opened[descriptor] += 1
+        return descriptor
+
+    def tracked_close(descriptor):
+        closed[descriptor] += 1
+        return original_close(descriptor)
+
+    monkeypatch.setattr(module.os, "open", tracked_open)
+    monkeypatch.setattr(module.os, "close", tracked_close)
 
     def wrap(owner, name, event):
         original = getattr(owner, name)
@@ -861,14 +943,23 @@ def test_opt_in_atomic_capture_order_is_observable_and_exact(monkeypatch):
 
     monkeypatch.setattr(module, "verify_laya_oci_blob_chunks", verify)
     wrap(module, "_verify_laya_oci_layout_final_sweep", "sweep")
-    wrap(module, "_seal_laya_oci_layout_capture_authority", "authority")
+    original_authority_sealer = module._seal_laya_oci_layout_capture_authority
+
+    def seal_authority(*args, **kwargs):
+        assert closed == opened
+        assert _fds_within(disposable_real_layout) == set()
+        events.extend(("close-complete", "authority"))
+        return original_authority_sealer(*args, **kwargs)
+
+    monkeypatch.setattr(module, "_seal_laya_oci_layout_capture_authority", seal_authority)
     wrap(module, "_seal_laya_oci_layout_evidence", "evidence")
-    _capture(Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV]))
+    _capture(disposable_real_layout)
     assert events == [
         "controls",
         "inventory",
         *("receipt" for _index in range(12)),
         "sweep",
+        "close-complete",
         "authority",
         "evidence",
     ]
@@ -880,9 +971,11 @@ def test_opt_in_atomic_capture_order_is_observable_and_exact(monkeypatch):
 )
 @pytest.mark.parametrize("target_kind", ["oci-layout", "index.json", "manifest"])
 @pytest.mark.parametrize("mutation", ["same-size", "grow", "truncate", "replace"])
-def test_opt_in_file_toctou_after_read_is_rejected_and_restored(monkeypatch, target_kind, mutation):
+def test_opt_in_file_toctou_after_read_is_rejected_and_restored(
+    monkeypatch, disposable_real_layout, target_kind, mutation
+):
     module = _adapter()
-    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    root = disposable_real_layout
     target = (
         root / target_kind
         if target_kind != "manifest"
@@ -940,10 +1033,10 @@ def test_opt_in_file_toctou_after_read_is_rejected_and_restored(monkeypatch, tar
 )
 @pytest.mark.parametrize("target_kind", ["index.json", "blobs", "sha256", "root"])
 def test_opt_in_rename_replace_between_last_blob_and_final_sweep_is_rejected(
-    monkeypatch, target_kind
+    monkeypatch, disposable_real_layout, target_kind
 ):
     module = _adapter()
-    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    root = disposable_real_layout
     target = {
         "index.json": root / "index.json",
         "blobs": root / "blobs",
@@ -983,6 +1076,136 @@ def test_opt_in_rename_replace_between_last_blob_and_final_sweep_is_rejected(
             target.rmdir()
         if displaced.exists():
             displaced.rename(target)
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+@pytest.mark.parametrize(
+    "mutation", ["extra-top-file", "extra-top-directory", "thirteenth-digest", "sha512"]
+)
+def test_opt_in_late_inventory_mutation_after_receipt_twelve_is_rejected(
+    monkeypatch, disposable_real_layout, mutation
+):
+    module = _adapter()
+    root = disposable_real_layout
+    marker = "private-late-inventory-entry"
+    target = {
+        "extra-top-file": root / marker,
+        "extra-top-directory": root / marker,
+        "thirteenth-digest": root / "blobs" / "sha256" / ("a" * 64),
+        "sha512": root / "blobs" / "sha512",
+    }[mutation]
+    original_verify = module.verify_laya_oci_blob_chunks
+    verified = 0
+
+    def verify(*args, **kwargs):
+        nonlocal verified
+        receipt = original_verify(*args, **kwargs)
+        verified += 1
+        if verified == 12:
+            if mutation in {"extra-top-directory", "sha512"}:
+                target.mkdir()
+                if mutation == "sha512":
+                    (target / ("b" * 64)).write_bytes(marker.encode("ascii"))
+            else:
+                target.write_bytes(marker.encode("ascii"))
+        return receipt
+
+    monkeypatch.setattr(module, "verify_laya_oci_blob_chunks", verify)
+    _forbid_seal(monkeypatch)
+    try:
+        with pytest.raises(module.OciLayoutCaptureError) as captured:
+            _capture(root)
+        assert verified == 12
+        _private_error(captured.value, str(root), marker)
+    finally:
+        if target.is_dir():
+            for child in target.iterdir():
+                child.unlink()
+            target.rmdir()
+        else:
+            target.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+@pytest.mark.parametrize("fault", ["final-sweep-scandir", "final-sweep-fstat", "final-close"])
+def test_opt_in_valid_layout_late_faults_close_all_fds_and_never_seal(
+    monkeypatch, disposable_real_layout, fault
+):
+    module = _adapter()
+    root = disposable_real_layout
+    original_open = module.os.open
+    original_close = module.os.close
+    original_sweep = module._verify_laya_oci_layout_final_sweep
+    opened = Counter()
+    closed = Counter()
+    injected = False
+
+    def tracked_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        opened[descriptor] += 1
+        return descriptor
+
+    def tracked_close(descriptor):
+        nonlocal injected
+        closed[descriptor] += 1
+        result = original_close(descriptor)
+        if fault == "final-close" and closed == opened:
+            injected = True
+            raise OSError("private final close failure")
+        return result
+
+    def failing_sweep(*args, **kwargs):
+        nonlocal injected
+        operation = "scandir" if fault == "final-sweep-scandir" else "fstat"
+        original = getattr(module.os, operation)
+
+        def fail(*_args, **_kwargs):
+            nonlocal injected
+            injected = True
+            raise OSError(f"private final sweep {operation} failure")
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(module.os, operation, fail)
+            try:
+                return original_sweep(*args, **kwargs)
+            finally:
+                patch.setattr(module.os, operation, original)
+
+    monkeypatch.setattr(module.os, "open", tracked_open)
+    monkeypatch.setattr(module.os, "close", tracked_close)
+    if fault != "final-close":
+        monkeypatch.setattr(module, "_verify_laya_oci_layout_final_sweep", failing_sweep)
+    _forbid_seal(monkeypatch)
+    with pytest.raises(module.OciLayoutCaptureError) as captured:
+        _capture(root)
+    assert injected is True
+    assert closed == opened
+    assert _fds_within(root) == set()
+    _private_error(captured.value, str(root), "private final")
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+def test_external_layout_gate_uses_distinct_disposable_paths_and_preserves_canonical(
+    disposable_real_layout,
+):
+    canonical = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    canonical_before = _tree_fingerprint(canonical)
+    assert disposable_real_layout != canonical
+    assert not os.path.samefile(disposable_real_layout, canonical)
+    assert {
+        path.relative_to(disposable_real_layout).as_posix()
+        for path in disposable_real_layout.rglob("*")
+    } == {path.relative_to(canonical).as_posix() for path in canonical.rglob("*")}
+    assert _tree_fingerprint(canonical) == canonical_before
 
 
 def test_full_positive_is_an_external_opt_in_release_gate_not_a_normal_ci_fixture(

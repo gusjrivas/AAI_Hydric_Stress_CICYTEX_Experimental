@@ -1141,6 +1141,37 @@ def test_capture_authority_sealer_rejects_receipt_container_cardinality_and_iden
             )
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "controls_captured_from_same_root",
+        "inventory_captured_from_same_root",
+        "final_fd_sweep_verified",
+    ],
+)
+@pytest.mark.parametrize("invalid", [False, 1, None])
+def test_capture_authority_rejects_invalid_attestation_before_inspecting_receipts(field, invalid):
+    from human_feedback import runtime_oci_layout as module
+
+    class HostileReceipt:
+        def __getattribute__(self, _name):
+            raise AssertionError("receipts must not be inspected before attestation flags")
+
+    plan = _prepare()
+    flags = {
+        "controls_captured_from_same_root": True,
+        "inventory_captured_from_same_root": True,
+        "final_fd_sweep_verified": True,
+    }
+    flags[field] = invalid
+    with pytest.raises((TypeError, ValueError), match="capture|same.root|inventory|sweep|flag"):
+        module._seal_laya_oci_layout_capture_authority(
+            plan,
+            tuple(HostileReceipt() for _index in range(12)),
+            **flags,
+        )
+
+
 def test_layout_evidence_direct_construction_replace_proxy_and_summary_fail_closed():
     from human_feedback import runtime_oci_layout as module
 
