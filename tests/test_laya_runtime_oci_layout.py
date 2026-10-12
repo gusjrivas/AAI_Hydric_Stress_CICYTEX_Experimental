@@ -194,6 +194,73 @@ def _uses_layout_plan_api(source: str) -> bool:
     return False
 
 
+_OCI_CONFIG_SUCCESSOR_LAYOUT_SYMBOLS = {
+    "LAYOUT_EVIDENCE_SCHEMA",
+    "LAYOUT_PLAN_SCHEMA",
+    "LayaOciBlobPlan",
+    "LayaOciLayoutPlan",
+    "LayaRuntimeOciLayoutEvidence",
+    "VerifiedLayaOciBlob",
+    "canonical_laya_runtime_oci_layout_summary_bytes",
+}
+
+
+def _oci_config_successor_layout_violations(source: str) -> tuple[str, ...]:
+    """Require one explicit module import and a closed public PR20 symbol set."""
+    tree = ast.parse(source)
+    aliases = set()
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "human_feedback.runtime_oci_layout":
+                    if alias.asname is None:
+                        violations.append("layout-import-must-be-aliased")
+                    else:
+                        aliases.add(alias.asname)
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            "human_feedback.runtime_oci_layout",
+            "runtime_oci_layout",
+        }:
+            violations.append("layout-from-import-forbidden")
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and (
+                node.value == "human_feedback.runtime_oci_layout"
+                or node.value.startswith("_require_")
+                or node.value.startswith("finalize_laya_")
+            )
+        ):
+            violations.append("dynamic-layout-symbol-forbidden")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if (
+                node.func.id == "getattr"
+                and node.args
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id in aliases
+            ):
+                violations.append("dynamic-layout-access-forbidden")
+            if (
+                node.func.id in {"__import__", "import_module"}
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "human_feedback.runtime_oci_layout"
+            ):
+                violations.append("dynamic-layout-access-forbidden")
+    if len(aliases) != 1:
+        violations.append("exactly-one-layout-module-alias-required")
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in aliases
+            and node.attr not in _OCI_CONFIG_SUCCESSOR_LAYOUT_SYMBOLS
+        ):
+            violations.append(f"forbidden-layout-symbol:{node.attr}")
+    return tuple(sorted(set(violations)))
+
+
 def test_committed_layout_control_fixtures_are_exact_captured_profile_bytes():
     assert len(_layout_bytes()) == LAYOUT_SIZE_BYTES
     assert hashlib.sha256(_layout_bytes()).hexdigest() == LAYOUT_SHA256
@@ -1390,11 +1457,49 @@ def test_layout_plan_isolation_detector_avoids_unrelated_false_positives(source)
     assert _uses_layout_plan_api(source) is False
 
 
-def test_no_existing_product_module_imports_or_uses_layout_plan_api():
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "import human_feedback.runtime_oci_layout as layout\n"
+            "evidence_type = layout.LayaRuntimeOciLayoutEvidence\n"
+            "summary = layout.canonical_laya_runtime_oci_layout_summary_bytes\n",
+            (),
+        ),
+        (
+            "from human_feedback.runtime_oci_layout import LayaRuntimeOciLayoutEvidence",
+            ("exactly-one-layout-module-alias-required", "layout-from-import-forbidden"),
+        ),
+        (
+            "import human_feedback.runtime_oci_layout as layout\n"
+            "validate = layout._require_exact_laya_oci_evidence",
+            ("forbidden-layout-symbol:_require_exact_laya_oci_evidence",),
+        ),
+        (
+            "import human_feedback.runtime_oci_layout as layout\n"
+            "finalize = layout.finalize_laya_runtime_oci_layout_evidence",
+            ("forbidden-layout-symbol:finalize_laya_runtime_oci_layout_evidence",),
+        ),
+        (
+            "import human_feedback.runtime_oci_layout as layout\n"
+            "value = getattr(layout, 'LayaOciLayoutPlan')",
+            ("dynamic-layout-access-forbidden",),
+        ),
+    ],
+)
+def test_oci_config_successor_uses_only_closed_public_layout_contract(source, expected):
+    assert _oci_config_successor_layout_violations(source) == expected
+
+
+def test_only_oci_config_successor_imports_or_uses_layout_plan_api():
     repository_root = Path(__file__).parents[1]
     target = repository_root / "src" / "human_feedback" / "runtime_oci_layout.py"
     adapter = repository_root / "src" / "human_feedback" / "adapters" / "filesystem_oci_layout.py"
-    allowed_consumers = {target, adapter}
+    successor = repository_root / "src" / "human_feedback" / "runtime_oci_config.py"
+    successor_source = successor.read_text(encoding="utf-8")
+    assert _uses_layout_plan_api(successor_source) is True
+    assert _oci_config_successor_layout_violations(successor_source) == ()
+    allowed_consumers = {target, adapter, successor}
     offenders = []
     for relative_root in ("backend", "src", "scripts"):
         product_root = repository_root / relative_root
