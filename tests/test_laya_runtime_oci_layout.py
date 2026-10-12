@@ -140,7 +140,10 @@ def _assert_private_error(error: BaseException, marker: str) -> None:
 def _uses_layout_plan_api(source: str) -> bool:
     symbols = {
         "LayaOciLayoutPlan",
+        "LayaRuntimeOciLayoutEvidence",
         "VerifiedLayaOciBlob",
+        "canonical_laya_runtime_oci_layout_summary_bytes",
+        "finalize_laya_oci_layout_evidence",
         "prepare_laya_oci_layout_plan",
         "verify_laya_oci_blob_chunks",
     }
@@ -752,6 +755,54 @@ def test_blob_verification_requires_exact_factory_plan_type():
         _verify_blob(subclass, plan.index_manifest.digest, (_captured_manifest_bytes(plan),))
 
 
+@pytest.mark.parametrize(
+    "digest",
+    [
+        "sha256:" + "a" * 64,
+        "SHA256:" + MANIFEST_SHA256,
+        "sha512:" + "a" * 64,
+        "malformed",
+        True,
+        None,
+    ],
+)
+def test_blob_authorization_rejects_unknown_digest_before_consuming_chunks(digest):
+    plan = _prepare()
+    chunks_consumed = 0
+
+    def hostile_chunks():
+        nonlocal chunks_consumed
+        chunks_consumed += 1
+        yield b"private-unauthorized-content"
+        chunks_consumed += 1
+        raise AssertionError("unauthorized digest consumed the chunk stream")
+
+    with pytest.raises((TypeError, ValueError)):
+        _verify_blob(plan, digest, hostile_chunks())
+    assert chunks_consumed == 0
+
+
+def test_blob_authorization_rejects_invalid_plan_before_consuming_chunks():
+    plan = _prepare()
+    chunks_consumed = 0
+
+    def hostile_chunks():
+        nonlocal chunks_consumed
+        chunks_consumed += 1
+        yield b"private-unauthorized-content"
+        chunks_consumed += 1
+        raise AssertionError("invalid plan consumed the chunk stream")
+
+    proxy = SimpleNamespace(
+        blobs=plan.blobs,
+        index_manifest=plan.index_manifest,
+        runtime_identity=plan.runtime_identity,
+    )
+    with pytest.raises((TypeError, ValueError), match="plan|factory|seal|type"):
+        _verify_blob(proxy, plan.index_manifest.digest, hostile_chunks())
+    assert chunks_consumed == 0
+
+
 def test_verified_blob_receipt_is_frozen_slotted_factory_sealed_and_opaque():
     plan = _prepare()
     receipt = _verify_manifest(plan)
@@ -759,9 +810,11 @@ def test_verified_blob_receipt_is_frozen_slotted_factory_sealed_and_opaque():
 
     assert is_dataclass(receipt)
     assert not hasattr(receipt, "__dict__")
-    with pytest.raises(FrozenInstanceError):
-        receipt.blob_bytes_verified = False  # type: ignore[misc]
-    for field_name in ("plan", "blob", "blob_bytes_verified"):
+    public_fields = tuple(field.name for field in fields(receipt) if not field.name.startswith("_"))
+    assert {"plan", "blob", "blob_bytes_verified"} <= set(public_fields)
+    for field_name in public_fields:
+        with pytest.raises(FrozenInstanceError):
+            setattr(receipt, field_name, getattr(receipt, field_name))
         with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
             replace(receipt, **{field_name: getattr(receipt, field_name)})
     with pytest.raises((TypeError, ValueError), match="factory|token|seal|direct|valid"):
@@ -862,6 +915,9 @@ def test_individual_receipt_cannot_finalize_or_elevate_layout_evidence():
     assert not hasattr(receipt, "oci_bytes_verified")
     assert not hasattr(module, "verified_laya_oci_blob_from_digest")
     assert not hasattr(module, "receipt_from_digest")
+    assert not hasattr(module, "LayaRuntimeOciLayoutEvidence")
+    assert not hasattr(module, "finalize_laya_oci_layout_evidence")
+    assert not hasattr(module, "canonical_laya_runtime_oci_layout_summary_bytes")
 
 
 def test_verified_blob_proxy_and_subclass_cannot_masquerade_as_factory_receipt():
@@ -975,6 +1031,9 @@ def test_runtime_oci_layout_module_is_pure_and_depends_only_on_pr19_contract():
         "from human_feedback import runtime_oci_layout",
         "from human_feedback import runtime_oci_layout as layout",
         "from human_feedback.runtime_oci_layout import LayaOciLayoutPlan",
+        ("from human_feedback.runtime_oci_layout import " "LayaRuntimeOciLayoutEvidence"),
+        ("from human_feedback.runtime_oci_layout import " "finalize_laya_oci_layout_evidence"),
+        "name = 'canonical_laya_runtime_oci_layout_summary_bytes'",
         "from human_feedback.runtime_oci_layout import *",
         "from . import runtime_oci_layout as layout",
         "from .runtime_oci_layout import prepare_laya_oci_layout_plan",
