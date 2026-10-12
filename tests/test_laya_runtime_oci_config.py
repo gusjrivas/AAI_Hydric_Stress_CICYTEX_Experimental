@@ -1185,13 +1185,59 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
 
     prior = layout_evidence.plan.oci_evidence
 
+    def assert_ancestry_canonicalized(candidate_prior):
+        candidate_layout = layout_with_prior(
+            candidate_prior,
+            runtime_identity=candidate_prior.runtime_identity,
+        )
+        event_position = len(rebuild_events)
+        rebuilt_position = len(rebuilt_snapshots)
+        validated_position = len(validated_snapshots)
+        parsed_position = len(parsed_projections)
+        canonical_evidence = module.validate_laya_runtime_oci_config_semantics(
+            candidate_layout,
+            payload,
+        )
+        canonical_summary = module.canonical_laya_runtime_oci_config_summary_bytes(
+            canonical_evidence
+        )
+        assert rebuild_events[event_position:] == [
+            "bundle",
+            "metadata",
+            "bundle",
+            "metadata",
+        ]
+        assert len(parsed_projections) == parsed_position + 1
+        new_rebuilt = rebuilt_snapshots[rebuilt_position:]
+        new_validated = validated_snapshots[validated_position:]
+        assert len(new_rebuilt) == len(new_validated) == 2
+        for rebuilt, validated in zip(new_rebuilt, new_validated):
+            assert type(rebuilt) is type(prior.snapshot)
+            assert rebuilt is not candidate_prior.snapshot
+            assert type(rebuilt.artifacts) is tuple
+            assert all(
+                type(item) is type(prior.snapshot.artifacts[0]) for item in rebuilt.artifacts
+            )
+            assert tuple(item.spec for item in rebuilt.artifacts) == rebuilt.manifest.artifacts
+            assert validated is rebuilt
+        assert canonical_evidence.layout_evidence is candidate_layout
+        assert canonical_evidence.runtime_identity == candidate_prior.runtime_identity
+        assert json.loads(canonical_summary)["oci_config_semantics_verified"] is True
+        assert "private-" not in repr(canonical_evidence) + canonical_summary.decode("ascii")
+        return canonical_evidence
+
     class BundleSnapshotSubclass(type(prior.snapshot)):
         pass
+
+    exact_snapshot_clone = populated_clone(prior.snapshot)
+    exact_prior_clone = populated_clone(prior)
+    object.__setattr__(exact_prior_clone, "snapshot", exact_snapshot_clone)
+    assert_ancestry_canonicalized(exact_prior_clone)
 
     for reconstructed, marker in (
         (SimpleNamespace(marker="private-rebuilt-bundle-proxy"), "private-rebuilt-bundle-proxy"),
         (object.__new__(BundleSnapshotSubclass), "private-rebuilt-bundle-subclass"),
-        (object.__new__(type(prior.snapshot)), "private-rebuilt-bundle-unsealed"),
+        (object.__new__(type(prior.snapshot)), "private-rebuilt-bundle-incomplete"),
     ):
         monkeypatch.setattr(
             module,
@@ -1265,7 +1311,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     invalid_priors = (
         (SimpleNamespace(schema_version=prior.schema_version), "private-prior-proxy"),
         (object.__new__(PriorSubclass), "private-prior-subclass"),
-        (object.__new__(type(prior)), "private-prior-unsealed"),
+        (object.__new__(type(prior)), "private-prior-incomplete"),
         (HostilePrior(), "private-hostile-prior-property"),
         (
             forged_dataclass(
@@ -1280,7 +1326,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         ),
         (
             forged_dataclass(prior, oci_manifest=object.__new__(type(prior.oci_manifest))),
-            "private-manifest-unsealed",
+            "private-manifest-incomplete",
         ),
         (
             forged_dataclass(prior, oci_manifest=HostileManifest()),
@@ -1299,7 +1345,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         ),
         (
             forged_dataclass(prior, snapshot=object.__new__(type(prior.snapshot))),
-            "private-snapshot-unsealed",
+            "private-snapshot-incomplete",
         ),
         (
             forged_dataclass(prior, snapshot=HostileSnapshot()),
@@ -1312,7 +1358,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     invalid_reconstructed_priors = (
         (SimpleNamespace(marker="private-reconstructed-proxy"), "private-reconstructed-proxy"),
         (object.__new__(PriorSubclass), "private-reconstructed-subclass"),
-        (object.__new__(type(prior)), "private-reconstructed-unsealed"),
+        (object.__new__(type(prior)), "private-reconstructed-incomplete"),
         (
             forged_dataclass(prior, artifact_integrity_verified=False),
             "private-reconstructed-mismatch",
@@ -1363,7 +1409,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     for invalid_descriptor, marker in (
         (SimpleNamespace(marker="private-descriptor-proxy"), "private-descriptor-proxy"),
         (object.__new__(DescriptorSubclass), "private-descriptor-subclass"),
-        (object.__new__(type(descriptor_projection)), "private-descriptor-unsealed"),
+        (object.__new__(type(descriptor_projection)), "private-descriptor-incomplete"),
         (HostileDescriptor(), "private-hostile-descriptor-property"),
     ):
         corrupt_manifest = forged_dataclass(manifest, config=invalid_descriptor)
@@ -1384,14 +1430,16 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             prior.snapshot,
             artifacts=invalid_artifacts,
         )
+        bundle_call_count = len(bundle_inputs)
         assert_ancestry_rejected(forged_dataclass(prior, snapshot=corrupt_snapshot))
+        assert len(bundle_inputs) == bundle_call_count
 
     for artifact_position, artifact in enumerate(original_artifacts):
 
         class ArtifactSubclass(type(artifact)):
             pass
 
-        invalid_artifacts = (
+        canonicalizable_artifacts = (
             (
                 populated_proxy(
                     artifact,
@@ -1405,28 +1453,24 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             ),
             (
                 populated_clone(artifact),
-                f"private-artifact-{artifact_position}-unsealed",
+                f"private-artifact-{artifact_position}-canonical-copy",
             ),
         )
-        for invalid_artifact, marker in invalid_artifacts:
+        for canonicalizable_artifact, _marker in canonicalizable_artifacts:
             artifacts = list(original_artifacts)
-            artifacts[artifact_position] = invalid_artifact
-            corrupt_snapshot = forged_dataclass(prior.snapshot, artifacts=tuple(artifacts))
-            assert_ancestry_rejected(
-                forged_dataclass(prior, snapshot=corrupt_snapshot),
-                marker,
-            )
+            artifacts[artifact_position] = canonicalizable_artifact
+            candidate_snapshot = forged_dataclass(prior.snapshot, artifacts=tuple(artifacts))
+            assert_ancestry_canonicalized(forged_dataclass(prior, snapshot=candidate_snapshot))
 
     homogeneous_proxies = tuple(
         populated_proxy(artifact, marker="private-all-artifact-proxies")
         for artifact in original_artifacts
     )
-    assert_ancestry_rejected(
+    assert_ancestry_canonicalized(
         forged_dataclass(
             prior,
             snapshot=forged_dataclass(prior.snapshot, artifacts=homogeneous_proxies),
-        ),
-        "private-all-artifact-proxies",
+        )
     )
 
     non_manifest_positions = tuple(
@@ -1449,8 +1493,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         corrupt_artifacts.append(
             SimpleNamespace(
                 spec=artifact.spec,
-                content=artifact.content,
-                marker=marker + "-proxy",
+                marker=marker + "-incomplete-proxy",
             )
         )
         for corrupt_artifact in corrupt_artifacts:
@@ -1460,7 +1503,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             assert_ancestry_rejected(
                 forged_dataclass(prior, snapshot=corrupt_snapshot),
                 marker,
-                marker + "-proxy",
+                marker + "-incomplete-proxy",
                 "a" * 64,
             )
     for invalid in (False, 1, None):
@@ -1512,7 +1555,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             "private-runtime-manifest-proxy",
         ),
         (object.__new__(RuntimeManifestSubclass), "private-runtime-manifest-subclass"),
-        (object.__new__(type(runtime_manifest)), "private-runtime-manifest-unsealed"),
+        (object.__new__(type(runtime_manifest)), "private-runtime-manifest-incomplete"),
         (HostileRuntimeManifest(), "private-hostile-runtime-manifest"),
     ):
         corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=invalid_manifest)
@@ -1533,10 +1576,6 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             populated_clone(runtime_manifest, RuntimeManifestSubclass),
             "private-populated-runtime-manifest-subclass",
         ),
-        (
-            populated_clone(runtime_manifest),
-            "private-populated-runtime-manifest-unsealed",
-        ),
     )
     for invalid_manifest, marker in populated_manifest_variants:
         corrupt_snapshot = forged_dataclass(prior.snapshot, manifest=invalid_manifest)
@@ -1544,6 +1583,15 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             forged_dataclass(prior, snapshot=corrupt_snapshot),
             marker,
         )
+    assert_ancestry_canonicalized(
+        forged_dataclass(
+            prior,
+            snapshot=forged_dataclass(
+                prior.snapshot,
+                manifest=populated_clone(runtime_manifest),
+            ),
+        )
+    )
 
     manifest_field_mutations = {
         "schema_version": "private-runtime-manifest-schema",
@@ -1649,10 +1697,6 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
                 populated_clone(spec, SpecSubclass),
                 f"private-spec-{spec_position}-subclass",
             ),
-            (
-                populated_clone(spec),
-                f"private-spec-{spec_position}-unsealed",
-            ),
         ):
             corrupt_specs = list(manifest_specs)
             corrupt_specs[spec_position] = invalid_spec
@@ -1665,6 +1709,20 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
                 forged_dataclass(prior, snapshot=corrupt_snapshot),
                 marker,
             )
+        canonical_specs = list(manifest_specs)
+        canonical_specs[spec_position] = populated_clone(spec)
+        assert_ancestry_canonicalized(
+            forged_dataclass(
+                prior,
+                snapshot=forged_dataclass(
+                    prior.snapshot,
+                    manifest=forged_dataclass(
+                        runtime_manifest,
+                        artifacts=tuple(canonical_specs),
+                    ),
+                ),
+            )
+        )
     all_spec_proxies = tuple(
         populated_proxy(spec, marker="private-all-spec-proxies") for spec in manifest_specs
     )
@@ -1703,7 +1761,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
     for invalid_artifact, marker in (
         (SimpleNamespace(marker="private-oci-artifact-proxy"), "private-oci-artifact-proxy"),
         (object.__new__(OciArtifactSubclass), "private-oci-artifact-subclass"),
-        (object.__new__(type(oci_artifact)), "private-oci-artifact-unsealed"),
+        (object.__new__(type(oci_artifact)), "private-oci-artifact-incomplete"),
         (
             forged_dataclass(oci_artifact, content=b"private-oci-artifact-content"),
             "private-oci-artifact-content",
@@ -1829,7 +1887,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             "private-runtime-identity-proxy",
         ),
         (object.__new__(RuntimeIdentitySubclass), "private-runtime-identity-subclass"),
-        (object.__new__(type(prior.runtime_identity)), "private-runtime-identity-unsealed"),
+        (object.__new__(type(prior.runtime_identity)), "private-runtime-identity-incomplete"),
         (HostileRuntimeIdentity(), "private-hostile-runtime-identity"),
     ):
         corrupt_snapshot = forged_dataclass(
