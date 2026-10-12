@@ -261,6 +261,80 @@ def _oci_config_successor_layout_violations(source: str) -> tuple[str, ...]:
     return tuple(sorted(set(violations)))
 
 
+def _oci_layers_successor_layout_violations(source: str) -> tuple[str, ...]:
+    """Permit one exact module alias and only the public streaming verifier."""
+
+    tree = ast.parse(source)
+    module_name = "human_feedback.runtime_oci_layout"
+    expected_alias = "runtime_oci_layout"
+    expected_symbol = "verify_laya_oci_blob_chunks"
+    exact_imports = 0
+    verifier_calls = 0
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == module_name:
+                    if alias.asname != expected_alias:
+                        violations.append("layer-layout-module-alias-not-exact")
+                    else:
+                        exact_imports += 1
+        if isinstance(node, ast.ImportFrom) and (
+            node.module in {module_name, "runtime_oci_layout"}
+            or (
+                node.level > 0
+                and node.module in {None, "", "runtime_oci_layout"}
+                and any(
+                    alias.name == "runtime_oci_layout" or alias.name == "*" for alias in node.names
+                )
+            )
+        ):
+            violations.append("layer-layout-from-import-forbidden")
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == expected_alias
+        ):
+            if node.attr != expected_symbol:
+                violations.append(f"layer-layout-symbol-forbidden:{node.attr}")
+            elif isinstance(getattr(node, "ctx", None), ast.Load):
+                pass
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == expected_alias
+            and node.func.attr == expected_symbol
+        ):
+            verifier_calls += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"__import__", "getattr", "import_module"}
+            and any(
+                isinstance(argument, ast.Constant)
+                and argument.value in {module_name, expected_symbol}
+                for argument in node.args
+            )
+        ):
+            violations.append("layer-layout-dynamic-access-forbidden")
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and (
+                node.value == module_name
+                or node.value.startswith("finalize_laya_")
+                or node.value.startswith("_seal_laya_")
+            )
+        ):
+            violations.append("layer-layout-dynamic-symbol-forbidden")
+    if exact_imports != 1:
+        violations.append("exactly-one-layer-layout-module-alias-required")
+    if verifier_calls < 1:
+        violations.append("layer-layout-streaming-verifier-call-required")
+    return tuple(sorted(set(violations)))
+
+
 def _oci_config_successor_metadata_violations(source: str) -> tuple[str, ...]:
     """Permit only the public PR19 snapshot validator in the PR21 successor."""
     tree = ast.parse(source)
@@ -1581,6 +1655,71 @@ def test_oci_config_successor_uses_only_closed_public_layout_contract(source, ex
     ("source", "expected"),
     [
         (
+            "import human_feedback.runtime_oci_layout as runtime_oci_layout\n"
+            "runtime_oci_layout.verify_laya_oci_blob_chunks(plan, digest, chunks)",
+            (),
+        ),
+        (
+            "import human_feedback.runtime_oci_layout as layout\n"
+            "layout.verify_laya_oci_blob_chunks(plan, digest, chunks)",
+            (
+                "exactly-one-layer-layout-module-alias-required",
+                "layer-layout-module-alias-not-exact",
+                "layer-layout-streaming-verifier-call-required",
+            ),
+        ),
+        (
+            "from human_feedback.runtime_oci_layout import verify_laya_oci_blob_chunks\n"
+            "verify_laya_oci_blob_chunks(plan, digest, chunks)",
+            (
+                "exactly-one-layer-layout-module-alias-required",
+                "layer-layout-from-import-forbidden",
+                "layer-layout-streaming-verifier-call-required",
+            ),
+        ),
+        (
+            "import human_feedback.runtime_oci_layout as runtime_oci_layout\n"
+            "runtime_oci_layout.prepare_laya_oci_layout_plan(evidence, marker, index)",
+            (
+                "layer-layout-streaming-verifier-call-required",
+                "layer-layout-symbol-forbidden:prepare_laya_oci_layout_plan",
+            ),
+        ),
+        (
+            "import human_feedback.runtime_oci_layout as runtime_oci_layout\n"
+            "runtime_oci_layout.finalize_laya_oci_layout_evidence(plan)",
+            (
+                "layer-layout-streaming-verifier-call-required",
+                "layer-layout-symbol-forbidden:finalize_laya_oci_layout_evidence",
+            ),
+        ),
+        (
+            "import human_feedback.runtime_oci_layout as runtime_oci_layout\n"
+            "getattr(runtime_oci_layout, 'verify_laya_oci_blob_chunks')(plan, digest, chunks)",
+            (
+                "layer-layout-dynamic-access-forbidden",
+                "layer-layout-streaming-verifier-call-required",
+            ),
+        ),
+        (
+            "module = __import__('human_feedback.runtime_oci_layout')",
+            (
+                "exactly-one-layer-layout-module-alias-required",
+                "layer-layout-dynamic-access-forbidden",
+                "layer-layout-dynamic-symbol-forbidden",
+                "layer-layout-streaming-verifier-call-required",
+            ),
+        ),
+    ],
+)
+def test_oci_layers_successor_uses_only_public_streaming_verifier(source, expected):
+    assert _oci_layers_successor_layout_violations(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
             "from human_feedback.runtime_oci_metadata import " "validate_laya_runtime_oci_metadata",
             (),
         ),
@@ -1648,17 +1787,21 @@ def test_oci_config_successor_uses_only_public_bundle_verifier(source, expected)
     assert _oci_config_successor_bundle_violations(source) == expected
 
 
-def test_only_oci_config_successor_imports_or_uses_layout_plan_api():
+def test_only_oci_config_and_layers_successors_import_or_use_layout_plan_api():
     repository_root = Path(__file__).parents[1]
     target = repository_root / "src" / "human_feedback" / "runtime_oci_layout.py"
     adapter = repository_root / "src" / "human_feedback" / "adapters" / "filesystem_oci_layout.py"
-    successor = repository_root / "src" / "human_feedback" / "runtime_oci_config.py"
-    successor_source = successor.read_text(encoding="utf-8")
-    assert _uses_layout_plan_api(successor_source) is True
-    assert _oci_config_successor_layout_violations(successor_source) == ()
-    assert _oci_config_successor_metadata_violations(successor_source) == ()
-    assert _oci_config_successor_bundle_violations(successor_source) == ()
-    allowed_consumers = {target, adapter, successor}
+    config_successor = repository_root / "src" / "human_feedback" / "runtime_oci_config.py"
+    layers_successor = repository_root / "src" / "human_feedback" / "runtime_oci_layers.py"
+    config_source = config_successor.read_text(encoding="utf-8")
+    layers_source = layers_successor.read_text(encoding="utf-8")
+    assert _uses_layout_plan_api(config_source) is True
+    assert _oci_config_successor_layout_violations(config_source) == ()
+    assert _oci_config_successor_metadata_violations(config_source) == ()
+    assert _oci_config_successor_bundle_violations(config_source) == ()
+    assert _uses_layout_plan_api(layers_source) is True
+    assert _oci_layers_successor_layout_violations(layers_source) == ()
+    allowed_consumers = {target, adapter, config_successor, layers_successor}
     offenders = []
     for relative_root in ("backend", "src", "scripts"):
         product_root = repository_root / relative_root
