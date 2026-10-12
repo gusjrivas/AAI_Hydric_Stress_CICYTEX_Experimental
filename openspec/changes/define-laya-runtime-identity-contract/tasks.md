@@ -4,6 +4,9 @@
 - [x] 1.2 Registrar tests RED para fuente/runtime fijados y cinco roles de artefactos.
 - [x] 1.3 Registrar tests RED para canonicalización, identidad, inmutabilidad y flags.
 - [x] 1.4 Implementar GREEN mínimo preservando el summary golden y aislamiento de PR14.
+- [x] 1.5 Registrar RED1d para rechazar otro commit del repo canónico y un path POSIX válido asignado al rol incorrecto.
+- [x] 1.6 Implementar GREEN1d (`4e74d02f`) fijando source completo y mapping exacto rol-formato-path.
+- [x] 1.7 Cerrar la revisión del gatekeeper tras revalidar contrato focal, regresión, aislamiento y OpenSpec estricto.
 
 ## 2. Identidad foundation-only
 
