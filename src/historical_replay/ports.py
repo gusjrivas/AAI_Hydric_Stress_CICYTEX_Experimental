@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 if TYPE_CHECKING:
     from historical_replay.catalog import ReplayCatalog
     from historical_replay.sessions import ReplaySession
+
+T = TypeVar("T")
 
 
 class ReplayCatalogSource(Protocol):
@@ -27,3 +29,9 @@ class SessionRepository(Protocol):
         session_id: str,
         transition: Callable[[ReplaySession], ReplaySession],
     ) -> ReplaySession | None: ...
+
+    def with_session(
+        self,
+        session_id: str,
+        operation: Callable[[ReplaySession], T],
+    ) -> T | None: ...

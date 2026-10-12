@@ -167,6 +167,7 @@ def test_session_domain_rejects_invalid_identity_horizon_and_clock(overrides):
         "emission_date": date(2023, 7, 6),
         "horizon_days": 1,
         "revealed_through": date(2023, 7, 6),
+        "last_observation": date(2023, 7, 25),
     }
     values.update(overrides)
 
@@ -201,6 +202,7 @@ def test_session_advance_rejects_non_exact_date_last_observation(
         emission_date=date(2023, 7, 6),
         horizon_days=1,
         revealed_through=date(2023, 7, 10),
+        last_observation=date(2023, 7, 25),
     )
 
     with pytest.raises(ValueError, match="last|observation|date"):
@@ -223,6 +225,7 @@ def test_session_advance_rejects_last_observation_before_its_clock(
         emission_date=date(2023, 7, 6),
         horizon_days=1,
         revealed_through=date(2023, 7, 10),
+        last_observation=date(2023, 7, 25),
     )
 
     with pytest.raises(ValueError, match="last|observation|clock|revealed"):
@@ -240,6 +243,7 @@ def test_session_advance_is_monotonic_at_and_beyond_the_current_clock():
         emission_date=date(2023, 7, 6),
         horizon_days=1,
         revealed_through=date(2023, 7, 10),
+        last_observation=date(2023, 7, 25),
     )
 
     bounded = session.advance(date(2023, 7, 10))

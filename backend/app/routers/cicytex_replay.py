@@ -202,7 +202,7 @@ def _render(session: ReplaySession) -> dict:
         ],
         "metrics": metrics,
         "feedback": _read_feedback().get(_feedback_key(session)),
-        "can_advance": session.revealed_through < date(2023, 7, 25),
+        "can_advance": session.can_advance,
     }
 
 
@@ -279,26 +279,32 @@ def create_feedback(
 ) -> dict:
     if request.estado_validacion not in {"confirmada", "rechazada"}:
         raise HTTPException(422, "estado_validacion invalido")
+
+    def register(session: ReplaySession) -> dict:
+        target = session.emission_date + timedelta(days=session.horizon_days)
+        if session.revealed_through < target:
+            raise HTTPException(409, "La observacion todavia no fue revelada")
+        with _feedback_lock:
+            document = _read_feedback_document()
+            key = _feedback_key(session)
+            if key in document:
+                raise HTTPException(409, "Ya existe feedback para esta prediccion")
+            entry = {
+                "estado_validacion": request.estado_validacion,
+                "etiqueta_corregida": request.etiqueta_corregida,
+                "observacion": request.observacion.strip() if request.observacion else None,
+                "registered_at": datetime.now(timezone.utc).isoformat(),
+                "simulated_at": session.revealed_through.isoformat(),
+                "scope": "demostracion; no recalibra ni reentrena",
+            }
+            document[key] = entry
+            _write_feedback_document(document)
+        return entry
+
     try:
-        session = sessions.get(session_id)
+        if not hasattr(sessions, "with_session"):
+            sessions.get(session_id)
+            return register(sessions.get(session_id))
+        return sessions.with_session(session_id, register)
     except ReplaySessionNotFound:
         raise HTTPException(404, "Sesion inexistente")
-    target = session.emission_date + timedelta(days=session.horizon_days)
-    if session.revealed_through < target:
-        raise HTTPException(409, "La observacion todavia no fue revelada")
-    with _feedback_lock:
-        document = _read_feedback_document()
-        key = _feedback_key(session)
-        if key in document:
-            raise HTTPException(409, "Ya existe feedback para esta prediccion")
-        entry = {
-            "estado_validacion": request.estado_validacion,
-            "etiqueta_corregida": request.etiqueta_corregida,
-            "observacion": request.observacion.strip() if request.observacion else None,
-            "registered_at": datetime.now(timezone.utc).isoformat(),
-            "simulated_at": session.revealed_through.isoformat(),
-            "scope": "demostracion; no recalibra ni reentrena",
-        }
-        document[key] = entry
-        _write_feedback_document(document)
-    return entry

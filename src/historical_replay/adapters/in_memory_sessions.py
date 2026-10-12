@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from threading import Lock
+from typing import TypeVar
 
 from historical_replay.sessions import ReplaySession, ReplaySessionConflict
+
+T = TypeVar("T")
 
 
 class InMemorySessionRepository:
@@ -37,3 +40,14 @@ class InMemorySessionRepository:
                 raise ValueError("session transition must preserve its exact identity")
             self._sessions[session_id] = updated
             return updated
+
+    def with_session(
+        self,
+        session_id: str,
+        operation: Callable[[ReplaySession], T],
+    ) -> T | None:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            return operation(session)
