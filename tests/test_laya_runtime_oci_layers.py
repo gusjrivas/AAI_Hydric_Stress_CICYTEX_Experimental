@@ -109,11 +109,13 @@ def test_layer_diff_id_plan_module_has_a_pure_minimal_public_surface():
         if isinstance(target, ast.Name) and target.id.isupper() and not target.id.startswith("_")
     }
     assert public_functions == {
+        "canonical_laya_runtime_oci_layer_diff_ids_summary_bytes",
         "prepare_laya_oci_layer_diff_id_plan",
         "verify_laya_oci_layer_diff_id_chunks",
     }
     assert public_classes == {
         "LayaOciLayerDiffIdPlan",
+        "LayaRuntimeOciLayerDiffIdsEvidence",
         "VerifiedLayaOciLayerDiffId",
     }
     assert public_constants == {
@@ -122,6 +124,7 @@ def test_layer_diff_id_plan_module_has_a_pure_minimal_public_surface():
         "MAX_OCI_LAYER_CHUNKS",
         "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
         "MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES",
+        "OCI_LAYER_DIFF_IDS_EVIDENCE_SCHEMA",
     }
 
 
@@ -141,9 +144,63 @@ def test_layer_diff_id_plan_rejects_non_exact_config_evidence_privately(invalid)
     _private_error(captured.value, "private-config-evidence-proxy")
 
 
-def test_no_product_module_imports_or_calls_layer_diff_id_plan():
+def _filesystem_adapter_layer_contract_violations(source: str) -> tuple[str, ...]:
+    tree = ast.parse(source)
+    module_name = "human_feedback.runtime_oci_layers"
+    alias_name = "runtime_oci_layers"
+    allowed_attributes = {
+        "prepare_laya_oci_layer_diff_id_plan",
+        "verify_laya_oci_layer_diff_id_chunks",
+        "_seal_laya_oci_layer_diff_ids_capture_authority",
+        "_seal_laya_runtime_oci_layer_diff_ids_evidence",
+    }
+    exact_imports = 0
+    used = set()
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for imported in node.names:
+                if imported.name == module_name:
+                    if imported.asname != alias_name:
+                        violations.append("layer-module-alias-not-exact")
+                    else:
+                        exact_imports += 1
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            module_name,
+            "runtime_oci_layers",
+        }:
+            violations.append("layer-from-import-forbidden")
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == alias_name
+        ):
+            used.add(node.attr)
+            if node.attr not in allowed_attributes:
+                violations.append(f"layer-symbol-forbidden:{node.attr}")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"__import__", "getattr", "import_module"}
+            and any(
+                isinstance(argument, ast.Constant)
+                and argument.value in {module_name, *allowed_attributes}
+                for argument in node.args
+            )
+        ):
+            violations.append("dynamic-layer-access-forbidden")
+    if exact_imports != 1:
+        violations.append("exactly-one-layer-module-alias-required")
+    if used != allowed_attributes:
+        violations.append("exact-layer-capture-contract-required")
+    return tuple(sorted(set(violations)))
+
+
+def test_only_filesystem_adapter_imports_or_calls_layer_capture_contract():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_oci_layers.py"
+    adapter = repository / "src" / "human_feedback" / "adapters" / "filesystem_oci_layout.py"
+    assert _filesystem_adapter_layer_contract_violations(adapter.read_text(encoding="utf-8")) == ()
     symbols = {
         "LayaOciLayerDiffIdPlan",
         "prepare_laya_oci_layer_diff_id_plan",
@@ -157,7 +214,7 @@ def test_no_product_module_imports_or_calls_layer_diff_id_plan():
         if not root.is_dir():
             continue
         for path in root.rglob("*.py"):
-            if path == owner:
+            if path in {owner, adapter}:
                 continue
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source)
@@ -189,6 +246,25 @@ def test_no_product_module_imports_or_calls_layer_diff_id_plan():
             ):
                 offenders.append(path.relative_to(repository).as_posix())
     assert offenders == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from human_feedback.runtime_oci_layers import verify_laya_oci_layer_diff_id_chunks",
+        "import human_feedback.runtime_oci_layers as layers",
+        (
+            "import human_feedback.runtime_oci_layers as runtime_oci_layers\n"
+            "runtime_oci_layers.finalize_laya_runtime_oci_layer_diff_ids_evidence(value)"
+        ),
+        (
+            "import human_feedback.runtime_oci_layers as runtime_oci_layers\n"
+            "getattr(runtime_oci_layers, '_seal_laya_runtime_oci_layer_diff_ids_evidence')"
+        ),
+    ],
+)
+def test_filesystem_adapter_layer_contract_detector_rejects_bypasses(source):
+    assert _filesystem_adapter_layer_contract_violations(source)
 
 
 def test_layer_streaming_caps_are_public_positive_plain_integers():
@@ -522,13 +598,36 @@ def test_real_single_member_layer_streams_to_an_identity_bound_diff_id_receipt(m
     )
 
 
-def test_layer_module_exports_no_aggregate_evidence_or_finalizer():
+def test_layer_module_exposes_sealed_aggregate_evidence_but_no_public_finalizer():
     from human_feedback import runtime_oci_layers as module
 
+    assert hasattr(module, "LayaRuntimeOciLayerDiffIdsEvidence")
+    assert callable(module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes)
+    assert callable(module._seal_laya_oci_layer_diff_ids_capture_authority)
+    assert callable(module._seal_laya_runtime_oci_layer_diff_ids_evidence)
     forbidden = {
-        "LayaRuntimeOciLayerEvidence",
         "finalize_laya_oci_layer_evidence",
+        "finalize_laya_runtime_oci_layer_diff_ids_evidence",
+        "from_laya_oci_layer_diff_id_receipts",
         "canonical_laya_runtime_oci_layer_summary_bytes",
         "capture_and_verify_laya_oci_layers",
     }
     assert all(not hasattr(module, name) for name in forbidden)
+
+
+def test_layer_aggregate_evidence_and_summary_reject_unsealed_values_privately():
+    from human_feedback import runtime_oci_layers as module
+
+    for invalid in (
+        None,
+        SimpleNamespace(schema_version="private-layer-evidence-proxy"),
+        object.__new__(module.LayaRuntimeOciLayerDiffIdsEvidence),
+    ):
+        with pytest.raises(
+            (TypeError, ValueError), match="evidence|seal|authority|valid"
+        ) as captured:
+            module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(invalid)
+        _private_error(captured.value, "private-layer-evidence-proxy")
+
+    with pytest.raises((TypeError, ValueError), match="authority|seal|valid"):
+        module._seal_laya_runtime_oci_layer_diff_ids_evidence(None)
