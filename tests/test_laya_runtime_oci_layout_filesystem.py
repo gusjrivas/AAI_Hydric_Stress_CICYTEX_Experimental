@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 import traceback
 from collections import Counter
@@ -64,10 +65,17 @@ FALSE_FLAGS = (
 
 
 def _tree_fingerprint(root: Path) -> tuple[tuple[object, ...], ...]:
+    if not stat.S_ISDIR(root.lstat().st_mode):
+        raise ValueError("OCI layout fingerprint root must be a directory")
     records = []
     for path in sorted((root, *root.rglob("*"))):
         relative = "." if path == root else path.relative_to(root).as_posix()
         status = path.lstat()
+        if path == root:
+            if not stat.S_ISDIR(status.st_mode):
+                raise ValueError("OCI layout fingerprint root must be a directory")
+        elif not (stat.S_ISDIR(status.st_mode) or stat.S_ISREG(status.st_mode)):
+            raise ValueError("OCI layout fingerprint entry type is unsafe")
         control_digest = None
         if relative in {"oci-layout", "index.json", f"blobs/sha256/{MANIFEST_SHA256}"}:
             control_digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -112,10 +120,13 @@ def disposable_real_layout(tmp_path_factory):
     try:
         for source in sorted(canonical.rglob("*")):
             destination = clone / source.relative_to(canonical)
-            if source.is_dir():
+            source_status = source.lstat()
+            if stat.S_ISDIR(source_status.st_mode):
                 destination.mkdir(parents=True, exist_ok=True)
-            else:
+            elif stat.S_ISREG(source_status.st_mode):
                 _clone_file_reflink_or_copy(source, destination)
+            else:
+                raise ValueError("OCI layout clone source entry type is unsafe")
         yield clone
         assert _tree_fingerprint(canonical) == canonical_before
     finally:
@@ -1145,6 +1156,17 @@ def test_opt_in_valid_layout_late_faults_close_all_fds_and_never_seal(
     opened = Counter()
     closed = Counter()
     injected = False
+    verified = 0
+    sweep_completed = False
+    events = []
+    original_verify = module.verify_laya_oci_blob_chunks
+
+    def tracked_verify(*args, **kwargs):
+        nonlocal verified
+        receipt = original_verify(*args, **kwargs)
+        verified += 1
+        events.append("receipt")
+        return receipt
 
     def tracked_open(*args, **kwargs):
         descriptor = original_open(*args, **kwargs)
@@ -1155,8 +1177,9 @@ def test_opt_in_valid_layout_late_faults_close_all_fds_and_never_seal(
         nonlocal injected
         closed[descriptor] += 1
         result = original_close(descriptor)
-        if fault == "final-close" and closed == opened:
+        if fault == "final-close" and verified == 12 and sweep_completed and closed == opened:
             injected = True
+            events.append("final-close")
             raise OSError("private final close failure")
         return result
 
@@ -1177,14 +1200,30 @@ def test_opt_in_valid_layout_late_faults_close_all_fds_and_never_seal(
             finally:
                 patch.setattr(module.os, operation, original)
 
+    def tracked_sweep(*args, **kwargs):
+        nonlocal sweep_completed
+        result = original_sweep(*args, **kwargs)
+        sweep_completed = True
+        events.append("sweep-complete")
+        return result
+
     monkeypatch.setattr(module.os, "open", tracked_open)
     monkeypatch.setattr(module.os, "close", tracked_close)
+    monkeypatch.setattr(module, "verify_laya_oci_blob_chunks", tracked_verify)
     if fault != "final-close":
         monkeypatch.setattr(module, "_verify_laya_oci_layout_final_sweep", failing_sweep)
+    else:
+        monkeypatch.setattr(module, "_verify_laya_oci_layout_final_sweep", tracked_sweep)
     _forbid_seal(monkeypatch)
     with pytest.raises(module.OciLayoutCaptureError) as captured:
         _capture(root)
     assert injected is True
+    assert verified == 12
+    if fault == "final-close":
+        assert sweep_completed is True
+        assert events == [*("receipt" for _index in range(12)), "sweep-complete", "final-close"]
+    else:
+        assert sweep_completed is False
     assert closed == opened
     assert _fds_within(root) == set()
     _private_error(captured.value, str(root), "private final")
