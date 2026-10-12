@@ -1031,6 +1031,23 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             )
         return forged
 
+    def private_strings(value):
+        if isinstance(value, str):
+            return (value,)
+        if isinstance(value, dict):
+            return tuple(marker for item in value.items() for marker in private_strings(item))
+        if isinstance(value, (tuple, list)):
+            return tuple(marker for item in value for marker in private_strings(item))
+        return ()
+
+    def evidence_with_layout(corrupt_layout):
+        return forged_dataclass(
+            evidence,
+            layout_evidence=corrupt_layout,
+            config_receipt=corrupt_layout.receipts[position],
+            runtime_identity=corrupt_layout.runtime_identity,
+        )
+
     summary = module.canonical_laya_runtime_oci_config_summary_bytes(evidence)
     decoded = json.loads(summary)
     expected = {
@@ -1207,6 +1224,12 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
         ) as captured:
             module.validate_laya_runtime_oci_config_semantics(corrupt, payload)
         _private_error(captured.value, *markers, str(root))
+        with pytest.raises(
+            (TypeError, ValueError),
+            match="config|descriptor|blob|layout|plan|receipt|evidence|valid",
+        ) as summary_captured:
+            module.canonical_laya_runtime_oci_config_summary_bytes(evidence_with_layout(corrupt))
+        _private_error(summary_captured.value, *markers, str(root), descriptor.digest)
     assert parsed_projections == []
 
     def forged_plan_layout(**plan_changes):
@@ -1318,33 +1341,33 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             "private-receipt-plan-schema",
             str(root),
         )
-
-        if receipt_position == position:
-            corrupt_evidence = forged_dataclass(
-                evidence,
-                config_receipt=corrupt_receipt,
-            )
-            with pytest.raises(
-                (TypeError, ValueError), match="receipt|blob|plan|binding|evidence|valid"
-            ) as summary_captured:
-                module.canonical_laya_runtime_oci_config_summary_bytes(corrupt_evidence)
-            _private_error(
-                summary_captured.value,
-                "private-nonconfig-receipt",
-                "private-receipt-plan-schema",
-                str(root),
-                descriptor.digest,
-            )
+        with pytest.raises(
+            (TypeError, ValueError), match="receipt|blob|plan|binding|layout|evidence|valid"
+        ) as summary_captured:
+            module.canonical_laya_runtime_oci_config_summary_bytes(evidence_with_layout(corrupt))
+        _private_error(
+            summary_captured.value,
+            "private-nonconfig-receipt",
+            "private-receipt-plan-schema",
+            str(root),
+            descriptor.digest,
+        )
 
     reordered = list(layout_evidence.receipts)
     reordered[nonconfig_position], reordered[nonconfig_position + 1] = (
         reordered[nonconfig_position + 1],
         reordered[nonconfig_position],
     )
+    reordered_layout = forged_dataclass(layout_evidence, receipts=tuple(reordered))
     with pytest.raises((TypeError, ValueError), match="receipt|order|blob|layout|valid"):
-        module.validate_laya_runtime_oci_config_semantics(
-            forged_dataclass(layout_evidence, receipts=tuple(reordered)), payload
+        module.validate_laya_runtime_oci_config_semantics(reordered_layout, payload)
+    with pytest.raises(
+        (TypeError, ValueError), match="receipt|order|blob|layout|evidence|valid"
+    ) as captured:
+        module.canonical_laya_runtime_oci_config_summary_bytes(
+            evidence_with_layout(reordered_layout)
         )
+    _private_error(captured.value, str(root), descriptor.digest)
     assert parsed_projections == []
 
     projection_mutations = {
@@ -1368,7 +1391,7 @@ def test_opt_in_real_config_bytes_produce_digest_bound_conservative_evidence(mon
             (TypeError, ValueError), match="config|projection|schema|binding|evidence|valid"
         ) as captured:
             module.canonical_laya_runtime_oci_config_summary_bytes(corrupt_evidence)
-        markers = (invalid,) if isinstance(invalid, str) else ()
+        markers = private_strings(invalid)
         _private_error(captured.value, *markers, str(root), descriptor.digest)
 
     alternate_runtime_identity = type(evidence.runtime_identity)(
