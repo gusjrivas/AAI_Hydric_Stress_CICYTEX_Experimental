@@ -18,6 +18,8 @@ LAYA_PROVIDER = "laya-http"
 LAYA_ENGINE = "laya==0.4.2"
 LAYA_RUNTIME_ID = "laya-0.4.2-python-3.11.10-linux-amd64"
 LAYA_SOURCE_PREFIX = "https://github.com/NandhaKishorM/laya@"
+LAYA_SOURCE_COMMIT = "68804629e8ccd9d616d48a40e87de9fabbeae069"
+LAYA_SOURCE = f"{LAYA_SOURCE_PREFIX}{LAYA_SOURCE_COMMIT}"
 LAYA_LICENSE = "Apache-2.0"
 PYTHON_VERSION = "3.11.10"
 RUNTIME_PLATFORM = "linux/amd64"
@@ -36,6 +38,13 @@ ARTIFACT_FORMATS = {
     "runtime_config": "json",
     "checkpoint_manifest": "json",
     "oci_manifest": "oci-image-manifest-v1",
+}
+ARTIFACT_PATHS = {
+    "dependency_lock": "locks/uv.lock",
+    "sbom": "sbom/laya-runtime.cdx.json",
+    "runtime_config": "config/runtime.json",
+    "checkpoint_manifest": "manifests/checkpoint.json",
+    "oci_manifest": "manifests/oci.json",
 }
 
 _MANIFEST_FIELDS = frozenset(
@@ -129,6 +138,8 @@ class RuntimeArtifactSpec:
         if self.format != ARTIFACT_FORMATS[self.kind]:
             raise ValueError("runtime artifact format is invalid for its kind")
         _require_artifact_path(self.path)
+        if self.path != ARTIFACT_PATHS[self.kind]:
+            raise ValueError("runtime artifact path does not match its contractual kind")
         _require_digest(self.sha256, label="runtime artifact digest")
         if type(self.size_bytes) is not int or self.size_bytes <= 0:
             raise ValueError("runtime artifact size must be a positive integer")
@@ -181,6 +192,8 @@ def _validate_manifest(manifest: LayaRuntimeManifest) -> None:
     if not isinstance(manifest.source, str) or not manifest.source.startswith(LAYA_SOURCE_PREFIX):
         raise ValueError("runtime source must pin the canonical Laya repository")
     _require_sha1(manifest.source.removeprefix(LAYA_SOURCE_PREFIX), label="source commit")
+    if manifest.source != LAYA_SOURCE:
+        raise ValueError("runtime source must match the exact contractual repository and commit")
     if manifest.license != LAYA_LICENSE:
         raise ValueError("runtime license must be Apache-2.0")
     if manifest.python != PYTHON_VERSION:
