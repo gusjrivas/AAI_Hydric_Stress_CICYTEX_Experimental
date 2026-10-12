@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,7 +16,7 @@ from fastapi import Depends, HTTPException
 from data_ingestion.catalog import CatalogRepository
 from data_ingestion.sensor_naming import validate_sensor_id
 from historical_replay.adapters.cicytex_csv import CsvReplayCatalogSource
-from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
+from historical_replay.adapters.sqlite_sessions import SQLiteSessionRepository
 from historical_replay.catalog import GetReplayCatalog
 from historical_replay.feedback import ReplayFeedbackStore
 from historical_replay.package_loader import LoadedReplayPackage, load_package
@@ -27,17 +28,12 @@ from human_feedback.historical_review_store import HistoricalReviewStore
 from human_feedback.operational_repository import OperationalRepository
 
 from .config import (
+    get_cicytex_replay_session_database,
     get_dataset_data_dir,
     get_historical_replay_feedback_dir,
     get_historical_replay_package_dir,
     is_historical_replay_enabled,
     is_producer_v2_enabled,
-)
-
-_cicytex_replay_sessions = ReplaySessionService(
-    InMemorySessionRepository(),
-    id_factory=lambda: uuid4().hex,
-    last_observation=date(2023, 7, 25),
 )
 
 
@@ -105,10 +101,15 @@ def get_cicytex_replay_catalog() -> GetReplayCatalog:
     return GetReplayCatalog(CsvReplayCatalogSource(root))
 
 
+@lru_cache(maxsize=1)
 def get_cicytex_replay_sessions() -> ReplaySessionService:
     """Process-scoped session use case, replaceable through FastAPI overrides."""
 
-    return _cicytex_replay_sessions
+    return ReplaySessionService(
+        SQLiteSessionRepository(get_cicytex_replay_session_database()),
+        id_factory=lambda: uuid4().hex,
+        last_observation=date(2023, 7, 25),
+    )
 
 
 def get_feedback_triage() -> TriageFeedback:

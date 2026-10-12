@@ -86,3 +86,12 @@ def get_historical_replay_package_dir() -> Path:
     if configured:
         return Path(configured)
     return Path(__file__).resolve().parents[2] / "replay_packages" / "base-seed4-1157696b7b-v2"
+
+
+def get_cicytex_replay_session_database() -> Path:
+    """Return the administrator-controlled durable replay-session store."""
+
+    configured = os.environ.get("CICYTEX_REPLAY_SESSION_DB")
+    if configured:
+        return Path(configured)
+    return DEFAULT_DATA_DIR / "cicytex_replay_sessions.sqlite3"
