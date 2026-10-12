@@ -17,6 +17,11 @@ MAX_OCI_STRING_LENGTH = 4_096
 MAX_OCI_LAYERS = 128
 MAX_OCI_ANNOTATIONS = 64
 OCI_EVIDENCE_SCHEMA_VERSION = "laya-runtime-oci-evidence-v1"
+OCI_EVIDENCE_SYMBOLS = {
+    "LayaRuntimeOciEvidence",
+    "canonical_laya_runtime_oci_summary_bytes",
+    "validate_laya_runtime_oci_metadata",
+}
 MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
 LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar+gzip"
@@ -160,6 +165,35 @@ def _validate_oci_evidence(snapshot=None):
 
 def _captured_payload(snapshot, kind: str) -> bytes:
     return next(artifact.content for artifact in snapshot.artifacts if artifact.spec.kind == kind)
+
+
+def _uses_oci_evidence_aggregate(source: str) -> bool:
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == "human_feedback.runtime_oci_metadata" for alias in node.names
+        ):
+            return True
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "human_feedback" and any(
+                alias.name == "runtime_oci_metadata" for alias in node.names
+            ):
+                return True
+            if node.module == "human_feedback.runtime_oci_metadata" and any(
+                alias.name in OCI_EVIDENCE_SYMBOLS for alias in node.names
+            ):
+                return True
+        if isinstance(node, ast.Name) and node.id in OCI_EVIDENCE_SYMBOLS:
+            return True
+        if isinstance(node, ast.Attribute) and node.attr in OCI_EVIDENCE_SYMBOLS:
+            return True
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value in OCI_EVIDENCE_SYMBOLS
+        ):
+            return True
+    return False
 
 
 def test_committed_oci_manifest_fixture_is_exact_captured_local_profile_bytes():
@@ -925,13 +959,37 @@ def test_oci_aggregate_errors_hide_private_captured_content_and_context():
     assert error.__suppress_context__ is True
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import human_feedback.runtime_oci_metadata",
+        "import human_feedback.runtime_oci_metadata as oci",
+        "from human_feedback import runtime_oci_metadata",
+        ("from human_feedback.runtime_oci_metadata import " "validate_laya_runtime_oci_metadata"),
+        "runtime_oci_metadata.validate_laya_runtime_oci_metadata(snapshot)",
+        "name = 'canonical_laya_runtime_oci_summary_bytes'",
+    ],
+)
+def test_oci_evidence_isolation_detector_recognizes_module_and_symbol_usage(source):
+    assert _uses_oci_evidence_aggregate(source) is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import json",
+        "from human_feedback.runtime_oci_metadata import validate_laya_oci_manifest_bytes",
+        "# import human_feedback.runtime_oci_metadata",
+        "message = 'validate_laya_oci_manifest_bytes'",
+    ],
+)
+def test_oci_evidence_isolation_detector_ignores_unrelated_parser_usage(source):
+    assert _uses_oci_evidence_aggregate(source) is False
+
+
 def test_no_external_product_module_imports_or_uses_oci_evidence_aggregator():
     repository = Path(__file__).parents[1]
-    aggregator_symbols = {
-        "LayaRuntimeOciEvidence",
-        "canonical_laya_runtime_oci_summary_bytes",
-        "validate_laya_runtime_oci_metadata",
-    }
+    owner = repository / "src" / "human_feedback" / "runtime_oci_metadata.py"
     offenders: list[str] = []
     production_roots = (
         repository / "backend",
@@ -941,34 +999,9 @@ def test_no_external_product_module_imports_or_uses_oci_evidence_aggregator():
 
     for root in production_roots:
         for path in root.rglob("*.py"):
-            if path.name == "runtime_oci_metadata.py":
+            if path == owner:
                 continue
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            imported_or_used = {
-                alias.name
-                for node in ast.walk(tree)
-                if isinstance(node, (ast.Import, ast.ImportFrom))
-                for alias in node.names
-                if alias.name in aggregator_symbols
-            }
-            imported_or_used.update(
-                node.id
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Name) and node.id in aggregator_symbols
-            )
-            imported_or_used.update(
-                node.attr
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Attribute) and node.attr in aggregator_symbols
-            )
-            imported_or_used.update(
-                node.value
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and node.value in aggregator_symbols
-            )
-            if imported_or_used:
+            if _uses_oci_evidence_aggregate(path.read_text(encoding="utf-8")):
                 offenders.append(path.relative_to(repository).as_posix())
 
     assert offenders == []
