@@ -417,6 +417,87 @@ def test_effective_layer_budget_uses_live_core_caps_and_validates_remaining(monk
             module._effective_layer_budget(invalid)
 
 
+@pytest.mark.parametrize("extra_byte", [False, True])
+def test_blob_chunks_coalesce_short_reads_into_bounded_logical_chunks(monkeypatch, extra_byte):
+    module = _adapter()
+    logical_chunk_bytes = 16
+    expected_size = logical_chunk_bytes * 2 + 5
+    payload = bytes(range(expected_size + int(extra_byte)))
+    position = 0
+    requests = []
+    eof_requests = 0
+    sentinel_executed = False
+
+    monkeypatch.setattr(
+        module.runtime_oci_layout,
+        "MAX_OCI_BLOB_CHUNK_BYTES",
+        logical_chunk_bytes,
+    )
+
+    def short_read(descriptor, amount):
+        nonlocal position, eof_requests, sentinel_executed
+        assert descriptor == 137
+        requests.append((amount, position))
+        if position == len(payload):
+            if extra_byte:
+                sentinel_executed = True
+                raise AssertionError("private-read-after-expected-plus-one")
+            eof_requests += 1
+            return b""
+        result = payload[position : position + min(7, amount)]
+        position += len(result)
+        return result
+
+    monkeypatch.setattr(module.os, "read", short_read)
+    chunks = tuple(module._blob_chunks(137, expected_size))
+
+    assert b"".join(chunks) == payload
+    assert all(type(chunk) is bytes and 0 < len(chunk) <= logical_chunk_bytes for chunk in chunks)
+    assert tuple(map(len, chunks)) == (
+        logical_chunk_bytes,
+        logical_chunk_bytes,
+        5 + int(extra_byte),
+    )
+    assert all(
+        0 < amount <= min(logical_chunk_bytes, expected_size + 1 - before)
+        for amount, before in requests
+    )
+    assert eof_requests == (0 if extra_byte else 1)
+    assert sentinel_executed is False
+
+
+def test_blob_chunking_is_stream_bounded_and_layer08_fits_the_receipt_cap():
+    module = _adapter()
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    blob_chunks = next(
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_blob_chunks"
+    )
+    forbidden_materializers = {
+        node.func.attr
+        for node in ast.walk(blob_chunks)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"join", "readall", "read_bytes", "readlines"}
+    } | {
+        node.func.id
+        for node in ast.walk(blob_chunks)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"list", "tuple"}
+    }
+    assert forbidden_materializers == set()
+
+    layer08_size = LAYERS[8][1]
+    assert layer08_size == 511_506_914
+    maximum = module.runtime_oci_layout.MAX_OCI_BLOB_CHUNK_BYTES
+    required_chunks = (layer08_size + maximum - 1) // maximum
+    assert required_chunks == 488
+    assert required_chunks <= module.runtime_oci_layout.MAX_OCI_BLOB_CHUNKS
+
+
 def test_missing_secure_capability_fails_before_open_or_root_coercion(monkeypatch):
     module = _adapter()
     evidence = _oci_evidence()
