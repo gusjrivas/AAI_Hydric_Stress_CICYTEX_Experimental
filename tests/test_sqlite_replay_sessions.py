@@ -94,21 +94,25 @@ def _join(process, *, timeout: float = 10) -> None:
     assert process.exitcode == 0
 
 
-def test_new_database_has_closed_v1_schema_and_metadata(tmp_path):
+def test_new_database_has_closed_v2_schema_and_metadata(tmp_path):
     database = tmp_path / "sessions.sqlite3"
 
     SQLiteSessionRepository(database)
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        assert tables == {"replay_session_metadata", "replay_sessions"}
+        assert tables == {
+            "replay_session_metadata",
+            "replay_sessions",
+            "cicytex_replay_feedback",
+        }
         assert connection.execute(
             "SELECT value FROM replay_session_metadata WHERE key = 'schema_version'"
-        ).fetchone() == ("1",)
+        ).fetchone() == ("2",)
         assert [row[1] for row in connection.execute("PRAGMA table_info(replay_sessions)")] == [
             "session_id",
             "sensor_id",
@@ -117,6 +121,19 @@ def test_new_database_has_closed_v1_schema_and_metadata(tmp_path):
             "horizon_days",
             "revealed_through",
             "last_observation",
+        ]
+        assert [
+            row[1] for row in connection.execute("PRAGMA table_info(cicytex_replay_feedback)")
+        ] == [
+            "sensor_id",
+            "emission_date",
+            "horizon_days",
+            "estado_validacion",
+            "etiqueta_corregida",
+            "observacion",
+            "registered_at",
+            "simulated_at",
+            "scope",
         ]
 
 
@@ -145,9 +162,9 @@ def test_invalid_existing_database_fails_closed_without_reinitializing(tmp_path,
             if kind == "foreign":
                 connection.execute("CREATE TABLE unrelated(secret TEXT)")
             elif kind == "future":
-                connection.execute("PRAGMA user_version = 2")
+                connection.execute("PRAGMA user_version = 3")
             else:
-                connection.execute("PRAGMA user_version = 1")
+                connection.execute("PRAGMA user_version = 2")
                 connection.execute("CREATE TABLE replay_session_metadata(key TEXT, value TEXT)")
 
     before = database.read_bytes()
