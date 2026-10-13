@@ -54,6 +54,7 @@ data/feedback__lab-*.parquet
 # tampoco se borran (quedan como evidencia local de cada verificación).
 replay_feedback/
 data/cicytex_replay_sessions.sqlite3*
+/data/.cicytex_replay_sessions.sqlite3.bootstrap.lock
 .demo_replay_sessions/
 .demo-defense-data/
 frontend/.npm-cache/
