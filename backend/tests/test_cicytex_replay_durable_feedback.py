@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import sqlite3
 from pathlib import Path
 
@@ -46,6 +47,36 @@ def _package(root: Path) -> None:
 def _clear_dependencies() -> None:
     get_cicytex_replay_sessions.cache_clear()
     app.dependency_overrides.clear()
+
+
+def _create_v1_database(database: Path) -> None:
+    with sqlite3.connect(database) as connection:
+        connection.executescript("""
+            CREATE TABLE replay_session_metadata (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL
+            ) WITHOUT ROWID;
+            CREATE TABLE replay_sessions (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                sensor_id TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                emission_date TEXT NOT NULL,
+                horizon_days INTEGER NOT NULL,
+                revealed_through TEXT NOT NULL,
+                last_observation TEXT NOT NULL
+            ) WITHOUT ROWID;
+            INSERT INTO replay_session_metadata VALUES ('schema_version', '1');
+            INSERT INTO replay_sessions VALUES (
+                'legacy-session',
+                'CP1_S1',
+                '2023-07-06',
+                '2023-07-06',
+                1,
+                '2023-07-07',
+                '2023-07-25'
+            );
+            PRAGMA user_version = 1;
+            """)
 
 
 @pytest.fixture
@@ -204,6 +235,80 @@ def test_invalid_legacy_import_returns_private_503_and_no_partial_rows(tmp_path,
     assert str(database) not in response.text
     assert str(legacy) not in response.text
     assert marker not in response.text
+
+
+@pytest.mark.parametrize("failure", ["invalid-json", "import-crash"])
+def test_v1_bootstrap_failure_is_owned_by_one_transaction_and_preserves_bytes(
+    tmp_path, monkeypatch, failure
+):
+    from historical_replay.adapters import sqlite_sessions
+
+    replay = tmp_path / "replay"
+    replay.mkdir()
+    _package(replay)
+    database = tmp_path / "sessions-v1.sqlite3"
+    _create_v1_database(database)
+    legacy = tmp_path / "legacy-feedback.json"
+    marker = f"private-{failure}-marker"
+    if failure == "invalid-json":
+        legacy.write_text('{"broken":"' + marker + '"}', encoding="utf-8")
+    else:
+        legacy.write_text(
+            json.dumps(
+                {
+                    "CP1_S1|2023-07-06|1": {
+                        "estado_validacion": "confirmada",
+                        "etiqueta_corregida": 1,
+                        "observacion": "Revisado en defensa",
+                        "registered_at": "2026-10-13T12:00:00Z",
+                        "simulated_at": "2023-07-07",
+                        "scope": "demostracion; no recalibra ni reentrena",
+                    }
+                },
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+
+        def fail_import(*_args, **_kwargs):
+            raise sqlite3.OperationalError(marker)
+
+        monkeypatch.setattr(
+            sqlite_sessions.SQLiteCicytexFeedbackRepository,
+            "_import_on_connection",
+            fail_import,
+        )
+
+    before = database.read_bytes()
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(replay))
+    monkeypatch.setenv("CICYTEX_REPLAY_SESSION_DB", str(database))
+    monkeypatch.setenv("CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON", str(legacy))
+    _clear_dependencies()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/api/v2/cicytex/replay/sessions/legacy-session")
+    finally:
+        _clear_dependencies()
+
+    assert response.status_code == 503
+    assert response.json()["error"]["message"] == (
+        "El almacenamiento de feedback CICYTEX no esta disponible"
+    )
+    assert str(database) not in response.text
+    assert str(legacy) not in response.text
+    assert marker not in response.text
+    assert database.read_bytes() == before
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT value FROM replay_session_metadata WHERE key='schema_version'"
+        ).fetchone() == ("1",)
+        assert {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            )
+        } == {"replay_session_metadata", "replay_sessions"}
 
 
 def test_feedback_paths_are_dependency_owned_and_router_has_no_storage_policy():

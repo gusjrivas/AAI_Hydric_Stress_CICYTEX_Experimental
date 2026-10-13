@@ -6,6 +6,8 @@
 the `CicytexFeedbackRepository` port.  The existing SQLite session adapter owns
 schema v2 and the atomic session-plus-feedback transaction.  The CICYTEX router
 does not import SQLite, JSON, filesystem paths or lock primitives.
+The adapter expresses that dependency through a direct, readable domain import;
+dynamic imports and fragmented identifiers are not architectural boundaries.
 
 Historical package feedback uses the separate
 `historical_replay.adapters.sqlite_feedback.SQLiteReplayFeedbackStore`, behind
@@ -21,6 +23,10 @@ performs one transactional migration.  A configured legacy JSON document is
 bounded, strict, closed-schema validated, digested and imported once in that
 same transaction.  Invalid, partial, foreign, oversized or changed import
 material fails closed without losing v1 sessions or exposing content.
+One dependency/bootstrap owner validates the configured legacy input before it
+commits any v1-to-v2 change.  Resolving the session service cannot independently
+migrate first: parse or import failure leaves both the database bytes and its
+schema-v1 identity unchanged.
 
 Feedback registration begins an immediate transaction, reads the current
 session, validates reveal state inside that transaction and inserts the natural
@@ -44,3 +50,5 @@ errors or logs.  Backend dependencies own administrator-controlled paths and
 translate repository errors to the existing sanitized 503 envelope.  Imports
 have explicit byte, record, line and string caps and reject duplicate JSON keys,
 non-finite numbers, partial trailing lines and unknown fields.
+HTTP regression tests provide isolated temporary databases and clear process
+caches before and after each run so persisted defaults cannot affect results.

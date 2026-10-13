@@ -19,7 +19,9 @@ registration with session reset across processes.
 - **WHEN** its strict schema and digest are valid
 - **THEN** it is imported exactly once in the v1-to-v2 transaction
 - **AND** malformed, foreign, partial, oversized or changed input leaves no
-  partially imported feedback.
+  partially imported feedback
+- **AND** validation or import failure leaves the original database bytes,
+  schema-v1 metadata and session rows unchanged.
 
 #### Scenario: reset and feedback have one serial order
 

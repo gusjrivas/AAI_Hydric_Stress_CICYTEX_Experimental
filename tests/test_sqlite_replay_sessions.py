@@ -429,10 +429,68 @@ def test_concurrent_bootstrap_is_idempotent_and_complete(tmp_path):
     assert SQLiteSessionRepository(database).get("missing") is None
 
 
-def test_adapter_has_no_backend_router_or_feedback_dependency():
+def test_adapter_has_a_readable_direct_domain_dependency_without_boundary_evasion():
+    import ast
+
     source = (
         Path(__file__).parents[1] / "src" / "historical_replay" / "adapters" / "sqlite_sessions.py"
     ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imported_modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+
+    def folded_string(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = folded_string(node.left)
+            right = folded_string(node.right)
+            if left is not None and right is not None:
+                return left + right
+        return None
+
+    direct_feedback_names = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "historical_replay.cicytex_feedback"
+        for alias in node.names
+    }
+    fragmented_feedback_names = {
+        value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.BinOp)
+        and (value := folded_string(node)) is not None
+        and "feedback" in value
+    }
+
+    assert "historical_replay.cicytex_feedback" in imported_modules
+    assert direct_feedback_names == {
+        "CicytexFeedbackConflict",
+        "CicytexFeedbackRecord",
+        "CicytexFeedbackRepositoryError",
+        "CicytexFeedbackUnavailable",
+    }
+    assert not fragmented_feedback_names
+    assert "importlib" not in {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert not any(
+        isinstance(node, ast.Call)
+        and (
+            isinstance(node.func, ast.Name)
+            and node.func.id in {"__import__", "import_module"}
+            or isinstance(node.func, ast.Attribute)
+            and node.func.attr == "import_module"
+        )
+        for node in ast.walk(tree)
+    )
+    assert "legacy_feedback_path" in source
+    assert "cicytex_replay_feedback" in source
     assert "backend" not in source
     assert "fastapi" not in source
-    assert "feedback" not in source

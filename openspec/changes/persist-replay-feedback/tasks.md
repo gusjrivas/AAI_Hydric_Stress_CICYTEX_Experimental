@@ -5,6 +5,7 @@
 - [x] 1.3 Specify natural-key conflicts and atomic feedback/reset ordering.
 - [x] 1.4 Specify historical SQLite append/import/isolation/concurrency behavior.
 - [x] 1.5 Specify HTTP compatibility, private 503 mapping, DI and AST boundaries.
+- [x] 1.6 Specify readable imports, single-owner bootstrap and repeatable HTTP isolation.
 
 ## 2. GREEN implementation
 
@@ -13,6 +14,7 @@
 - [ ] 2.3 Add bounded one-time legacy CICYTEX import.
 - [ ] 2.4 Add the historical SQLite feedback adapter and JSONL import.
 - [ ] 2.5 Wire administrator-controlled dependencies and sanitized HTTP failures.
+- [ ] 2.6 Remove boundary evasions and make legacy migration bootstrap atomic.
 
 ## 3. Verification
 
