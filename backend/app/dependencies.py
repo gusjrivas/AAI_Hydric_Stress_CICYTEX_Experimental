@@ -132,8 +132,13 @@ def get_cicytex_replay_frames() -> tuple:
 def get_cicytex_replay_sessions() -> ReplaySessionService:
     """Process-scoped session use case, replaceable through FastAPI overrides."""
 
+    database = get_cicytex_replay_session_database()
+    SQLiteCicytexFeedbackRepository(
+        database,
+        legacy_feedback_path=get_cicytex_legacy_feedback_json(),
+    )
     return ReplaySessionService(
-        SQLiteSessionRepository(get_cicytex_replay_session_database()),
+        SQLiteSessionRepository(database),
         id_factory=lambda: uuid4().hex,
         last_observation=date(2023, 7, 25),
     )

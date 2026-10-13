@@ -8,7 +8,6 @@ to a deliberately opaque error.  Domain transitions remain in
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
 import sqlite3
 from collections.abc import Callable
@@ -18,13 +17,13 @@ from pathlib import Path
 from typing import TypeVar
 
 from data_ingestion.storage import StorageLockTimeout, interprocess_lock
+from historical_replay.cicytex_feedback import (
+    CicytexFeedbackConflict,
+    CicytexFeedbackRecord,
+    CicytexFeedbackRepositoryError,
+    CicytexFeedbackUnavailable,
+)
 from historical_replay.sessions import ReplaySession, ReplaySessionConflict
-
-_cicytex_domain = importlib.import_module("historical_replay.cicytex_" + "feed" + "back")
-CicytexFeedbackConflict = _cicytex_domain.CicytexFeedbackConflict
-CicytexFeedbackRecord = _cicytex_domain.CicytexFeedbackRecord
-CicytexFeedbackRepositoryError = _cicytex_domain.CicytexFeedbackRepositoryError
-CicytexFeedbackUnavailable = _cicytex_domain.CicytexFeedbackUnavailable
 
 T = TypeVar("T")
 
@@ -47,8 +46,8 @@ _SESSION_DDL = """CREATE TABLE replay_sessions (
                            revealed_through TEXT NOT NULL,
                            last_observation TEXT NOT NULL
                        ) WITHOUT ROWID"""
-_CICYTEX_TABLE = "cicytex_replay_" + "feed" + "back"
-_LEGACY_DIGEST_KEY = "legacy_cicytex_" + "feed" + "back_sha256"
+_CICYTEX_TABLE = "cicytex_replay_feedback"
+_LEGACY_DIGEST_KEY = "legacy_cicytex_feedback_sha256"
 _CICYTEX_FEEDBACK_DDL = f"""CREATE TABLE {_CICYTEX_TABLE} (
                            sensor_id TEXT NOT NULL,
                            emission_date TEXT NOT NULL,
@@ -242,8 +241,6 @@ class SQLiteSessionRepository:
         try:
             with interprocess_lock(lock_path, timeout=self._busy_timeout_ms / 1_000):
                 if self._database.exists():
-                    if self._existing_version() == 1:
-                        self._migrate_v1()
                     self._validate_existing()
                 else:
                     self._initialize()
@@ -251,51 +248,6 @@ class SQLiteSessionRepository:
             raise
         except (OSError, sqlite3.Error, StorageLockTimeout):
             raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
-
-    def _existing_version(self) -> int:
-        uri = f"{self._database.resolve().as_uri()}?mode=ro"
-        with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
-            return connection.execute("PRAGMA user_version").fetchone()[0]
-
-    def _migrate_v1(self) -> None:
-        with closing(sqlite3.connect(self._database, isolation_level=None)) as connection:
-            try:
-                connection.execute("BEGIN IMMEDIATE")
-                objects = tuple(
-                    connection.execute(
-                        "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
-                    )
-                )
-                expected = (
-                    (
-                        "table",
-                        "replay_session_metadata",
-                        "replay_session_metadata",
-                        _METADATA_DDL,
-                    ),
-                    ("table", "replay_sessions", "replay_sessions", _SESSION_DDL),
-                )
-                if not _same_schema_objects(objects, expected):
-                    raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
-                if connection.execute(
-                    "SELECT key,value FROM replay_session_metadata"
-                ).fetchall() != [("schema_version", "1")]:
-                    raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
-                for row in connection.execute(
-                    """SELECT session_id, sensor_id, start_date, emission_date,
-                              horizon_days, revealed_through, last_observation
-                       FROM replay_sessions"""
-                ):
-                    self._decode(row)
-                connection.execute(_CICYTEX_FEEDBACK_DDL)
-                connection.execute(
-                    "UPDATE replay_session_metadata SET value='2' WHERE key='schema_version'"
-                )
-                connection.execute("PRAGMA user_version=2")
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
 
     def _initialize(self) -> None:
         self._database.parent.mkdir(parents=True, exist_ok=True)
@@ -561,20 +513,22 @@ class SQLiteCicytexFeedbackRepository:
         database: Path,
         *,
         busy_timeout_ms: int = _DEFAULT_BUSY_TIMEOUT_MS,
-        **options,
+        legacy_feedback_path: Path | None = None,
     ) -> None:
         if not isinstance(database, Path):
             raise TypeError("database must be a Path")
-        legacy_key = "legacy_" + "feed" + "back_path"
-        if not set(options) <= {legacy_key}:
-            raise TypeError("unknown repository option")
-        legacy_path = options.get(legacy_key)
-        if legacy_path is not None and not isinstance(legacy_path, Path):
+        if type(busy_timeout_ms) is not int or not 1 <= busy_timeout_ms <= 60_000:
+            raise ValueError("busy_timeout_ms must be an integer between 1 and 60000")
+        if legacy_feedback_path is not None and not isinstance(legacy_feedback_path, Path):
             raise TypeError("legacy path must be a Path")
         self._database = database
         self._busy_timeout_ms = busy_timeout_ms
-        imported = _parse_cicytex_legacy(legacy_path) if legacy_path is not None else None
-        self._prepare(imported)
+        imported = (
+            _parse_cicytex_legacy(legacy_feedback_path)
+            if legacy_feedback_path is not None
+            else None
+        )
+        self._bootstrap(imported)
 
     def register_for_session(
         self,
@@ -669,96 +623,180 @@ class SQLiteCicytexFeedbackRepository:
         finally:
             connection.close()
 
-    def _prepare(self, imported: tuple[bytes, tuple[CicytexFeedbackRecord, ...]] | None) -> None:
-        try:
-            if not self._database.exists():
-                SQLiteSessionRepository(self._database, busy_timeout_ms=self._busy_timeout_ms)
-            else:
-                with closing(
-                    sqlite3.connect(f"{self._database.resolve().as_uri()}?mode=ro", uri=True)
-                ) as probe:
-                    version = probe.execute("PRAGMA user_version").fetchone()
-                if version == (1,):
-                    self._migrate_v1(imported)
-                    imported = None
-                else:
-                    SQLiteSessionRepository(self._database, busy_timeout_ms=self._busy_timeout_ms)
-            if imported is not None:
-                self._import(*imported)
-        except CicytexFeedbackRepositoryError:
-            raise
-        except SQLiteSessionRepositoryError:
-            raise
-        except (OSError, sqlite3.Error):
-            raise CicytexFeedbackRepositoryError("cicytex review store unavailable") from None
-
-    def _migrate_v1(self, imported: tuple[bytes, tuple[CicytexFeedbackRecord, ...]] | None) -> None:
+    def _bootstrap(
+        self,
+        imported: tuple[bytes, tuple[CicytexFeedbackRecord, ...]] | None,
+    ) -> None:
         lock = self._database.with_name(f".{self._database.name}.bootstrap.lock")
         try:
             with interprocess_lock(lock, timeout=self._busy_timeout_ms / 1_000):
-                connection = sqlite3.connect(self._database, isolation_level=None)
+                exists = self._database.exists()
+                if not exists:
+                    self._database.parent.mkdir(parents=True, exist_ok=True)
+                connection = sqlite3.connect(
+                    self._database,
+                    timeout=self._busy_timeout_ms / 1_000,
+                    isolation_level=None,
+                )
+                importing_legacy = False
                 try:
+                    connection.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
                     connection.execute("BEGIN IMMEDIATE")
-                    objects = tuple(
+                    if exists:
+                        version = connection.execute("PRAGMA user_version").fetchone()
+                        if version == (1,):
+                            self._validate_v1(connection)
+                            connection.execute(_CICYTEX_FEEDBACK_DDL)
+                            connection.execute(
+                                "UPDATE replay_session_metadata "
+                                "SET value='2' WHERE key='schema_version'"
+                            )
+                            connection.execute("PRAGMA user_version=2")
+                        elif version == (2,):
+                            self._validate_v2(connection)
+                        else:
+                            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
+                    else:
+                        connection.execute(_METADATA_DDL)
+                        connection.execute(_SESSION_DDL)
+                        connection.execute(_CICYTEX_FEEDBACK_DDL)
                         connection.execute(
-                            "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+                            "INSERT INTO replay_session_metadata(key, value) "
+                            "VALUES ('schema_version', '2')"
                         )
-                    )
-                    expected = (
-                        (
-                            "table",
-                            "replay_session_metadata",
-                            "replay_session_metadata",
-                            _METADATA_DDL,
-                        ),
-                        ("table", "replay_sessions", "replay_sessions", _SESSION_DDL),
-                    )
-                    if connection.execute("PRAGMA user_version").fetchone() != (
-                        1,
-                    ) or not _same_schema_objects(objects, expected):
-                        raise CicytexFeedbackRepositoryError("cicytex review store unavailable")
-                    if connection.execute(
-                        "SELECT key,value FROM replay_session_metadata"
-                    ).fetchall() != [("schema_version", "1")]:
-                        raise CicytexFeedbackRepositoryError("cicytex review store unavailable")
-                    for row in connection.execute(
-                        """SELECT session_id, sensor_id, start_date, emission_date,
-                                  horizon_days, revealed_through, last_observation
-                           FROM replay_sessions"""
-                    ):
-                        SQLiteSessionRepository._decode(row)
-                    connection.execute(_CICYTEX_FEEDBACK_DDL)
-                    connection.execute(
-                        "UPDATE replay_session_metadata SET value='2' WHERE key='schema_version'"
-                    )
-                    connection.execute("PRAGMA user_version=2")
+                        connection.execute("PRAGMA user_version=2")
                     if imported is not None:
+                        importing_legacy = True
                         self._import_on_connection(connection, *imported)
+                        importing_legacy = False
                     connection.commit()
+                except sqlite3.Error:
+                    connection.rollback()
+                    if importing_legacy:
+                        raise CicytexFeedbackRepositoryError(
+                            "cicytex review store unavailable"
+                        ) from None
+                    raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
                 except BaseException:
                     connection.rollback()
                     raise
                 finally:
                     connection.close()
+                self._enable_durability()
         except CicytexFeedbackRepositoryError:
+            raise
+        except SQLiteSessionRepositoryError:
             raise
         except (OSError, sqlite3.Error, StorageLockTimeout, TypeError, ValueError):
             raise CicytexFeedbackRepositoryError("cicytex review store unavailable") from None
 
-    def _import(self, raw: bytes, records: tuple[CicytexFeedbackRecord, ...]) -> None:
-        connection = self._open()
+    def _validate_v1(self, connection: sqlite3.Connection) -> None:
         try:
-            connection.execute("BEGIN IMMEDIATE")
-            self._import_on_connection(connection, raw, records)
-            connection.commit()
-        except CicytexFeedbackRepositoryError:
-            connection.rollback()
+            objects = tuple(
+                connection.execute(
+                    "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+                )
+            )
+            expected = (
+                (
+                    "table",
+                    "replay_session_metadata",
+                    "replay_session_metadata",
+                    _METADATA_DDL,
+                ),
+                ("table", "replay_sessions", "replay_sessions", _SESSION_DDL),
+            )
+            if not _same_schema_objects(objects, expected):
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
+            if connection.execute("SELECT key,value FROM replay_session_metadata").fetchall() != [
+                ("schema_version", "1")
+            ]:
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
+            self._validate_sessions(connection)
+        except SQLiteSessionRepositoryError:
+            raise
+        except (sqlite3.Error, TypeError, ValueError):
+            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
+
+    def _validate_v2(self, connection: sqlite3.Connection) -> None:
+        try:
+            objects = tuple(
+                connection.execute(
+                    "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+                )
+            )
+            expected = (
+                ("table", _CICYTEX_TABLE, _CICYTEX_TABLE, _CICYTEX_FEEDBACK_DDL),
+                (
+                    "table",
+                    "replay_session_metadata",
+                    "replay_session_metadata",
+                    _METADATA_DDL,
+                ),
+                ("table", "replay_sessions", "replay_sessions", _SESSION_DDL),
+            )
+            if not _same_schema_objects(objects, expected):
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
+            metadata = dict(connection.execute("SELECT key,value FROM replay_session_metadata"))
+            if metadata.get("schema_version") != "2" or not set(metadata) <= {
+                "schema_version",
+                _LEGACY_DIGEST_KEY,
+            }:
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
+            self._validate_sessions(connection)
+        except SQLiteSessionRepositoryError:
+            raise
+        except (sqlite3.Error, TypeError, ValueError):
+            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
+
+        try:
+            for row in connection.execute(
+                f"""SELECT sensor_id, emission_date, horizon_days, estado_validacion,
+                           etiqueta_corregida, observacion, registered_at, simulated_at, scope
+                    FROM {_CICYTEX_TABLE}"""
+            ):
+                self._decode(row)
+        except (sqlite3.Error, TypeError, ValueError):
+            raise CicytexFeedbackRepositoryError("cicytex review store unavailable") from None
+
+        try:
+            if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
+        except SQLiteSessionRepositoryError:
             raise
         except sqlite3.Error:
-            connection.rollback()
+            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
+
+    @staticmethod
+    def _validate_sessions(connection: sqlite3.Connection) -> None:
+        metadata_schema = tuple(
+            row[1:6] for row in connection.execute("PRAGMA table_info(replay_session_metadata)")
+        )
+        session_schema = tuple(
+            row[1:6] for row in connection.execute("PRAGMA table_info(replay_sessions)")
+        )
+        if metadata_schema != _METADATA_SCHEMA or session_schema != _SESSION_SCHEMA:
+            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
+        for row in connection.execute("""SELECT session_id, sensor_id, start_date, emission_date,
+                      horizon_days, revealed_through, last_observation
+               FROM replay_sessions"""):
+            SQLiteSessionRepository._decode(row)
+
+    def _enable_durability(self) -> None:
+        try:
+            with closing(
+                sqlite3.connect(
+                    self._database,
+                    timeout=self._busy_timeout_ms / 1_000,
+                    isolation_level=None,
+                )
+            ) as connection:
+                connection.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
+                if connection.execute("PRAGMA journal_mode=WAL").fetchone() != ("wal",):
+                    raise sqlite3.OperationalError("journal mode unavailable")
+                connection.execute("PRAGMA synchronous=FULL")
+        except sqlite3.Error:
             raise CicytexFeedbackRepositoryError("cicytex review store unavailable") from None
-        finally:
-            connection.close()
 
     def _import_on_connection(
         self,
