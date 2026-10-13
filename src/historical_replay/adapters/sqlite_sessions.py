@@ -22,6 +22,19 @@ T = TypeVar("T")
 _SCHEMA_VERSION = 1
 _DEFAULT_BUSY_TIMEOUT_MS = 5_000
 _REPOSITORY_ERROR = "replay session store is unavailable"
+_METADATA_DDL = """CREATE TABLE replay_session_metadata (
+                           key TEXT PRIMARY KEY NOT NULL,
+                           value TEXT NOT NULL
+                       ) WITHOUT ROWID"""
+_SESSION_DDL = """CREATE TABLE replay_sessions (
+                           session_id TEXT PRIMARY KEY NOT NULL,
+                           sensor_id TEXT NOT NULL,
+                           start_date TEXT NOT NULL,
+                           emission_date TEXT NOT NULL,
+                           horizon_days INTEGER NOT NULL,
+                           revealed_through TEXT NOT NULL,
+                           last_observation TEXT NOT NULL
+                       ) WITHOUT ROWID"""
 _SESSION_COLUMNS = (
     "session_id",
     "sensor_id",
@@ -114,37 +127,48 @@ class SQLiteSessionRepository:
             raise TypeError("transition must be callable")
         connection = self._open()
         try:
-            connection.execute("BEGIN IMMEDIATE")
-            row = self._select(connection, session_id)
-            if row is None:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = self._select(connection, session_id)
+                if row is None:
+                    connection.commit()
+                    return None
+                current = self._decode_persisted(row)
+            except SQLiteSessionRepositoryError:
+                self._rollback(connection)
+                raise
+            except sqlite3.Error:
+                self._rollback(connection)
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
+
+            try:
+                updated = transition(current)
+            except BaseException:
+                self._rollback(connection)
+                raise
+
+            try:
+                if type(updated) is not ReplaySession or updated.session_id != current.session_id:
+                    raise ValueError("transition must preserve the replay session identity")
+                cursor = connection.execute(
+                    """UPDATE replay_sessions
+                       SET sensor_id = ?, start_date = ?, emission_date = ?,
+                           horizon_days = ?, revealed_through = ?, last_observation = ?
+                       WHERE session_id = ? AND sensor_id = ? AND start_date = ?
+                         AND emission_date = ? AND horizon_days = ?
+                         AND revealed_through = ? AND last_observation = ?""",
+                    self._encode_update(updated, current),
+                )
+                if cursor.rowcount != 1:
+                    raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
                 connection.commit()
-                return None
-            current = self._decode(row)
-            updated = transition(current)
-            if type(updated) is not ReplaySession or updated.session_id != current.session_id:
-                raise ValueError("transition must preserve the replay session identity")
-            cursor = connection.execute(
-                """UPDATE replay_sessions
-                   SET sensor_id = ?, start_date = ?, emission_date = ?,
-                       horizon_days = ?, revealed_through = ?, last_observation = ?
-                   WHERE session_id = ? AND sensor_id = ? AND start_date = ?
-                     AND emission_date = ? AND horizon_days = ?
-                     AND revealed_through = ? AND last_observation = ?""",
-                self._encode_update(updated, current),
-            )
-            if cursor.rowcount != 1:
-                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
-            connection.commit()
-            return updated
-        except SQLiteSessionRepositoryError:
-            self._rollback(connection)
-            raise
-        except sqlite3.Error:
-            self._rollback(connection)
-            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
-        except BaseException:
-            self._rollback(connection)
-            raise
+                return updated
+            except SQLiteSessionRepositoryError:
+                self._rollback(connection)
+                raise
+            except sqlite3.Error:
+                self._rollback(connection)
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
         finally:
             connection.close()
 
@@ -158,20 +182,32 @@ class SQLiteSessionRepository:
             raise TypeError("operation must be callable")
         connection = self._open()
         try:
-            connection.execute("BEGIN IMMEDIATE")
-            row = self._select(connection, session_id)
-            if row is None:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = self._select(connection, session_id)
+                if row is None:
+                    connection.commit()
+                    return None
+                session = self._decode_persisted(row)
+            except SQLiteSessionRepositoryError:
+                self._rollback(connection)
+                raise
+            except sqlite3.Error:
+                self._rollback(connection)
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
+
+            try:
+                result = operation(session)
+            except BaseException:
+                self._rollback(connection)
+                raise
+
+            try:
                 connection.commit()
-                return None
-            result = operation(self._decode(row))
-            connection.commit()
-            return result
-        except sqlite3.Error:
-            self._rollback(connection)
-            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
-        except BaseException:
-            self._rollback(connection)
-            raise
+                return result
+            except sqlite3.Error:
+                self._rollback(connection)
+                raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
         finally:
             connection.close()
 
@@ -200,19 +236,8 @@ class SQLiteSessionRepository:
             ) as connection:
                 connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
                 connection.execute("BEGIN IMMEDIATE")
-                connection.execute("""CREATE TABLE replay_session_metadata (
-                           key TEXT PRIMARY KEY NOT NULL,
-                           value TEXT NOT NULL
-                       ) WITHOUT ROWID""")
-                connection.execute("""CREATE TABLE replay_sessions (
-                           session_id TEXT PRIMARY KEY NOT NULL,
-                           sensor_id TEXT NOT NULL,
-                           start_date TEXT NOT NULL,
-                           emission_date TEXT NOT NULL,
-                           horizon_days INTEGER NOT NULL,
-                           revealed_through TEXT NOT NULL,
-                           last_observation TEXT NOT NULL
-                       ) WITHOUT ROWID""")
+                connection.execute(_METADATA_DDL)
+                connection.execute(_SESSION_DDL)
                 connection.execute(
                     "INSERT INTO replay_session_metadata(key, value) VALUES ('schema_version', '1')"
                 )
@@ -231,13 +256,20 @@ class SQLiteSessionRepository:
             with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
                 if connection.execute("PRAGMA user_version").fetchone() != (_SCHEMA_VERSION,):
                     raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
-                tables = {
-                    row[0]
-                    for row in connection.execute(
-                        "SELECT name FROM sqlite_master WHERE type = 'table'"
-                    )
-                }
-                if tables != {"replay_session_metadata", "replay_sessions"}:
+                schema_objects = tuple(
+                    row for row in connection.execute("""SELECT type, name, tbl_name, sql
+                           FROM sqlite_master
+                           ORDER BY type, name""")
+                )
+                if schema_objects != (
+                    (
+                        "table",
+                        "replay_session_metadata",
+                        "replay_session_metadata",
+                        _METADATA_DDL,
+                    ),
+                    ("table", "replay_sessions", "replay_sessions", _SESSION_DDL),
+                ):
                     raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
                 metadata = connection.execute(
                     "SELECT key, value FROM replay_session_metadata"
@@ -327,6 +359,13 @@ class SQLiteSessionRepository:
             revealed_through=SQLiteSessionRepository._decode_date(row[5]),
             last_observation=SQLiteSessionRepository._decode_date(row[6]),
         )
+
+    @classmethod
+    def _decode_persisted(cls, row: tuple) -> ReplaySession:
+        try:
+            return cls._decode(row)
+        except (TypeError, ValueError):
+            raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
 
     @staticmethod
     def _decode_date(value: object) -> date:
