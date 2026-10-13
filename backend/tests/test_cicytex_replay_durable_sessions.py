@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -100,6 +101,56 @@ def test_corrupt_store_returns_sanitized_503_without_in_memory_fallback(tmp_path
     rendered = response.text
     assert str(database) not in rendered
     assert private_marker not in rendered
+
+
+def test_post_bootstrap_corrupt_row_returns_private_503_for_advance_and_feedback(
+    tmp_path, monkeypatch
+):
+    replay = tmp_path / "replay"
+    replay.mkdir()
+    _package(replay)
+    database = tmp_path / "private-store-name.sqlite3"
+    private_marker = "private-corrupt-row-marker"
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(replay))
+    monkeypatch.setenv("CICYTEX_REPLAY_SESSION_DB", str(database))
+    monkeypatch.setenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(tmp_path / "feedback"))
+    _clear_session_dependency()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            created = client.post(
+                "/api/v2/cicytex/replay/sessions",
+                json={
+                    "sensor_id": "CP1_S1",
+                    "emission_date": "2023-07-06",
+                    "horizon_days": 1,
+                },
+            )
+            assert created.status_code == 201
+            session_id = created.json()["session_id"]
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    "UPDATE replay_sessions SET start_date = ? WHERE session_id = ?",
+                    (private_marker, session_id),
+                )
+            responses = (
+                client.post(f"/api/v2/cicytex/replay/sessions/{session_id}/advance"),
+                client.post(
+                    f"/api/v2/cicytex/replay/sessions/{session_id}/feedback",
+                    json={"estado_validacion": "confirmada"},
+                ),
+            )
+    finally:
+        _clear_session_dependency()
+
+    for response in responses:
+        assert response.status_code == 503
+        error = response.json()["error"]
+        assert error["code"] == "http_error"
+        assert error["message"] == ("El almacenamiento de sesiones CICYTEX no esta disponible")
+        rendered = response.text
+        assert str(database) not in rendered
+        assert private_marker not in rendered
+        assert "replay_sessions" not in rendered
 
 
 def test_session_database_override_isolates_scenarios(tmp_path, monkeypatch):

@@ -19,6 +19,20 @@ en un SQLite v1 cerrado, conservando el contrato HTTP existente.
 - **THEN** falla cerrado sin reinitializar ni filtrar path o contenido
 - **AND** una fila que viola el dominio también falla cerrado.
 
+#### Scenario: Corrupción posterior al arranque
+
+- **GIVEN** un repositorio ya construido cuya fila se corrompe externamente
+- **WHEN** se ejecuta get, update, `with_session`, advance HTTP o feedback HTTP
+- **THEN** toda lectura falla con el error controlado del repositorio
+- **AND** HTTP responde 503 sin filtrar path, SQL ni contenido de fila
+- **AND** excepciones legítimas de transition o callback conservan su tipo original.
+
+#### Scenario: Identidad exacta del schema
+
+- **GIVEN** un SQLite con tablas compatibles por columnas pero DDL divergente
+- **WHEN** contiene views, triggers, indexes, rowid o constraints no declarados
+- **THEN** el repositorio lo rechaza sin modificar un solo byte del archivo.
+
 #### Scenario: Transiciones concurrentes
 
 - **GIVEN** dos adaptadores o procesos sobre el mismo archivo

@@ -8,11 +8,11 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+
 from historical_replay.adapters.sqlite_sessions import (
     SQLiteSessionRepository,
     SQLiteSessionRepositoryError,
 )
-
 from historical_replay.sessions import (
     ReplaySession,
     ReplaySessionConflict,
@@ -180,6 +180,101 @@ def test_invalid_persisted_row_fails_closed(tmp_path, column, value):
 
     with pytest.raises(SQLiteSessionRepositoryError):
         SQLiteSessionRepository(database).get("session-1")
+
+
+@pytest.mark.parametrize("operation", ["get", "update", "with_session"])
+def test_post_bootstrap_row_corruption_is_always_a_repository_error(tmp_path, operation):
+    database = tmp_path / "private-session-store.sqlite3"
+    repository = SQLiteSessionRepository(database)
+    repository.add(_session())
+    private_marker = "private-corrupt-row-marker"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE replay_sessions SET start_date = ? WHERE session_id = ?",
+            (private_marker, "session-1"),
+        )
+
+    with pytest.raises(SQLiteSessionRepositoryError) as captured:
+        if operation == "get":
+            repository.get("session-1")
+        elif operation == "update":
+            repository.update("session-1", ReplaySession.advance)
+        else:
+            repository.with_session("session-1", lambda session: session)
+    assert str(database) not in str(captured.value)
+    assert private_marker not in str(captured.value)
+
+
+@pytest.mark.parametrize("operation", ["update", "with_session"])
+def test_legitimate_operation_exceptions_are_not_wrapped(tmp_path, operation):
+    class ExpectedOperationError(RuntimeError):
+        pass
+
+    database = tmp_path / "sessions.sqlite3"
+    repository = SQLiteSessionRepository(database)
+    repository.add(_session())
+
+    def explode(_session):
+        raise ExpectedOperationError("expected-operation-marker")
+
+    with pytest.raises(ExpectedOperationError, match="expected-operation-marker"):
+        if operation == "update":
+            repository.update("session-1", explode)
+        else:
+            repository.with_session("session-1", explode)
+    assert repository.get("session-1") == _session()
+
+
+@pytest.mark.parametrize(
+    "extra_sql",
+    [
+        "CREATE VIEW private_extra_view AS SELECT session_id FROM replay_sessions",
+        (
+            "CREATE TRIGGER private_extra_trigger AFTER INSERT ON replay_sessions "
+            "BEGIN SELECT 1; END"
+        ),
+        "CREATE INDEX private_extra_index ON replay_sessions(sensor_id)",
+    ],
+)
+def test_extra_schema_objects_are_rejected_without_mutating_bytes(tmp_path, extra_sql):
+    database = tmp_path / "sessions.sqlite3"
+    SQLiteSessionRepository(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(extra_sql)
+    before = database.read_bytes()
+
+    with pytest.raises(SQLiteSessionRepositoryError):
+        SQLiteSessionRepository(database)
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("variant", ["rowid", "altered-constraint"])
+def test_divergent_table_sql_is_rejected_even_when_table_info_matches(tmp_path, variant):
+    database = tmp_path / f"{variant}.sqlite3"
+    constraint = " CHECK (horizon_days BETWEEN 1 AND 3)" if variant == "altered-constraint" else ""
+    without_rowid = " WITHOUT ROWID" if variant == "altered-constraint" else ""
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE replay_session_metadata ("
+            "key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) WITHOUT ROWID"
+        )
+        connection.execute(
+            "CREATE TABLE replay_sessions ("
+            "session_id TEXT PRIMARY KEY NOT NULL, sensor_id TEXT NOT NULL, "
+            "start_date TEXT NOT NULL, emission_date TEXT NOT NULL, "
+            f"horizon_days INTEGER NOT NULL{constraint}, "
+            "revealed_through TEXT NOT NULL, last_observation TEXT NOT NULL)"
+            f"{without_rowid}"
+        )
+        connection.execute(
+            "INSERT INTO replay_session_metadata(key, value) VALUES " "('schema_version', '1')"
+        )
+        connection.execute("PRAGMA user_version = 1")
+    before = database.read_bytes()
+
+    with pytest.raises(SQLiteSessionRepositoryError):
+        SQLiteSessionRepository(database)
+    assert database.read_bytes() == before
 
 
 def test_two_adapters_and_threads_do_not_lose_updates(tmp_path):
