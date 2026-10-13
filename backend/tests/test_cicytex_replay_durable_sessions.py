@@ -4,6 +4,8 @@ import ast
 from pathlib import Path
 
 import pandas as pd
+import pathspec
+from app.config import get_cicytex_replay_session_database
 from app.dependencies import get_cicytex_replay_sessions
 from app.main import app
 from fastapi.testclient import TestClient
@@ -151,3 +153,17 @@ def test_router_has_no_sqlite_or_session_store_path_policy():
     assert "sqlite3" not in imports
     assert "SQLiteSessionRepository" not in imports
     assert "CICYTEX_REPLAY_SESSION_DB" not in constants
+
+
+def test_default_bootstrap_lock_is_ignored_by_git(monkeypatch):
+    monkeypatch.delenv("CICYTEX_REPLAY_SESSION_DB", raising=False)
+    repository = Path(__file__).parents[2]
+    database = get_cicytex_replay_session_database()
+    bootstrap_lock = database.with_name(f".{database.name}.bootstrap.lock")
+    relative_lock = bootstrap_lock.relative_to(repository).as_posix()
+    assert relative_lock == ("data/.cicytex_replay_sessions.sqlite3.bootstrap.lock")
+
+    ignore_spec = pathspec.GitIgnoreSpec.from_lines(
+        (repository / ".gitignore").read_text(encoding="utf-8").splitlines(),
+    )
+    assert ignore_spec.match_file(relative_lock)
