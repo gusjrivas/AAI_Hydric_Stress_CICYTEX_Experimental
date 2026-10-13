@@ -75,6 +75,18 @@ def get_historical_replay_feedback_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "replay_feedback"
 
 
+def get_historical_replay_feedback_database() -> Path:
+    configured = os.environ.get("HISTORICAL_REPLAY_FEEDBACK_DB")
+    if configured:
+        return Path(configured)
+    return get_historical_replay_feedback_dir() / "historical_feedback.sqlite3"
+
+
+def get_cicytex_legacy_feedback_json() -> Path | None:
+    configured = os.environ.get("CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON")
+    return Path(configured) if configured else None
+
+
 def get_historical_replay_package_dir() -> Path:
     """Dependencia de FastAPI: ubicación del único paquete de reproducción
     histórica autorizado (spec `historical-replay`, Paso 3 §3) —

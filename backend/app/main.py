@@ -17,7 +17,9 @@ from fastapi.responses import JSONResponse
 
 from data_ingestion.catalog import CatalogError
 from data_ingestion.history import HistoryError
+from historical_replay.adapters.sqlite_feedback import SQLiteReplayFeedbackStoreError
 from historical_replay.adapters.sqlite_sessions import SQLiteSessionRepositoryError
+from historical_replay.cicytex_feedback import CicytexFeedbackRepositoryError
 from human_feedback.operational_repository import OperationalRepositoryError
 
 from .routers import (
@@ -128,6 +130,32 @@ async def sqlite_session_repository_error_handler(
         status_code=503,
         code="http_error",
         message="El almacenamiento de sesiones CICYTEX no esta disponible",
+        details={},
+    )
+
+
+@app.exception_handler(CicytexFeedbackRepositoryError)
+async def cicytex_feedback_repository_error_handler(
+    request: Request, _error: CicytexFeedbackRepositoryError
+) -> JSONResponse:
+    return _v2_error_response(
+        request,
+        status_code=503,
+        code="http_error",
+        message="El almacenamiento de feedback CICYTEX no esta disponible",
+        details={},
+    )
+
+
+@app.exception_handler(SQLiteReplayFeedbackStoreError)
+async def historical_feedback_repository_error_handler(
+    request: Request, _error: SQLiteReplayFeedbackStoreError
+) -> JSONResponse:
+    return _v2_error_response(
+        request,
+        status_code=503,
+        code="http_error",
+        message="El almacenamiento de feedback historico no esta disponible",
         details={},
     )
 

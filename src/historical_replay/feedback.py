@@ -1,48 +1,28 @@
-"""Feedback de demostración (spec `historical-replay`, requirement RH-07):
-persistido en un almacenamiento exclusivo, separado del paquete científico,
-del `feedback_log` operativo (`src/human_feedback/schema.py`) y de la
-recalibración — nunca alcanza `select_recalibration_observations`,
-`recalibrate_predictor` ni `recalibrate_model`. Reutiliza únicamente los
-nombres de estado de `human_feedback` (`confirmada`/`rechazada`), no su
-módulo ni su archivo.
-
-El feedback solo puede registrarse después de que la observación haya sido
-revelada (`target_observed=true` y `simulated_date >= target_timestamp`,
-espejo del contrato de `historical_replay.projection.project`) — nunca
-antes. `registered_at` (fecha real) y `simulated_at` (fecha simulada al
-registrar) se guardan siempre por separado; el registro nunca se atribuye a
-un experto ni a una fecha histórica que no ocurrió.
-"""
+"""Pure feedback domain for archived historical replay packages."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from pathlib import Path
-
-from data_ingestion.storage import interprocess_lock
+from typing import Protocol, runtime_checkable
 
 ADMITTED_VALIDATION_STATES = ("confirmada", "rechazada")
 ADMITTED_ETIQUETAS = (0, 1)
 
 
 class UnknownPredictionError(ValueError):
-    """The referenced `timestamp_origen` does not match any prediction in
-    the loaded package — feedback is never linked to a fabricated identity."""
+    """The referenced prediction does not exist in the loaded package."""
 
 
 class FeedbackNotYetRevealedError(ValueError):
-    """The prediction's observation has not been revealed yet at
-    `simulated_date` — feedback cannot reference a result the replay
-    itself would not show at that clock."""
+    """The prediction outcome is not visible at the simulated clock."""
 
 
 class InvalidFeedbackContentError(ValueError):
-    """`estado_validacion`/`etiqueta_corregida` outside the admitted values."""
+    """Feedback content is outside the closed domain contract."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ReplayFeedbackRecord:
     timestamp_origen: str
     experiment_id: str
@@ -53,39 +33,39 @@ class ReplayFeedbackRecord:
     registered_at: str
     simulated_at: str
 
+    def __post_init__(self) -> None:
+        for value in (self.timestamp_origen, self.experiment_id, self.run_id):
+            if type(value) is not str or not value or len(value) > 256:
+                raise InvalidFeedbackContentError("invalid feedback identity")
+        if date.fromisoformat(self.timestamp_origen).isoformat() != self.timestamp_origen:
+            raise InvalidFeedbackContentError("invalid origin date")
+        if self.estado_validacion not in ADMITTED_VALIDATION_STATES:
+            raise InvalidFeedbackContentError("invalid validation state")
+        if self.etiqueta_corregida is not None and (
+            type(self.etiqueta_corregida) is not int
+            or self.etiqueta_corregida not in ADMITTED_ETIQUETAS
+        ):
+            raise InvalidFeedbackContentError("invalid corrected label")
+        if self.observacion is not None and (
+            type(self.observacion) is not str or len(self.observacion) > 1_000
+        ):
+            raise InvalidFeedbackContentError("invalid observation")
+        if type(self.registered_at) is not str or len(self.registered_at) > 64:
+            raise InvalidFeedbackContentError("invalid registration timestamp")
+        registered = datetime.fromisoformat(self.registered_at)
+        if registered.tzinfo is None:
+            raise InvalidFeedbackContentError("invalid registration timestamp")
+        if type(self.simulated_at) is not str or len(self.simulated_at) > 10:
+            raise InvalidFeedbackContentError("invalid simulated date")
+        if date.fromisoformat(self.simulated_at).isoformat() != self.simulated_at:
+            raise InvalidFeedbackContentError("invalid simulated date")
 
-class ReplayFeedbackStore:
-    """Append-only JSON-lines store, one file per `package_id`, isolated
-    under its own directory — never `data/feedback__<sensor_id>.parquet`,
-    never inside `replay_packages/`. Writes are serialized across
-    processes via `interprocess_lock` on a dedicated `.lock` file next to
-    the `.jsonl` (never the `.jsonl` itself as lock target), because
-    append-mode writes are not guaranteed atomic between processes on
-    this platform (F-08)."""
 
-    def __init__(self, storage_dir: Path, *, package_id: str):
-        self._path = Path(storage_dir) / f"{package_id}.jsonl"
-        self._lock_path = Path(storage_dir) / f"{package_id}.jsonl.lock"
+@runtime_checkable
+class HistoricalReplayFeedbackRepository(Protocol):
+    def append(self, record: ReplayFeedbackRecord) -> None: ...
 
-    def append(self, record: ReplayFeedbackRecord) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with interprocess_lock(self._lock_path):
-            with self._path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(asdict(record), ensure_ascii=False) + "\n")
-
-    def list_for(self, timestamp_origen: str) -> list[ReplayFeedbackRecord]:
-        if not self._path.exists():
-            return []
-        records = []
-        with self._path.open(encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                payload = json.loads(line)
-                if payload["timestamp_origen"] == timestamp_origen:
-                    records.append(ReplayFeedbackRecord(**payload))
-        return records
+    def list_for(self, timestamp_origen: str) -> list[ReplayFeedbackRecord]: ...
 
 
 def _find_record(records, timestamp_origen: date):
@@ -97,7 +77,7 @@ def _find_record(records, timestamp_origen: date):
 
 def register_feedback(
     records,
-    store: ReplayFeedbackStore,
+    store: HistoricalReplayFeedbackRepository,
     *,
     timestamp_origen: date,
     simulated_date: date,
@@ -107,29 +87,17 @@ def register_feedback(
 ) -> ReplayFeedbackRecord:
     record = _find_record(records, timestamp_origen)
     if record is None:
-        raise UnknownPredictionError(
-            f"No hay ninguna predicción con origen {timestamp_origen.isoformat()}; "
-            "no se registra feedback sobre una identidad inexistente."
-        )
-
+        raise UnknownPredictionError("No hay ninguna prediccion con ese origen")
     if estado_validacion not in ADMITTED_VALIDATION_STATES:
-        raise InvalidFeedbackContentError(
-            f"estado_validacion debe ser uno de {ADMITTED_VALIDATION_STATES}: "
-            f"{estado_validacion!r}"
-        )
-    if etiqueta_corregida is not None and etiqueta_corregida not in ADMITTED_ETIQUETAS:
-        raise InvalidFeedbackContentError(
-            f"etiqueta_corregida debe ser una de {ADMITTED_ETIQUETAS}: {etiqueta_corregida!r}"
-        )
-
-    revealed = record.target_observed and simulated_date >= record.target_timestamp
-    if not revealed:
-        raise FeedbackNotYetRevealedError(
-            f"La observación de {timestamp_origen.isoformat()} todavía no fue revelada "
-            f"en la fecha simulada {simulated_date.isoformat()}; no se registra feedback "
-            "sobre un resultado que el propio recorrido no muestra todavía."
-        )
-
+        raise InvalidFeedbackContentError("estado_validacion invalido")
+    if etiqueta_corregida is not None and (
+        type(etiqueta_corregida) is not int or etiqueta_corregida not in ADMITTED_ETIQUETAS
+    ):
+        raise InvalidFeedbackContentError("etiqueta_corregida invalida")
+    if observacion is not None and (type(observacion) is not str or len(observacion) > 1_000):
+        raise InvalidFeedbackContentError("observacion invalida")
+    if not record.target_observed or simulated_date < record.target_timestamp:
+        raise FeedbackNotYetRevealedError("La observacion todavia no fue revelada")
     feedback = ReplayFeedbackRecord(
         timestamp_origen=timestamp_origen.isoformat(),
         experiment_id=record.identity.experiment_id,
@@ -145,15 +113,13 @@ def register_feedback(
 
 
 def visible_feedback_for(
-    records, store: ReplayFeedbackStore, *, timestamp_origen: date, simulated_date: date
+    records,
+    store: HistoricalReplayFeedbackRepository,
+    *,
+    timestamp_origen: date,
+    simulated_date: date,
 ) -> list[ReplayFeedbackRecord]:
-    """Proyección de lectura del feedback ya persistido: retrocede el reloj
-    y el feedback vuelve a ocultarse, sin borrar el registro (mismo
-    principio que `historical_replay.projection.project`)."""
     record = _find_record(records, timestamp_origen)
-    if record is None:
-        return []
-    revealed = record.target_observed and simulated_date >= record.target_timestamp
-    if not revealed:
+    if record is None or not record.target_observed or simulated_date < record.target_timestamp:
         return []
     return store.list_for(timestamp_origen.isoformat())
