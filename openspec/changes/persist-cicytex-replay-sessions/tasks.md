@@ -8,15 +8,15 @@
 
 ## 2. Implementación
 
-- [ ] 2.1 Implementar `SQLiteSessionRepository` sin dependencias de backend.
-- [ ] 2.2 Implementar transacciones acotadas y errores controlados.
-- [ ] 2.3 Conectar el adaptador mediante dependencia cacheada y path configurable.
-- [ ] 2.4 Traducir fallas del store a 503 sanitizado sin fallback.
-- [ ] 2.5 Normalizar corrupción tardía sin envolver excepciones del caller.
-- [ ] 2.6 Validar objetos y DDL exactos del schema sin mutar el archivo.
+- [x] 2.1 Implementar `SQLiteSessionRepository` sin dependencias de backend.
+- [x] 2.2 Implementar transacciones acotadas y errores controlados.
+- [x] 2.3 Conectar el adaptador mediante dependencia cacheada y path configurable.
+- [x] 2.4 Traducir fallas del store a 503 sanitizado sin fallback.
+- [x] 2.5 Normalizar corrupción tardía sin envolver excepciones del caller.
+- [x] 2.6 Validar objetos y DDL exactos del schema sin mutar el archivo.
 
 ## 3. Verificación
 
-- [ ] 3.1 Dejar verdes tests unitarios, multiproceso y HTTP.
-- [ ] 3.2 Ejecutar regresiones de replay, CICYTEX y escenarios históricos.
-- [ ] 3.3 Validar Black, Ruff, OpenSpec y diff-check.
+- [x] 3.1 Dejar verdes tests unitarios, multiproceso y HTTP.
+- [x] 3.2 Ejecutar regresiones de replay, CICYTEX y escenarios históricos.
+- [x] 3.3 Validar Black, Ruff, OpenSpec y diff-check.
