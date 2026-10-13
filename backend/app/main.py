@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 
 from data_ingestion.catalog import CatalogError
 from data_ingestion.history import HistoryError
+from historical_replay.adapters.sqlite_sessions import SQLiteSessionRepositoryError
 from human_feedback.operational_repository import OperationalRepositoryError
 
 from .routers import (
@@ -115,6 +116,19 @@ async def operational_repository_error_handler(
         code=error.code,
         message=error.message,
         details=error.details,
+    )
+
+
+@app.exception_handler(SQLiteSessionRepositoryError)
+async def sqlite_session_repository_error_handler(
+    request: Request, _error: SQLiteSessionRepositoryError
+) -> JSONResponse:
+    return _v2_error_response(
+        request,
+        status_code=503,
+        code="http_error",
+        message="El almacenamiento de sesiones CICYTEX no esta disponible",
+        details={},
     )
 
 
