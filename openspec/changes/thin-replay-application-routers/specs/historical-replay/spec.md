@@ -49,3 +49,11 @@ references, literal payload fields and existing status/error behavior.
 - **AND** reset, feedback, conflict, 404, 409, 422 and private 503 behavior is
   unchanged
 - **AND** no scientific package or persistence schema is modified by this change.
+
+#### Scenario: unrevealed outcomes are not evaluated
+
+- **GIVEN** an archived CICYTEX prediction whose target is later than the session clock
+- **AND** its future observed moisture and label are absent
+- **WHEN** the application renders the session
+- **THEN** it does not read or convert either future outcome
+- **AND** the three outcome fields remain `null` until the target is revealed.
