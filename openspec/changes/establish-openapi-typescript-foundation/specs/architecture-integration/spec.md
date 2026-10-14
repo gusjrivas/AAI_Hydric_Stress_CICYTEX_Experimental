@@ -21,6 +21,13 @@ version without starting the backend, using HTTP, `npx` or network access.
 - **THEN** all violations are reported in deterministic path/method order
 - **AND** input mapping order cannot change the diagnostics.
 
+#### Scenario: current application schema is exported without HTTP
+
+- **WHEN** the repository exports the FastAPI schema
+- **THEN** it calls the in-process application's `openapi()` method
+- **AND** all real operations have complete unique identifiers
+- **AND** no server, URL or network client participates.
+
 ### Requirement: Generated artifacts are integrity-bound but not runtime code
 
 The foundation SHALL commit the exact OpenAPI and TypeScript bytes by size and
@@ -40,3 +47,24 @@ client or be imported by production backend/frontend modules in this change.
 - **WHEN** the generated AST is validated
 - **THEN** validation fails
 - **BUT** the word `any` in a comment or string literal remains valid.
+
+#### Scenario: generation and check are reproducible
+
+- **GIVEN** the exact locally installed generator and unchanged application schema
+- **WHEN** artifacts are generated twice
+- **THEN** all three artifact files are byte-identical
+- **AND** a clean check succeeds without rewriting them.
+
+#### Scenario: drift check is read-only
+
+- **GIVEN** drift in the OpenAPI, TypeScript or manifest artifact
+- **WHEN** check mode runs
+- **THEN** it fails
+- **AND** every tracked byte remains unchanged.
+
+#### Scenario: the local generator installation is executable
+
+- **WHEN** plain `npm ci` installs the exact frontend lock
+- **THEN** its TypeScript version satisfies the generator's declared peer range
+- **AND** the binary under `node_modules/.bin` executes twice deterministically
+- **AND** no force, legacy-peer, `npx` or URL fallback is used.

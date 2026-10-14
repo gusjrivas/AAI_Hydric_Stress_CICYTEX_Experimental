@@ -19,6 +19,17 @@ by an npm script from `frontend/node_modules`.  The script must not use `npx`, a
 URL or a running backend.  Acquisition of dependencies remains the ordinary
 lockfile-controlled install step and is not part of generation.
 
+The exporter imports the FastAPI application in-process and calls
+`app.openapi()` directly.  It never starts Uvicorn and never fetches
+`/openapi.json`.  Generate writes into a caller-selected directory.  Check
+always regenerates in a temporary directory and compares all three tracked
+artifacts (`openapi.json`, `openapi.ts`, manifest), so a failing check cannot
+repair or partially overwrite the evidence it is evaluating.
+
+The lock must be installable by plain `npm ci`.  In particular, the TypeScript
+version must satisfy the peer range declared by the exact
+`openapi-typescript` package; force and legacy-peer overrides are not accepted.
+
 ## Type safety and rollout boundary
 
 The generated source is checked through a TypeScript AST representation.
