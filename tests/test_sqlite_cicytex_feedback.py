@@ -14,6 +14,7 @@ from historical_replay.sessions import ReplaySession, ReplaySessionService
 
 
 def _api():
+    from historical_replay.adapters.sqlite_sessions import SQLiteCicytexFeedbackRepository
     from historical_replay.cicytex_feedback import (
         CicytexFeedbackConflict,
         CicytexFeedbackRecord,
@@ -21,8 +22,6 @@ def _api():
         CicytexFeedbackService,
         CicytexFeedbackUnavailable,
     )
-
-    from historical_replay.adapters.sqlite_sessions import SQLiteCicytexFeedbackRepository
 
     return {
         "adapter": SQLiteCicytexFeedbackRepository,
@@ -34,13 +33,20 @@ def _api():
     }
 
 
-def _session(session_id: str = "session-1", *, revealed: date = date(2023, 7, 7)):
+def _session(
+    session_id: str = "session-1",
+    *,
+    sensor_id: str = "CP1_S1",
+    emission_date: date = date(2023, 7, 6),
+    horizon_days: int = 1,
+    revealed: date = date(2023, 7, 7),
+):
     return ReplaySession(
         session_id=session_id,
-        sensor_id="CP1_S1",
-        start_date=date(2023, 7, 6),
-        emission_date=date(2023, 7, 6),
-        horizon_days=1,
+        sensor_id=sensor_id,
+        start_date=emission_date,
+        emission_date=emission_date,
+        horizon_days=horizon_days,
         revealed_through=revealed,
         last_observation=date(2023, 7, 25),
     )
@@ -82,14 +88,21 @@ def _create_v1(database: Path, *sessions: ReplaySession) -> None:
         )
 
 
-def _legacy_entry(*, observation: str = "Revisado") -> dict:
+def _legacy_entry(
+    *,
+    sensor_id: str = "CP1_S1",
+    emission_date: str = "2023-07-06",
+    horizon_days: int = 1,
+    simulated_at: str = "2023-07-07",
+    observation: str = "Revisado",
+) -> dict:
     return {
-        "CP1_S1|2023-07-06|1": {
+        f"{sensor_id}|{emission_date}|{horizon_days}": {
             "estado_validacion": "confirmada",
             "etiqueta_corregida": 1,
             "observacion": observation,
             "registered_at": "2026-10-12T10:00:00+00:00",
-            "simulated_at": "2023-07-07",
+            "simulated_at": simulated_at,
             "scope": "demostracion; no recalibra ni reentrena",
         }
     }
@@ -231,6 +244,66 @@ def test_invalid_legacy_json_aborts_migration_and_preserves_v1_session(tmp_path,
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA user_version").fetchone() == (1,)
         assert connection.execute("SELECT COUNT(*) FROM replay_sessions").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='cicytex_replay_feedback'"
+        ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    ("payload", "sessions", "private_marker"),
+    [
+        pytest.param(
+            _legacy_entry(sensor_id="PRIVATE_FOREIGN_SENSOR", observation="private-foreign"),
+            (
+                _session("same-natural-key-one"),
+                _session("same-natural-key-two", revealed=date(2023, 7, 8)),
+                _session(
+                    "other-natural-key",
+                    sensor_id="CP2_S1",
+                    emission_date=date(2023, 7, 8),
+                    horizon_days=2,
+                    revealed=date(2023, 7, 10),
+                ),
+            ),
+            "private-foreign",
+            id="no-session-has-the-natural-identity",
+        ),
+        pytest.param(
+            _legacy_entry(simulated_at="2023-07-25", observation="private-future"),
+            (
+                _session("matching-but-not-revealed-one"),
+                _session("matching-but-not-revealed-two", revealed=date(2023, 7, 8)),
+            ),
+            "private-future",
+            id="all-matching-sessions-are-before-simulated-at",
+        ),
+    ],
+)
+def test_semantically_foreign_or_future_legacy_feedback_preserves_v1_bytes(
+    tmp_path, payload, sessions, private_marker
+):
+    api = _api()
+    database = tmp_path / "sessions.sqlite3"
+    legacy = tmp_path / "private-feedback.json"
+    _create_v1(database, *sessions)
+    legacy.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    before = database.read_bytes()
+
+    with pytest.raises(api["repository_error"]) as captured:
+        api["adapter"](database, legacy_feedback_path=legacy)
+
+    assert private_marker not in str(captured.value)
+    assert str(database) not in str(captured.value)
+    assert str(legacy) not in str(captured.value)
+    assert database.read_bytes() == before
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT value FROM replay_session_metadata WHERE key='schema_version'"
+        ).fetchone() == ("1",)
+        assert connection.execute("SELECT COUNT(*) FROM replay_sessions").fetchone() == (
+            len(sessions),
+        )
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE name='cicytex_replay_feedback'"
         ).fetchone() == (0,)

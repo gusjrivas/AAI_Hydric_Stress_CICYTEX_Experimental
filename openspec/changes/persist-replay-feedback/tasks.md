@@ -6,6 +6,7 @@
 - [x] 1.4 Specify historical SQLite append/import/isolation/concurrency behavior.
 - [x] 1.5 Specify HTTP compatibility, private 503 mapping, DI and AST boundaries.
 - [x] 1.6 Specify readable imports, single-owner bootstrap and repeatable HTTP isolation.
+- [x] 1.7 Specify legacy feedback binding to compatible session identity and clock.
 
 ## 2. GREEN implementation
 
@@ -15,6 +16,7 @@
 - [ ] 2.4 Add the historical SQLite feedback adapter and JSONL import.
 - [ ] 2.5 Wire administrator-controlled dependencies and sanitized HTTP failures.
 - [ ] 2.6 Remove boundary evasions and make legacy migration bootstrap atomic.
+- [ ] 2.7 Reject legacy feedback without a compatible session identity and clock.
 
 ## 3. Verification
 

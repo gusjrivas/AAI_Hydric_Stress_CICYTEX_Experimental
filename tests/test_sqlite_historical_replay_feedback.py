@@ -22,7 +22,6 @@ def _api():
         SQLiteReplayFeedbackStore,
         SQLiteReplayFeedbackStoreError,
     )
-
     from historical_replay.feedback import HistoricalReplayFeedbackRepository
 
     return {

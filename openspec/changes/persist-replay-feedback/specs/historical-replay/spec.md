@@ -23,6 +23,14 @@ registration with session reset across processes.
 - **AND** validation or import failure leaves the original database bytes,
   schema-v1 metadata and session rows unchanged.
 
+#### Scenario: legacy feedback is bound to a compatible replay session
+
+- **GIVEN** a structurally valid legacy feedback record
+- **WHEN** no session has its natural sensor, emission and horizon identity
+- **OR** its simulated time is later than every matching session clock
+- **THEN** migration fails closed with zero imported feedback
+- **AND** the schema-v1 database remains byte-identical.
+
 #### Scenario: reset and feedback have one serial order
 
 - **WHEN** independent processes race reset and feedback registration

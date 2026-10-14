@@ -3,8 +3,8 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from historical_replay.adapters.sqlite_feedback import SQLiteReplayFeedbackStore
 
+from historical_replay.adapters.sqlite_feedback import SQLiteReplayFeedbackStore
 from historical_replay.feedback import (
     FeedbackNotYetRevealedError,
     InvalidFeedbackContentError,
