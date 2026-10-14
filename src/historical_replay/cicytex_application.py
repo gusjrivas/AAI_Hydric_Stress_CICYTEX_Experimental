@@ -137,26 +137,27 @@ class CicytexReplayApplication:
         ).iterrows():
             target_revealed = pd.Timestamp(row["target_timestamp"]) <= reveal
             alert = str(row["alert"]).lower() in {"true", "1"}
-            observed_label = int(row["observed_label"])
+            if target_revealed:
+                observed_soil_moisture = float(row["observed_soil_moisture"])
+                observed_label = int(row["observed_label"])
+                outcome = (
+                    ("VP" if observed_label else "FP")
+                    if alert
+                    else ("FN" if observed_label else "VN")
+                )
+            else:
+                observed_soil_moisture = None
+                observed_label = None
+                outcome = None
             predictions_view.append(
                 {
                     "method": row["method"],
                     "score": float(row["score"]),
                     "alert": alert,
                     "target_date": _iso(row["target_timestamp"]),
-                    "observed_soil_moisture": (
-                        float(row["observed_soil_moisture"]) if target_revealed else None
-                    ),
-                    "observed_label": observed_label if target_revealed else None,
-                    "outcome": (
-                        (
-                            ("VP" if observed_label else "FP")
-                            if alert
-                            else ("FN" if observed_label else "VN")
-                        )
-                        if target_revealed
-                        else None
-                    ),
+                    "observed_soil_moisture": observed_soil_moisture,
+                    "observed_label": observed_label,
+                    "outcome": outcome,
                 }
             )
         accumulated = sensor_predictions.loc[
