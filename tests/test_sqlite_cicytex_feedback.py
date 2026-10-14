@@ -269,17 +269,17 @@ def test_invalid_legacy_json_aborts_migration_and_preserves_v1_session(tmp_path,
             id="no-session-has-the-natural-identity",
         ),
         pytest.param(
-            _legacy_entry(simulated_at="2023-07-25", observation="private-future"),
+            _legacy_entry(simulated_at="2023-07-26", observation="private-after-observation"),
             (
                 _session("matching-but-not-revealed-one"),
                 _session("matching-but-not-revealed-two", revealed=date(2023, 7, 8)),
             ),
-            "private-future",
-            id="all-matching-sessions-are-before-simulated-at",
+            "private-after-observation",
+            id="simulated-at-is-after-last-observation",
         ),
     ],
 )
-def test_semantically_foreign_or_future_legacy_feedback_preserves_v1_bytes(
+def test_semantically_foreign_or_out_of_range_legacy_feedback_preserves_v1_bytes(
     tmp_path, payload, sessions, private_marker
 ):
     api = _api()
@@ -366,15 +366,12 @@ def test_mixed_valid_and_foreign_legacy_batch_rolls_back_every_record(tmp_path):
         ).fetchone() == (0,)
 
 
-def test_one_of_multiple_matching_sessions_can_authorize_legacy_simulated_at(tmp_path):
+def test_reset_session_can_authorize_historical_legacy_simulated_at(tmp_path):
     api = _api()
     database = tmp_path / "sessions.sqlite3"
     legacy = tmp_path / "feedback.json"
-    sessions = (
-        _session("matching-reset", revealed=date(2023, 7, 6)),
-        _session("matching-authority", revealed=date(2023, 7, 7)),
-    )
-    _create_v1(database, *sessions)
+    reset_session = _session("matching-reset", revealed=date(2023, 7, 6))
+    _create_v1(database, reset_session)
     legacy.write_text(json.dumps(_legacy_entry(), separators=(",", ":")), encoding="utf-8")
 
     repository = api["adapter"](database, legacy_feedback_path=legacy)
@@ -382,7 +379,7 @@ def test_one_of_multiple_matching_sessions_can_authorize_legacy_simulated_at(tmp
     assert repository.get("CP1_S1", date(2023, 7, 6), 1).simulated_at == date(2023, 7, 7)
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA user_version").fetchone() == (2,)
-        assert connection.execute("SELECT COUNT(*) FROM replay_sessions").fetchone() == (2,)
+        assert connection.execute("SELECT COUNT(*) FROM replay_sessions").fetchone() == (1,)
         assert connection.execute("SELECT COUNT(*) FROM cicytex_replay_feedback").fetchone() == (1,)
 
 

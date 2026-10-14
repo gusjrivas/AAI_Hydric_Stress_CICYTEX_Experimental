@@ -27,7 +27,7 @@ registration with session reset across processes.
 
 - **GIVEN** a structurally valid legacy feedback record
 - **WHEN** no session has its natural sensor, emission and horizon identity
-- **OR** its simulated time is later than every matching session clock
+- **OR** its simulated time is later than every matching session's last observation
 - **OR** its simulated time is before the emission-plus-horizon target
 - **THEN** migration fails closed with zero imported feedback
 - **AND** the schema-v1 database remains byte-identical.
@@ -39,11 +39,12 @@ registration with session reset across processes.
 - **THEN** one incompatible record rejects the entire batch before commit
 - **AND** no valid sibling record, schema change or digest is persisted.
 
-#### Scenario: one compatible session authorizes a natural identity
+#### Scenario: reset does not invalidate historical legacy feedback
 
-- **GIVEN** multiple replay sessions with the same natural prediction identity
-- **WHEN** at least one session has reached a valid simulated time at or after the target
-- **THEN** the otherwise valid legacy feedback is imported once for that natural identity.
+- **GIVEN** a matching replay session whose mutable revealed clock was reset
+- **WHEN** the legacy simulated time remains between target and last observation inclusive
+- **THEN** the otherwise valid legacy feedback is imported once
+- **AND** current `revealed_through` is not treated as the historical upper bound.
 
 #### Scenario: reset and feedback have one serial order
 
