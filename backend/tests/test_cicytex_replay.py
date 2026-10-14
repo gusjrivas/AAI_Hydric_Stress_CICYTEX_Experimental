@@ -188,6 +188,39 @@ def test_future_is_blocked_until_session_clock_advances(tmp_path, monkeypatch, _
     assert session_database.is_file()
 
 
+def test_unrevealed_prediction_does_not_read_missing_future_outcome(tmp_path, monkeypatch):
+    _package(tmp_path)
+    predictions_path = tmp_path / "predictions.csv"
+    predictions = pd.read_csv(predictions_path)
+    predictions["observed_soil_moisture"] = pd.NA
+    predictions["observed_label"] = pd.NA
+    predictions.to_csv(predictions_path, index=False)
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+    monkeypatch.setenv("CICYTEX_REPLAY_SESSION_DB", str(tmp_path / "sessions.sqlite3"))
+    monkeypatch.delenv("CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON", raising=False)
+    app.dependency_overrides.clear()
+    get_cicytex_replay_sessions.cache_clear()
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v2/cicytex/replay/sessions",
+                json={
+                    "sensor_id": "CP1_S1",
+                    "emission_date": "2023-07-06",
+                    "horizon_days": 1,
+                },
+            )
+    finally:
+        get_cicytex_replay_sessions.cache_clear()
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    for prediction in response.json()["predictions"]:
+        assert prediction["observed_soil_moisture"] is None
+        assert prediction["observed_label"] is None
+        assert prediction["outcome"] is None
+
+
 def test_rejects_non_archived_selection(tmp_path, monkeypatch):
     _package(tmp_path)
     monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))

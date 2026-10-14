@@ -22,9 +22,18 @@ from historical_replay.adapters.sqlite_sessions import (
     SQLiteSessionRepository,
 )
 from historical_replay.catalog import GetReplayCatalog
+from historical_replay.cicytex_application import (
+    CicytexCatalogApplication,
+    CicytexFeedbackApplication,
+    CicytexReplayApplication,
+)
 from historical_replay.cicytex_feedback import CicytexFeedbackService
 from historical_replay.feedback import HistoricalReplayFeedbackRepository
 from historical_replay.package_loader import LoadedReplayPackage, load_package
+from historical_replay.replay_application import (
+    HistoricalReplayApplication,
+    HistoricalReplayFeedbackApplication,
+)
 from historical_replay.sessions import ReplaySessionService
 from human_feedback.adapters.disabled import DisabledDecisionPolicyEngine
 from human_feedback.adapters.laya_http import LayaDecisionPolicyEngine
@@ -153,6 +162,27 @@ def get_cicytex_replay_feedback() -> CicytexFeedbackService:
     )
 
 
+def get_cicytex_catalog_application(
+    query: GetReplayCatalog = Depends(get_cicytex_replay_catalog),
+) -> CicytexCatalogApplication:
+    return CicytexCatalogApplication(query)
+
+
+def get_cicytex_replay_application(
+    sessions: ReplaySessionService = Depends(get_cicytex_replay_sessions),
+    frames: tuple = Depends(get_cicytex_replay_frames),
+    feedback: CicytexFeedbackService = Depends(get_cicytex_replay_feedback),
+) -> CicytexReplayApplication:
+    return CicytexReplayApplication(frames, sessions, feedback)
+
+
+def get_cicytex_feedback_application(
+    sessions: ReplaySessionService = Depends(get_cicytex_replay_sessions),
+    feedback: CicytexFeedbackService = Depends(get_cicytex_replay_feedback),
+) -> CicytexFeedbackApplication:
+    return CicytexFeedbackApplication(sessions, feedback)
+
+
 def get_feedback_triage() -> TriageFeedback:
     url = os.getenv("LAYA_DECISION_URL")
     revision = os.getenv("LAYA_MODEL_REVISION")
@@ -204,3 +234,16 @@ def get_historical_replay_feedback_store(
         package_id=package.manifest["package_id"],
         legacy_jsonl_path=legacy if legacy.is_file() else None,
     )
+
+
+def get_historical_replay_application(
+    package: LoadedReplayPackage = Depends(get_historical_replay_package),
+) -> HistoricalReplayApplication:
+    return HistoricalReplayApplication(package)
+
+
+def get_historical_replay_feedback_application(
+    package: LoadedReplayPackage = Depends(get_historical_replay_package),
+    store: HistoricalReplayFeedbackRepository = Depends(get_historical_replay_feedback_store),
+) -> HistoricalReplayFeedbackApplication:
+    return HistoricalReplayFeedbackApplication(package, store)
