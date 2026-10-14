@@ -16,9 +16,14 @@ from fastapi import Depends, HTTPException
 from data_ingestion.catalog import CatalogRepository
 from data_ingestion.sensor_naming import validate_sensor_id
 from historical_replay.adapters.cicytex_csv import CsvReplayCatalogSource
-from historical_replay.adapters.sqlite_sessions import SQLiteSessionRepository
+from historical_replay.adapters.sqlite_feedback import SQLiteReplayFeedbackStore
+from historical_replay.adapters.sqlite_sessions import (
+    SQLiteCicytexFeedbackRepository,
+    SQLiteSessionRepository,
+)
 from historical_replay.catalog import GetReplayCatalog
-from historical_replay.feedback import ReplayFeedbackStore
+from historical_replay.cicytex_feedback import CicytexFeedbackService
+from historical_replay.feedback import HistoricalReplayFeedbackRepository
 from historical_replay.package_loader import LoadedReplayPackage, load_package
 from historical_replay.sessions import ReplaySessionService
 from human_feedback.adapters.disabled import DisabledDecisionPolicyEngine
@@ -28,8 +33,10 @@ from human_feedback.historical_review_store import HistoricalReviewStore
 from human_feedback.operational_repository import OperationalRepository
 
 from .config import (
+    get_cicytex_legacy_feedback_json,
     get_cicytex_replay_session_database,
     get_dataset_data_dir,
+    get_historical_replay_feedback_database,
     get_historical_replay_feedback_dir,
     get_historical_replay_package_dir,
     is_historical_replay_enabled,
@@ -101,14 +108,48 @@ def get_cicytex_replay_catalog() -> GetReplayCatalog:
     return GetReplayCatalog(CsvReplayCatalogSource(root))
 
 
+def get_cicytex_replay_frames() -> tuple:
+    import pandas as pd
+
+    configured = os.getenv("CICYTEX_REPLAY_DIR")
+    root = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[2] / "results" / "cicytex" / "causal_replay"
+    )
+    try:
+        return (
+            pd.read_csv(
+                root / "predictions.csv", parse_dates=["emission_date", "target_timestamp"]
+            ),
+            pd.read_csv(root / "observations.csv", parse_dates=["timestamp"]),
+        )
+    except (OSError, ValueError) as error:
+        raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
+
+
 @lru_cache(maxsize=1)
 def get_cicytex_replay_sessions() -> ReplaySessionService:
     """Process-scoped session use case, replaceable through FastAPI overrides."""
 
+    database = get_cicytex_replay_session_database()
+    SQLiteCicytexFeedbackRepository(
+        database,
+        legacy_feedback_path=get_cicytex_legacy_feedback_json(),
+    )
     return ReplaySessionService(
-        SQLiteSessionRepository(get_cicytex_replay_session_database()),
+        SQLiteSessionRepository(database),
         id_factory=lambda: uuid4().hex,
         last_observation=date(2023, 7, 25),
+    )
+
+
+def get_cicytex_replay_feedback() -> CicytexFeedbackService:
+    return CicytexFeedbackService(
+        SQLiteCicytexFeedbackRepository(
+            get_cicytex_replay_session_database(),
+            legacy_feedback_path=get_cicytex_legacy_feedback_json(),
+        )
     )
 
 
@@ -153,8 +194,13 @@ def get_historical_replay_package(
 
 def get_historical_replay_feedback_store(
     package: LoadedReplayPackage = Depends(get_historical_replay_package),
-    feedback_dir: Path = Depends(get_historical_replay_feedback_dir),
-) -> ReplayFeedbackStore:
+    database: Path = Depends(get_historical_replay_feedback_database),
+) -> HistoricalReplayFeedbackRepository:
     """Almacenamiento de feedback de demostración (RH-07), aislado por
     `package_id` — nunca el mismo archivo entre paquetes distintos."""
-    return ReplayFeedbackStore(feedback_dir, package_id=package.manifest["package_id"])
+    legacy = get_historical_replay_feedback_dir() / f"{package.manifest['package_id']}.jsonl"
+    return SQLiteReplayFeedbackStore(
+        database,
+        package_id=package.manifest["package_id"],
+        legacy_jsonl_path=legacy if legacy.is_file() else None,
+    )

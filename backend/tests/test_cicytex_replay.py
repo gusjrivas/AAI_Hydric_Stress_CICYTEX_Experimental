@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Barrier
 
 import pandas as pd
+import pytest
 from app.dependencies import get_cicytex_replay_sessions
 from app.main import app
 from fastapi.testclient import TestClient
@@ -125,52 +126,66 @@ def test_catalog_returns_service_unavailable_when_package_is_malformed(tmp_path,
     assert error["request_id"]
 
 
-def test_future_is_blocked_until_session_clock_advances(tmp_path, monkeypatch):
+@pytest.mark.parametrize("_repeat", range(2))
+def test_future_is_blocked_until_session_clock_advances(tmp_path, monkeypatch, _repeat):
     _package(tmp_path)
     monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
     monkeypatch.setenv("CICYTEX_REPLAY_FEEDBACK_DIR", str(tmp_path / "feedback"))
-    with TestClient(app) as client:
-        created = client.post(
-            "/api/v2/cicytex/replay/sessions",
-            json={
-                "sensor_id": "CP1_S1",
-                "emission_date": "2023-07-06",
-                "horizon_days": 1,
-            },
-        )
-        assert created.status_code == 201
-        before = created.json()
-        assert before["readings"][-1]["date"] == "2023-07-06"
-        assert all(row["observed_soil_moisture"] is None for row in before["predictions"])
-        assert before["metrics"] == {}
-        blocked = client.post(
-            f"/api/v2/cicytex/replay/sessions/{before['session_id']}/feedback",
-            json={"estado_validacion": "confirmada"},
-        )
-        assert blocked.status_code == 409
+    session_database = tmp_path / "sessions.sqlite3"
+    monkeypatch.setenv("CICYTEX_REPLAY_SESSION_DB", str(session_database))
+    monkeypatch.delenv("CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON", raising=False)
+    app.dependency_overrides.clear()
+    get_cicytex_replay_sessions.cache_clear()
+    try:
+        with TestClient(app) as client:
+            created = client.post(
+                "/api/v2/cicytex/replay/sessions",
+                json={
+                    "sensor_id": "CP1_S1",
+                    "emission_date": "2023-07-06",
+                    "horizon_days": 1,
+                },
+            )
+            assert created.status_code == 201
+            before = created.json()
+            assert before["readings"][-1]["date"] == "2023-07-06"
+            assert all(row["observed_soil_moisture"] is None for row in before["predictions"])
+            assert before["metrics"] == {}
+            blocked = client.post(
+                f"/api/v2/cicytex/replay/sessions/{before['session_id']}/feedback",
+                json={"estado_validacion": "confirmada"},
+            )
+            assert blocked.status_code == 409
 
-        advanced = client.post(
-            f"/api/v2/cicytex/replay/sessions/{before['session_id']}/advance"
-        ).json()
-        assert advanced["readings"][-1]["date"] == "2023-07-07"
-        assert all(row["observed_soil_moisture"] == 0.18 for row in advanced["predictions"])
-        assert advanced["metrics"]["ensemble"]["tp"] == 1
-        assert advanced["metrics"]["persistence"]["fn"] == 1
-        reset = client.post(f"/api/v2/cicytex/replay/sessions/{before['session_id']}/reset")
-        assert reset.status_code == 200
-        assert reset.json() == before
-        assert all(row["observed_soil_moisture"] is None for row in reset.json()["predictions"])
-        advanced = client.post(
-            f"/api/v2/cicytex/replay/sessions/{before['session_id']}/advance"
-        ).json()
-        registered = client.post(
-            f"/api/v2/cicytex/replay/sessions/{before['session_id']}/feedback",
-            json={"estado_validacion": "confirmada", "observacion": "Revisado en defensa"},
-        )
-        assert registered.status_code == 201
-        refreshed = client.get(f"/api/v2/cicytex/replay/sessions/{before['session_id']}").json()
-        assert refreshed["feedback"]["estado_validacion"] == "confirmada"
-        assert refreshed["feedback"]["scope"] == "demostracion; no recalibra ni reentrena"
+            advanced = client.post(
+                f"/api/v2/cicytex/replay/sessions/{before['session_id']}/advance"
+            ).json()
+            assert advanced["readings"][-1]["date"] == "2023-07-07"
+            assert all(row["observed_soil_moisture"] == 0.18 for row in advanced["predictions"])
+            assert advanced["metrics"]["ensemble"]["tp"] == 1
+            assert advanced["metrics"]["persistence"]["fn"] == 1
+            reset = client.post(f"/api/v2/cicytex/replay/sessions/{before['session_id']}/reset")
+            assert reset.status_code == 200
+            assert reset.json() == before
+            assert all(row["observed_soil_moisture"] is None for row in reset.json()["predictions"])
+            advanced = client.post(
+                f"/api/v2/cicytex/replay/sessions/{before['session_id']}/advance"
+            ).json()
+            registered = client.post(
+                f"/api/v2/cicytex/replay/sessions/{before['session_id']}/feedback",
+                json={
+                    "estado_validacion": "confirmada",
+                    "observacion": "Revisado en defensa",
+                },
+            )
+            assert registered.status_code == 201
+            refreshed = client.get(f"/api/v2/cicytex/replay/sessions/{before['session_id']}").json()
+            assert refreshed["feedback"]["estado_validacion"] == "confirmada"
+            assert refreshed["feedback"]["scope"] == ("demostracion; no recalibra ni reentrena")
+    finally:
+        get_cicytex_replay_sessions.cache_clear()
+        app.dependency_overrides.clear()
+    assert session_database.is_file()
 
 
 def test_rejects_non_archived_selection(tmp_path, monkeypatch):

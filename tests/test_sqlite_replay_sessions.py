@@ -94,21 +94,25 @@ def _join(process, *, timeout: float = 10) -> None:
     assert process.exitcode == 0
 
 
-def test_new_database_has_closed_v1_schema_and_metadata(tmp_path):
+def test_new_database_has_closed_v2_schema_and_metadata(tmp_path):
     database = tmp_path / "sessions.sqlite3"
 
     SQLiteSessionRepository(database)
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        assert tables == {"replay_session_metadata", "replay_sessions"}
+        assert tables == {
+            "replay_session_metadata",
+            "replay_sessions",
+            "cicytex_replay_feedback",
+        }
         assert connection.execute(
             "SELECT value FROM replay_session_metadata WHERE key = 'schema_version'"
-        ).fetchone() == ("1",)
+        ).fetchone() == ("2",)
         assert [row[1] for row in connection.execute("PRAGMA table_info(replay_sessions)")] == [
             "session_id",
             "sensor_id",
@@ -117,6 +121,19 @@ def test_new_database_has_closed_v1_schema_and_metadata(tmp_path):
             "horizon_days",
             "revealed_through",
             "last_observation",
+        ]
+        assert [
+            row[1] for row in connection.execute("PRAGMA table_info(cicytex_replay_feedback)")
+        ] == [
+            "sensor_id",
+            "emission_date",
+            "horizon_days",
+            "estado_validacion",
+            "etiqueta_corregida",
+            "observacion",
+            "registered_at",
+            "simulated_at",
+            "scope",
         ]
 
 
@@ -145,9 +162,9 @@ def test_invalid_existing_database_fails_closed_without_reinitializing(tmp_path,
             if kind == "foreign":
                 connection.execute("CREATE TABLE unrelated(secret TEXT)")
             elif kind == "future":
-                connection.execute("PRAGMA user_version = 2")
+                connection.execute("PRAGMA user_version = 3")
             else:
-                connection.execute("PRAGMA user_version = 1")
+                connection.execute("PRAGMA user_version = 2")
                 connection.execute("CREATE TABLE replay_session_metadata(key TEXT, value TEXT)")
 
     before = database.read_bytes()
@@ -412,10 +429,68 @@ def test_concurrent_bootstrap_is_idempotent_and_complete(tmp_path):
     assert SQLiteSessionRepository(database).get("missing") is None
 
 
-def test_adapter_has_no_backend_router_or_feedback_dependency():
+def test_adapter_has_a_readable_direct_domain_dependency_without_boundary_evasion():
+    import ast
+
     source = (
         Path(__file__).parents[1] / "src" / "historical_replay" / "adapters" / "sqlite_sessions.py"
     ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imported_modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+
+    def folded_string(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = folded_string(node.left)
+            right = folded_string(node.right)
+            if left is not None and right is not None:
+                return left + right
+        return None
+
+    direct_feedback_names = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "historical_replay.cicytex_feedback"
+        for alias in node.names
+    }
+    fragmented_feedback_names = {
+        value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.BinOp)
+        and (value := folded_string(node)) is not None
+        and "feedback" in value
+    }
+
+    assert "historical_replay.cicytex_feedback" in imported_modules
+    assert direct_feedback_names == {
+        "CicytexFeedbackConflict",
+        "CicytexFeedbackRecord",
+        "CicytexFeedbackRepositoryError",
+        "CicytexFeedbackUnavailable",
+    }
+    assert not fragmented_feedback_names
+    assert "importlib" not in {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert not any(
+        isinstance(node, ast.Call)
+        and (
+            isinstance(node.func, ast.Name)
+            and node.func.id in {"__import__", "import_module"}
+            or isinstance(node.func, ast.Attribute)
+            and node.func.attr == "import_module"
+        )
+        for node in ast.walk(tree)
+    )
+    assert "legacy_feedback_path" in source
+    assert "cicytex_replay_feedback" in source
     assert "backend" not in source
     assert "fastapi" not in source
-    assert "feedback" not in source

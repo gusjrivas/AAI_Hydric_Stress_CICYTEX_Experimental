@@ -1,13 +1,13 @@
-import json
 import multiprocessing
 from datetime import date
+from pathlib import Path
 
 import pytest
 
+from historical_replay.adapters.sqlite_feedback import SQLiteReplayFeedbackStore
 from historical_replay.feedback import (
     FeedbackNotYetRevealedError,
     InvalidFeedbackContentError,
-    ReplayFeedbackStore,
     UnknownPredictionError,
     register_feedback,
 )
@@ -32,7 +32,7 @@ def _package_records():
 
 def test_register_feedback_after_reveal_succeeds(tmp_path):
     records = _package_records()
-    store = ReplayFeedbackStore(tmp_path, package_id="base-seed4-test")
+    store = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="base-seed4-test")
 
     record = register_feedback(
         records,
@@ -55,7 +55,7 @@ def test_register_feedback_after_reveal_succeeds(tmp_path):
 
 def test_register_feedback_before_reveal_is_rejected(tmp_path):
     records = _package_records()
-    store = ReplayFeedbackStore(tmp_path, package_id="base-seed4-test")
+    store = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="base-seed4-test")
 
     with pytest.raises(FeedbackNotYetRevealedError):
         register_feedback(
@@ -71,7 +71,7 @@ def test_register_feedback_before_reveal_is_rejected(tmp_path):
 
 def test_register_feedback_for_unknown_identity_is_rejected(tmp_path):
     records = _package_records()
-    store = ReplayFeedbackStore(tmp_path, package_id="base-seed4-test")
+    store = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="base-seed4-test")
 
     with pytest.raises(UnknownPredictionError):
         register_feedback(
@@ -85,7 +85,7 @@ def test_register_feedback_for_unknown_identity_is_rejected(tmp_path):
 
 def test_register_feedback_with_invalid_estado_is_rejected(tmp_path):
     records = _package_records()
-    store = ReplayFeedbackStore(tmp_path, package_id="base-seed4-test")
+    store = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="base-seed4-test")
 
     with pytest.raises(InvalidFeedbackContentError):
         register_feedback(
@@ -99,7 +99,7 @@ def test_register_feedback_with_invalid_estado_is_rejected(tmp_path):
 
 def test_register_feedback_with_invalid_etiqueta_is_rejected(tmp_path):
     records = _package_records()
-    store = ReplayFeedbackStore(tmp_path, package_id="base-seed4-test")
+    store = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="base-seed4-test")
 
     with pytest.raises(InvalidFeedbackContentError):
         register_feedback(
@@ -116,7 +116,7 @@ def test_feedback_is_not_visible_before_the_reveal_clock_even_after_registration
     # El registro persiste, pero una consulta con reloj anterior al objetivo
     # no debe exponerlo (oculto por retroceso, sin borrarlo).
     records = _package_records()
-    store = ReplayFeedbackStore(tmp_path, package_id="base-seed4-test")
+    store = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="base-seed4-test")
     register_feedback(
         records,
         store,
@@ -143,7 +143,7 @@ def _append_many(storage_dir, package_id, run_id, count, barrier):
 
     from historical_replay.feedback import ReplayFeedbackRecord
 
-    store = ReplayFeedbackStore(storage_dir, package_id=package_id)
+    store = SQLiteReplayFeedbackStore(Path(storage_dir) / "feedback.sqlite3", package_id=package_id)
     barrier.wait()
     for i in range(count):
         store.append(
@@ -178,26 +178,22 @@ def test_append_survives_concurrent_writers_without_loss_or_corruption(tmp_path)
         p.join(timeout=60)
         assert p.exitcode == 0
 
-    path = tmp_path / "pkg-concurrent.jsonl"
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    assert len(lines) == n_writers * n_per_writer
+    stored = SQLiteReplayFeedbackStore(
+        tmp_path / "feedback.sqlite3", package_id="pkg-concurrent"
+    ).list_for("2024-01-01")
+    assert len(stored) == n_writers * n_per_writer
 
-    seen = set()
-    for line in lines:
-        payload = json.loads(line)  # raises if any line is corrupted/interleaved
-        key = (payload["run_id"], payload["observacion"])
-        assert key not in seen
-        seen.add(key)
+    seen = {(record.run_id, record.observacion) for record in stored}
     assert len(seen) == n_writers * n_per_writer
 
 
-def test_append_lock_file_is_separate_from_the_data_file_and_packages_stay_isolated(tmp_path):
+def test_packages_share_the_sqlite_file_but_rows_stay_isolated(tmp_path):
     from datetime import datetime, timezone
 
     from historical_replay.feedback import ReplayFeedbackRecord
 
-    store_a = ReplayFeedbackStore(tmp_path, package_id="package-a")
-    store_b = ReplayFeedbackStore(tmp_path, package_id="package-b")
+    store_a = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="package-a")
+    store_b = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="package-b")
 
     record = ReplayFeedbackRecord(
         timestamp_origen="2024-01-01",
@@ -211,16 +207,17 @@ def test_append_lock_file_is_separate_from_the_data_file_and_packages_stay_isola
     )
     store_a.append(record)
 
-    assert (tmp_path / "package-a.jsonl").exists()
-    assert (tmp_path / "package-a.jsonl.lock").exists()
+    assert (tmp_path / "feedback.sqlite3").is_file()
+    assert not (tmp_path / "package-a.jsonl").exists()
     assert not (tmp_path / "package-b.jsonl").exists()
+    assert store_a.list_for("2024-01-01") == [record]
     assert store_b.list_for("2024-01-01") == []
 
 
 def test_two_packages_use_independent_stores(tmp_path):
     records = _package_records()
-    store_a = ReplayFeedbackStore(tmp_path, package_id="package-a")
-    store_b = ReplayFeedbackStore(tmp_path, package_id="package-b")
+    store_a = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="package-a")
+    store_b = SQLiteReplayFeedbackStore(tmp_path / "feedback.sqlite3", package_id="package-b")
 
     register_feedback(
         records,

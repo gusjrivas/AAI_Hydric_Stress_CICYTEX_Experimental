@@ -10,10 +10,11 @@ candidato no autorizado.
 import hashlib
 import json
 import shutil
+import sqlite3
 from pathlib import Path
 
 from app.config import (
-    get_historical_replay_feedback_dir,
+    get_historical_replay_feedback_database,
     get_historical_replay_package_dir,
     is_historical_replay_enabled,
 )
@@ -33,7 +34,9 @@ def _client_with_real_package(feedback_dir: Path | None = None):
     app.dependency_overrides[get_historical_replay_package_dir] = lambda: REAL_PACKAGE_DIR
     app.dependency_overrides[is_historical_replay_enabled] = lambda: True
     if feedback_dir is not None:
-        app.dependency_overrides[get_historical_replay_feedback_dir] = lambda: feedback_dir
+        app.dependency_overrides[get_historical_replay_feedback_database] = lambda: (
+            feedback_dir / "historical_feedback.sqlite3"
+        )
     return TestClient(app)
 
 
@@ -376,13 +379,45 @@ def test_feedback_registered_after_reveal_is_visible_and_isolated(tmp_path):
         )
         assert len(visible.json()["feedback"]) == 1
 
-        # Aislado: el feedback vive en su propio archivo, nunca en el
+        # Aislado: el feedback vive en su propia base, nunca en el
         # paquete científico ni en el store operativo del sensor.
-        feedback_files = list(tmp_path.glob("*.jsonl"))
-        assert len(feedback_files) == 1
-        assert "base-seed4" in feedback_files[0].name
+        feedback_database = tmp_path / "historical_feedback.sqlite3"
+        assert feedback_database.is_file()
+        assert list(tmp_path.glob("*.jsonl")) == []
     finally:
         _clear_overrides()
+
+
+def test_corrupt_historical_feedback_returns_sanitized_503(tmp_path):
+    database = tmp_path / "historical_feedback.sqlite3"
+    client = _client_with_real_package(feedback_dir=tmp_path)
+    marker = "private-historical-corruption-marker"
+    try:
+        created = client.post(
+            f"/replay/predictions/{REAL_ORIGIN}/feedback",
+            json={"simulated_date": REAL_TARGET, "estado_validacion": "confirmada"},
+        )
+        assert created.status_code == 201
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE historical_feedback SET registered_at=?",
+                (marker,),
+            )
+        response = client.get(
+            f"/replay/predictions/{REAL_ORIGIN}/feedback",
+            params={"simulated_date": REAL_TARGET},
+        )
+    finally:
+        client.close()
+        _clear_overrides()
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "http_error"
+    assert error["message"] == "El almacenamiento de feedback historico no esta disponible"
+    assert str(database) not in response.text
+    assert marker not in response.text
+    assert "historical_feedback" not in response.text
 
 
 def test_feedback_hidden_again_after_rewinding_but_not_deleted(tmp_path):

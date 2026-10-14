@@ -17,8 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from historical_replay.feedback import (
     FeedbackNotYetRevealedError,
+    HistoricalReplayFeedbackRepository,
     InvalidFeedbackContentError,
-    ReplayFeedbackStore,
     UnknownPredictionError,
     register_feedback,
     visible_feedback_for,
@@ -286,7 +286,7 @@ def create_feedback(
     timestamp_origen: date,
     body: ReplayFeedbackRequest,
     package: LoadedReplayPackage = Depends(get_historical_replay_package),
-    store: ReplayFeedbackStore = Depends(get_historical_replay_feedback_store),
+    store: HistoricalReplayFeedbackRepository = Depends(get_historical_replay_feedback_store),
 ) -> ReplayFeedbackEntry:
     """Registra feedback de demostración (RH-07). El servidor valida la
     identidad de la predicción referenciada y que su observación ya fue
@@ -323,7 +323,7 @@ def get_feedback(
     timestamp_origen: date,
     simulated_date: date = Query(..., description="Fecha del reloj simulado."),
     package: LoadedReplayPackage = Depends(get_historical_replay_package),
-    store: ReplayFeedbackStore = Depends(get_historical_replay_feedback_store),
+    store: HistoricalReplayFeedbackRepository = Depends(get_historical_replay_feedback_store),
 ) -> ReplayFeedbackListResponse:
     """Feedback visible en `simulated_date` — retroceder el reloj vuelve a
     ocultarlo sin borrar el registro persistido."""
