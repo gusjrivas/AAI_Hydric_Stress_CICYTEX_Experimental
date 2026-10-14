@@ -646,6 +646,8 @@ class SQLiteCicytexFeedbackRepository:
                         version = connection.execute("PRAGMA user_version").fetchone()
                         if version == (1,):
                             self._validate_v1(connection)
+                            if imported is not None:
+                                self._validate_legacy_records(connection, imported[1])
                             connection.execute(_CICYTEX_FEEDBACK_DDL)
                             connection.execute(
                                 "UPDATE replay_session_metadata "
@@ -654,9 +656,13 @@ class SQLiteCicytexFeedbackRepository:
                             connection.execute("PRAGMA user_version=2")
                         elif version == (2,):
                             self._validate_v2(connection)
+                            if imported is not None:
+                                self._validate_legacy_records(connection, imported[1])
                         else:
                             raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
                     else:
+                        if imported is not None and imported[1]:
+                            raise CicytexFeedbackRepositoryError("cicytex review store unavailable")
                         connection.execute(_METADATA_DDL)
                         connection.execute(_SESSION_DDL)
                         connection.execute(_CICYTEX_FEEDBACK_DDL)
@@ -766,6 +772,39 @@ class SQLiteCicytexFeedbackRepository:
             raise
         except sqlite3.Error:
             raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR) from None
+
+    @staticmethod
+    def _validate_legacy_records(
+        connection: sqlite3.Connection,
+        records: tuple[CicytexFeedbackRecord, ...],
+    ) -> None:
+        try:
+            for record in records:
+                target = date.fromordinal(record.emission_date.toordinal() + record.horizon_days)
+                if record.simulated_at < target:
+                    raise CicytexFeedbackRepositoryError("cicytex review store unavailable")
+                matching_limits = tuple(
+                    row[0]
+                    for row in connection.execute(
+                        """SELECT last_observation
+                           FROM replay_sessions
+                           WHERE sensor_id=? AND emission_date=? AND horizon_days=?""",
+                        (
+                            record.sensor_id,
+                            record.emission_date.isoformat(),
+                            record.horizon_days,
+                        ),
+                    )
+                )
+                if not matching_limits or not any(
+                    record.simulated_at <= SQLiteSessionRepository._decode_date(limit)
+                    for limit in matching_limits
+                ):
+                    raise CicytexFeedbackRepositoryError("cicytex review store unavailable")
+        except CicytexFeedbackRepositoryError:
+            raise
+        except (OverflowError, sqlite3.Error, TypeError, ValueError):
+            raise CicytexFeedbackRepositoryError("cicytex review store unavailable") from None
 
     @staticmethod
     def _validate_sessions(connection: sqlite3.Connection) -> None:
