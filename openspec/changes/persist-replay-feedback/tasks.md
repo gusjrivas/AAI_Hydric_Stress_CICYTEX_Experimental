@@ -7,6 +7,7 @@
 - [x] 1.5 Specify HTTP compatibility, private 503 mapping, DI and AST boundaries.
 - [x] 1.6 Specify readable imports, single-owner bootstrap and repeatable HTTP isolation.
 - [x] 1.7 Specify legacy feedback binding to compatible session identity and clock.
+- [x] 1.8 Specify target lower bound, atomic mixed batches and multi-session acceptance.
 
 ## 2. GREEN implementation
 
@@ -17,6 +18,7 @@
 - [ ] 2.5 Wire administrator-controlled dependencies and sanitized HTTP failures.
 - [ ] 2.6 Remove boundary evasions and make legacy migration bootstrap atomic.
 - [ ] 2.7 Reject legacy feedback without a compatible session identity and clock.
+- [ ] 2.8 Enforce complete-batch temporal validation before migration commit.
 
 ## 3. Verification
 

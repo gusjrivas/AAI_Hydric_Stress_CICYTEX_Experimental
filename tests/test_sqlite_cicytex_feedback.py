@@ -309,6 +309,83 @@ def test_semantically_foreign_or_future_legacy_feedback_preserves_v1_bytes(
         ).fetchone() == (0,)
 
 
+def test_legacy_feedback_before_prediction_target_preserves_v1_bytes(tmp_path):
+    api = _api()
+    database = tmp_path / "sessions.sqlite3"
+    legacy = tmp_path / "private-feedback.json"
+    sessions = (
+        _session("matching-reset", revealed=date(2023, 7, 6)),
+        _session("matching-revealed", revealed=date(2023, 7, 8)),
+    )
+    _create_v1(database, *sessions)
+    marker = "private-before-target"
+    legacy.write_text(
+        json.dumps(
+            _legacy_entry(simulated_at="2023-07-06", observation=marker),
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    before = database.read_bytes()
+
+    with pytest.raises(api["repository_error"]) as captured:
+        api["adapter"](database, legacy_feedback_path=legacy)
+
+    assert marker not in str(captured.value)
+    assert database.read_bytes() == before
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='cicytex_replay_feedback'"
+        ).fetchone() == (0,)
+
+
+def test_mixed_valid_and_foreign_legacy_batch_rolls_back_every_record(tmp_path):
+    api = _api()
+    database = tmp_path / "sessions.sqlite3"
+    legacy = tmp_path / "private-feedback.json"
+    _create_v1(database, _session())
+    marker = "private-mixed-foreign"
+    payload = {
+        **_legacy_entry(observation="valid-record-must-also-roll-back"),
+        **_legacy_entry(sensor_id="PRIVATE_FOREIGN_SENSOR", observation=marker),
+    }
+    legacy.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    before = database.read_bytes()
+
+    with pytest.raises(api["repository_error"]) as captured:
+        api["adapter"](database, legacy_feedback_path=legacy)
+
+    assert marker not in str(captured.value)
+    assert "valid-record-must-also-roll-back" not in str(captured.value)
+    assert database.read_bytes() == before
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='cicytex_replay_feedback'"
+        ).fetchone() == (0,)
+
+
+def test_one_of_multiple_matching_sessions_can_authorize_legacy_simulated_at(tmp_path):
+    api = _api()
+    database = tmp_path / "sessions.sqlite3"
+    legacy = tmp_path / "feedback.json"
+    sessions = (
+        _session("matching-reset", revealed=date(2023, 7, 6)),
+        _session("matching-authority", revealed=date(2023, 7, 7)),
+    )
+    _create_v1(database, *sessions)
+    legacy.write_text(json.dumps(_legacy_entry(), separators=(",", ":")), encoding="utf-8")
+
+    repository = api["adapter"](database, legacy_feedback_path=legacy)
+
+    assert repository.get("CP1_S1", date(2023, 7, 6), 1).simulated_at == date(2023, 7, 7)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
+        assert connection.execute("SELECT COUNT(*) FROM replay_sessions").fetchone() == (2,)
+        assert connection.execute("SELECT COUNT(*) FROM cicytex_replay_feedback").fetchone() == (1,)
+
+
 def test_legacy_import_cap_is_enforced_before_json_decode(tmp_path, monkeypatch):
     api = _api()
     module = __import__(
