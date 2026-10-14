@@ -11,17 +11,17 @@
 
 ## 2. GREEN implementation
 
-- [ ] 2.1 Add CICYTEX feedback domain/service/repository port.
-- [ ] 2.2 Upgrade the session adapter to closed schema v2 and atomic registration.
-- [ ] 2.3 Add bounded one-time legacy CICYTEX import.
-- [ ] 2.4 Add the historical SQLite feedback adapter and JSONL import.
-- [ ] 2.5 Wire administrator-controlled dependencies and sanitized HTTP failures.
-- [ ] 2.6 Remove boundary evasions and make legacy migration bootstrap atomic.
-- [ ] 2.7 Reject legacy feedback outside a matching session's immutable time interval.
-- [ ] 2.8 Enforce complete-batch temporal validation before migration commit.
+- [x] 2.1 Add CICYTEX feedback domain/service/repository port.
+- [x] 2.2 Upgrade the session adapter to closed schema v2 and atomic registration.
+- [x] 2.3 Add bounded one-time legacy CICYTEX import.
+- [x] 2.4 Add the historical SQLite feedback adapter and JSONL import.
+- [x] 2.5 Wire administrator-controlled dependencies and sanitized HTTP failures.
+- [x] 2.6 Remove boundary evasions and make legacy migration bootstrap atomic.
+- [x] 2.7 Reject legacy feedback outside a matching session's immutable time interval.
+- [x] 2.8 Enforce complete-batch temporal validation before migration commit.
 
 ## 3. Verification
 
-- [ ] 3.1 Pass unit, multiprocessing and restart tests.
-- [ ] 3.2 Pass CICYTEX, Melchor Romero, Pergamino, laboratory/mock regressions.
-- [ ] 3.3 Pass Black, Ruff, strict OpenSpec and diff-check.
+- [x] 3.1 Pass unit, multiprocessing and restart tests.
+- [x] 3.2 Pass CICYTEX, Melchor Romero, Pergamino, laboratory/mock regressions.
+- [x] 3.3 Pass Black, Ruff, strict OpenSpec and diff-check.
