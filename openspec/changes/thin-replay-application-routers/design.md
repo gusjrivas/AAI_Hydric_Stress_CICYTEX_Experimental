@@ -15,6 +15,12 @@ Framework-free orchestration lives in
 ports and values, but never on `backend`, FastAPI, Starlette, HTTP status codes
 or Pydantic response models.
 
+The CICYTEX router receives application facades through dependency injection.
+In particular, feedback delegates once to the feedback application facade;
+only that facade may coordinate the atomic session operation and durable
+feedback port.  The router does not import `ReplaySessionService`, call
+`with_session`, or implement a fallback read path.
+
 ## Compatibility seam
 
 The application layer returns framework-neutral results.  Routers perform the

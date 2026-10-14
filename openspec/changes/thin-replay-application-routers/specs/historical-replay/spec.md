@@ -23,6 +23,13 @@ through framework-free application modules under `historical_replay`.
   or the projection/history/feedback/session implementation modules
 - **AND** the former render, metric, lookup and projection helpers are absent.
 
+#### Scenario: feedback has one application coordination owner
+
+- **WHEN** CICYTEX feedback is posted through the HTTP adapter
+- **THEN** the router delegates once to its injected feedback application facade
+- **AND** the router does not import the session service, call `with_session`, or
+  probe for fallback repository methods.
+
 ### Requirement: The refactor is externally invisible
 
 The refactor SHALL preserve route paths, methods, operation IDs, response-model
