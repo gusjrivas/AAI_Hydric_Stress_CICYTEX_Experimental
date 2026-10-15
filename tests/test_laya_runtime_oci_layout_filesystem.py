@@ -34,6 +34,7 @@ REAL_LAYOUT_RELEASE_GATE_ENV = "LAYA_RUNTIME_OCI_LAYOUT_ROOT"
 ADAPTER_RELATIVE_PATH = "src/human_feedback/adapters/filesystem_oci_layout.py"
 CORE_RELATIVE_PATH = "src/human_feedback/runtime_oci_layout.py"
 LAYER_CORE_RELATIVE_PATH = "src/human_feedback/runtime_oci_layers.py"
+TAR_CORE_RELATIVE_PATH = "src/human_feedback/runtime_oci_tar.py"
 TRUE_FLAGS = (
     "artifact_integrity_verified",
     "oci_manifest_semantics_verified",
@@ -274,6 +275,26 @@ def _layer_capture_contract_used(source: str) -> set[str]:
     return found
 
 
+def _tar_capture_contract_used(source: str) -> set[str]:
+    tree = ast.parse(source)
+    symbols = {
+        "_verify_laya_oci_tar_semantics_chunks_with_budget",
+        "_seal_laya_oci_tar_semantics_capture_authority",
+        "_seal_laya_runtime_oci_tar_semantics_evidence",
+    }
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            found.update(alias.name for alias in node.names if alias.name in symbols)
+        if isinstance(node, ast.Name) and node.id in symbols:
+            found.add(node.id)
+        if isinstance(node, ast.Attribute) and node.attr in symbols:
+            found.add(node.attr)
+        if isinstance(node, ast.Constant) and node.value in symbols:
+            found.add(node.value)
+    return found
+
+
 def test_filesystem_adapter_is_the_only_product_caller_of_layer_engine_and_sealers():
     repository = Path(__file__).parents[1]
     adapter = repository / ADAPTER_RELATIVE_PATH
@@ -293,6 +314,25 @@ def test_filesystem_adapter_is_the_only_product_caller_of_layer_engine_and_seale
     assert offenders == []
 
 
+def test_filesystem_adapter_is_the_only_product_caller_of_tar_engine_and_sealers():
+    repository = Path(__file__).parents[1]
+    adapter = repository / ADAPTER_RELATIVE_PATH
+    core = repository / TAR_CORE_RELATIVE_PATH
+    expected = {
+        "_verify_laya_oci_tar_semantics_chunks_with_budget",
+        "_seal_laya_oci_tar_semantics_capture_authority",
+        "_seal_laya_runtime_oci_tar_semantics_evidence",
+    }
+    assert _tar_capture_contract_used(adapter.read_text(encoding="utf-8")) == expected
+    offenders = []
+    for path in _product_python_files(repository):
+        if path in {adapter, core}:
+            continue
+        if _tar_capture_contract_used(path.read_text(encoding="utf-8")):
+            offenders.append(path.relative_to(repository).as_posix())
+    assert offenders == []
+
+
 def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
     module = _adapter()
     source = Path(module.__file__).read_text(encoding="utf-8")
@@ -301,6 +341,7 @@ def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
         "__future__",
         "human_feedback.runtime_oci_layout",
         "human_feedback.runtime_oci_layers",
+        "human_feedback.runtime_oci_tar",
         "os",
         "stat",
         "sys",
@@ -326,6 +367,7 @@ def test_adapter_has_one_public_facade_and_only_stdlib_plus_core_dependencies():
     assert public_functions == {
         "capture_and_verify_laya_oci_layout",
         "capture_and_verify_laya_oci_layer_diff_ids",
+        "capture_and_verify_laya_oci_tar_semantics",
     }
     public_classes = {
         node.name
@@ -415,6 +457,89 @@ def test_effective_layer_budget_uses_live_core_caps_and_validates_remaining(monk
     for invalid in (True, False, 0, -1, 26, 1.0, None, "9"):
         with pytest.raises((TypeError, ValueError), match="remaining|budget|integer|positive"):
             module._effective_layer_budget(invalid)
+
+
+def test_tar_facade_preflights_deep_evidence_before_root_coercion_or_open(monkeypatch):
+    module = _adapter()
+    touched = []
+
+    class HostileRoot:
+        def __fspath__(self):
+            touched.append("fspath")
+            raise AssertionError("private TAR root coercion")
+
+    def forbidden_open(*_args, **_kwargs):
+        touched.append("open")
+        raise AssertionError("private TAR root open")
+
+    monkeypatch.setattr(module.os, "open", forbidden_open)
+    with pytest.raises(module.OciLayoutCaptureError, match="evidence|tar|invalid") as captured:
+        module.capture_and_verify_laya_oci_tar_semantics(
+            SimpleNamespace(schema_version="private-tar-proxy"),
+            HostileRoot(),
+        )
+    assert touched == []
+    _private_error(
+        captured.value,
+        "private-tar-proxy",
+        "private TAR root coercion",
+        "private TAR root open",
+    )
+
+
+def test_tar_capture_reuses_secure_fd_capture_and_closes_before_private_sealers():
+    module = _adapter()
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_capture_and_verify_tar_semantics"
+    )
+    calls = {
+        node.func.id
+        if isinstance(node.func, ast.Name)
+        else node.func.attr
+        if isinstance(node.func, ast.Attribute)
+        else ""
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+    }
+    assert {
+        "_open_root_directory",
+        "_capture_control",
+        "_verify_exact_laya_oci_layout_inventory",
+        "_rehash_blob_for_layer_capture",
+        "_verify_laya_oci_tar_semantics_chunks_with_budget",
+        "_verify_laya_oci_layout_final_sweep",
+        "_close_owned_once",
+        "_seal_laya_oci_tar_semantics_capture_authority",
+        "_seal_laya_runtime_oci_tar_semantics_evidence",
+    } <= calls
+    statements = list(ast.walk(function))
+    close_lines = [
+        node.lineno
+        for node in statements
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_close_owned_once"
+    ]
+    authority_lines = [
+        node.lineno
+        for node in statements
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_seal_laya_oci_tar_semantics_capture_authority"
+    ]
+    evidence_lines = [
+        node.lineno
+        for node in statements
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_seal_laya_runtime_oci_tar_semantics_evidence"
+    ]
+    assert close_lines and authority_lines and evidence_lines
+    assert min(close_lines) < min(authority_lines) < min(evidence_lines)
 
 
 @pytest.mark.parametrize("extra_byte", [False, True])
@@ -1757,4 +1882,77 @@ def test_opt_in_same_root_layer_diff_ids_are_all_or_nothing_and_conservative(mon
     with pytest.raises((TypeError, ValueError), match="receipt|order|evidence|valid") as captured:
         runtime_oci_layers.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(corrupt)
     _private_error(captured.value, str(root), *evidence.plan.declared_diff_ids)
+    assert _tree_fingerprint(root) == before
+
+
+@pytest.mark.skipif(
+    not IS_LINUX or not os.environ.get(REAL_LAYOUT_RELEASE_GATE_ENV),
+    reason="requires opt-in real external OCI layout on Linux",
+)
+def test_opt_in_same_root_tar_capture_verifies_ten_layers_in_order(monkeypatch):
+    from human_feedback import runtime_oci_tar
+    from human_feedback.runtime_oci_config import validate_laya_runtime_oci_config_semantics
+
+    assert "PYTEST_XDIST_WORKER" not in os.environ, "external OCI gate must run serially"
+    root = Path(os.environ[REAL_LAYOUT_RELEASE_GATE_ENV])
+    before = _tree_fingerprint(root)
+    layout_evidence = _capture(root)
+    config_blob = layout_evidence.plan.blobs[1]
+    config_payload = (root / config_blob.path).read_bytes()
+    config_evidence = validate_laya_runtime_oci_config_semantics(
+        layout_evidence,
+        config_payload,
+    )
+    layer_evidence = _adapter().capture_and_verify_laya_oci_layer_diff_ids(
+        config_evidence,
+        root,
+    )
+    calls = []
+    budgets = []
+    original = runtime_oci_tar._verify_laya_oci_tar_semantics_chunks_with_budget
+
+    def tar_spy(plan, digest, chunks, *, max_uncompressed_bytes):
+        calls.append(digest)
+        budgets.append(max_uncompressed_bytes)
+        return original(
+            plan,
+            digest,
+            chunks,
+            max_uncompressed_bytes=max_uncompressed_bytes,
+        )
+
+    monkeypatch.setattr(
+        runtime_oci_tar,
+        "_verify_laya_oci_tar_semantics_chunks_with_budget",
+        tar_spy,
+    )
+    evidence = _adapter().capture_and_verify_laya_oci_tar_semantics(layer_evidence, root)
+
+    assert type(evidence) is runtime_oci_tar.LayaRuntimeOciTarSemanticsEvidence
+    assert evidence.plan.layer_evidence is layer_evidence
+    assert evidence.runtime_identity is layer_evidence.runtime_identity
+    assert type(evidence.receipts) is tuple and len(evidence.receipts) == 10
+    assert tuple(calls) == tuple(blob.digest for blob in layer_evidence.plan.layer_blobs)
+    remaining = runtime_oci_tar.runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+    expected_budgets = []
+    for receipt in evidence.receipts:
+        expected_budgets.append(
+            min(
+                runtime_oci_tar.runtime_oci_layers.MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
+                remaining,
+            )
+        )
+        remaining -= receipt.layer_receipt.uncompressed_size_bytes
+    assert budgets == expected_budgets
+    assert all(later <= earlier for earlier, later in zip(budgets, budgets[1:]))
+    assert all(
+        receipt.plan is evidence.plan
+        and receipt.layer_position == position
+        and receipt.layer_receipt.layer_blob is layer_evidence.plan.layer_blobs[position]
+        and receipt.tar_semantics_verified is True
+        for position, receipt in enumerate(evidence.receipts)
+    )
+    assert evidence.tar_semantics_verified is True
+    assert evidence.oci_rootfs_verified is False
+    runtime_oci_tar.canonical_laya_runtime_oci_tar_semantics_summary_bytes(evidence)
     assert _tree_fingerprint(root) == before

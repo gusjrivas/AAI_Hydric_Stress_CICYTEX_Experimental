@@ -307,6 +307,27 @@ def _verify_archive(monkeypatch, synthetic_pr22, archive: bytes):
     )
 
 
+def _empty_tar_receipts(module, plan, layer_evidence):
+    receipts = []
+    for position, historical in enumerate(layer_evidence.receipts):
+        fresh = _forge(
+            type(historical),
+            **{field.name: getattr(historical, field.name) for field in fields(historical)},
+        )
+        receipts.append(
+            module.VerifiedLayaOciTarLayer(
+                plan=plan,
+                layer_receipt=fresh,
+                layer_position=position,
+                entries=(),
+                payload_size_bytes=0,
+                tar_size_bytes=fresh.uncompressed_size_bytes,
+                _factory_token=module._FACTORY_TOKEN,
+            )
+        )
+    return tuple(receipts)
+
+
 def test_manual_tar_fixture_checksum_padding_and_eof_are_independent_of_tarfile():
     archive = _archive(_tar_entry("data/result.txt", b"science"))
     header = archive[:512]
@@ -1432,6 +1453,100 @@ def test_tar_evidence_and_summary_inherit_every_pr22_claim_and_only_elevate_tar(
         with pytest.raises((TypeError, ValueError), match="evidence|claim|valid") as captured:
             module.canonical_laya_runtime_oci_tar_semantics_summary_bytes(forged)
         _private_error(captured.value)
+
+
+def test_private_tar_capture_authority_is_all_or_nothing_and_seals_evidence(
+    synthetic_pr22,
+):
+    from human_feedback import runtime_oci_tar as module
+
+    layer_evidence, _ = synthetic_pr22
+    plan = module.prepare_laya_oci_tar_semantics_plan(layer_evidence)
+    receipts = _empty_tar_receipts(module, plan, layer_evidence)
+    assert callable(module._seal_laya_oci_tar_semantics_capture_authority)
+    assert callable(module._seal_laya_runtime_oci_tar_semantics_evidence)
+    authority = module._seal_laya_oci_tar_semantics_capture_authority(
+        plan,
+        receipts,
+        controls_captured_from_same_root=True,
+        blobs_captured_from_same_root=True,
+        inventory_captured_from_same_root=True,
+        final_fd_sweep_verified=True,
+        descriptors_closed_before_seal=True,
+    )
+    assert type(authority) is module._LayaOciTarSemanticsCaptureAuthority
+    assert authority.plan is plan
+    assert authority.receipts is receipts
+    evidence = module._seal_laya_runtime_oci_tar_semantics_evidence(authority)
+    assert type(evidence) is module.LayaRuntimeOciTarSemanticsEvidence
+    assert evidence.plan is plan
+    assert evidence.receipts is receipts
+    assert evidence.runtime_identity is layer_evidence.runtime_identity
+    assert evidence.tar_semantics_verified is True
+    assert evidence.oci_rootfs_verified is False
+    module.canonical_laya_runtime_oci_tar_semantics_summary_bytes(evidence)
+
+    keyword_flags = {
+        "controls_captured_from_same_root": True,
+        "blobs_captured_from_same_root": True,
+        "inventory_captured_from_same_root": True,
+        "final_fd_sweep_verified": True,
+        "descriptors_closed_before_seal": True,
+    }
+    for flag in keyword_flags:
+        for invalid in (False, 1, None):
+            with pytest.raises((TypeError, ValueError), match="authority|capture|seal|valid"):
+                module._seal_laya_oci_tar_semantics_capture_authority(
+                    plan,
+                    receipts,
+                    **(keyword_flags | {flag: invalid}),
+                )
+    for invalid_receipts in (
+        list(receipts),
+        receipts[:-1],
+        receipts + (receipts[-1],),
+        tuple(reversed(receipts)),
+        (receipts[0],) * 10,
+    ):
+        with pytest.raises((TypeError, ValueError), match="authority|receipt|order|valid"):
+            module._seal_laya_oci_tar_semantics_capture_authority(
+                plan,
+                invalid_receipts,
+                **keyword_flags,
+            )
+
+
+def test_private_tar_stream_budget_bridge_is_adapter_only_and_bounded():
+    from human_feedback import runtime_oci_tar as module
+
+    bridge = module._verify_laya_oci_tar_semantics_chunks_with_budget
+    parameters = inspect.signature(bridge).parameters
+    assert tuple(parameters) == (
+        "plan",
+        "digest",
+        "compressed_chunks",
+        "max_uncompressed_bytes",
+    )
+    assert parameters["max_uncompressed_bytes"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["max_uncompressed_bytes"].default is inspect.Parameter.empty
+
+
+def test_tar_evidence_sealer_rejects_raw_receipts_proxy_and_foreign_authority(
+    synthetic_pr22,
+):
+    from human_feedback import runtime_oci_tar as module
+
+    layer_evidence, _ = synthetic_pr22
+    plan = module.prepare_laya_oci_tar_semantics_plan(layer_evidence)
+    receipts = _empty_tar_receipts(module, plan, layer_evidence)
+    for invalid in (
+        receipts,
+        SimpleNamespace(plan=plan, receipts=receipts),
+        object.__new__(module._LayaOciTarSemanticsCaptureAuthority),
+        None,
+    ):
+        with pytest.raises((TypeError, ValueError), match="authority|evidence|seal|valid"):
+            module._seal_laya_runtime_oci_tar_semantics_evidence(invalid)
 
 
 def test_summary_rejects_unsealed_evidence_and_no_public_finalizer_exists():
