@@ -223,6 +223,8 @@ def _private_sealers_used(source: str) -> set[str]:
     }
     found = set()
     for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in symbols:
+            found.add(node.name)
         if isinstance(node, ast.ImportFrom):
             found.update(alias.name for alias in node.names if alias.name in symbols)
         if isinstance(node, ast.Name) and node.id in symbols:
@@ -278,12 +280,15 @@ def _layer_capture_contract_used(source: str) -> set[str]:
 def _tar_capture_contract_used(source: str) -> set[str]:
     tree = ast.parse(source)
     symbols = {
+        "capture_and_verify_laya_oci_tar_semantics",
         "_verify_laya_oci_tar_semantics_chunks_with_budget",
         "_seal_laya_oci_tar_semantics_capture_authority",
         "_seal_laya_runtime_oci_tar_semantics_evidence",
     }
     found = set()
     for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in symbols:
+            found.add(node.name)
         if isinstance(node, ast.ImportFrom):
             found.update(alias.name for alias in node.names if alias.name in symbols)
         if isinstance(node, ast.Name) and node.id in symbols:
@@ -319,6 +324,7 @@ def test_filesystem_adapter_is_the_only_product_caller_of_tar_engine_and_sealers
     adapter = repository / ADAPTER_RELATIVE_PATH
     core = repository / TAR_CORE_RELATIVE_PATH
     expected = {
+        "capture_and_verify_laya_oci_tar_semantics",
         "_verify_laya_oci_tar_semantics_chunks_with_budget",
         "_seal_laya_oci_tar_semantics_capture_authority",
         "_seal_laya_runtime_oci_tar_semantics_evidence",
@@ -462,6 +468,7 @@ def test_effective_layer_budget_uses_live_core_caps_and_validates_remaining(monk
 def test_tar_facade_preflights_deep_evidence_before_root_coercion_or_open(monkeypatch):
     module = _adapter()
     touched = []
+    private_schema = "-".join(("private", "tar", "proxy"))
 
     class HostileRoot:
         def __fspath__(self):
@@ -475,13 +482,13 @@ def test_tar_facade_preflights_deep_evidence_before_root_coercion_or_open(monkey
     monkeypatch.setattr(module.os, "open", forbidden_open)
     with pytest.raises(module.OciLayoutCaptureError, match="evidence|tar|invalid") as captured:
         module.capture_and_verify_laya_oci_tar_semantics(
-            SimpleNamespace(schema_version="private-tar-proxy"),
+            SimpleNamespace(schema_version=private_schema),
             HostileRoot(),
         )
     assert touched == []
     _private_error(
         captured.value,
-        "private-tar-proxy",
+        private_schema,
         "private TAR root coercion",
         "private TAR root open",
     )
@@ -497,11 +504,11 @@ def test_tar_capture_reuses_secure_fd_capture_and_closes_before_private_sealers(
         if isinstance(node, ast.FunctionDef) and node.name == "_capture_and_verify_tar_semantics"
     )
     calls = {
-        node.func.id
-        if isinstance(node.func, ast.Name)
-        else node.func.attr
-        if isinstance(node.func, ast.Attribute)
-        else ""
+        (
+            node.func.id
+            if isinstance(node.func, ast.Name)
+            else node.func.attr if isinstance(node.func, ast.Attribute) else ""
+        )
         for node in ast.walk(function)
         if isinstance(node, ast.Call)
     }
@@ -540,6 +547,263 @@ def test_tar_capture_reuses_secure_fd_capture_and_closes_before_private_sealers(
     ]
     assert close_lines and authority_lines and evidence_lines
     assert min(close_lines) < min(authority_lines) < min(evidence_lines)
+
+
+def _run_tar_capture_harness(monkeypatch, *, failure=None, exhaust_after_first=False):
+    module = _adapter()
+    events = []
+    opened = Counter()
+    closed = Counter()
+    layer_blobs = tuple(
+        SimpleNamespace(
+            role=f"layer-{position:02d}",
+            digest=f"sha256:{position + 10:064x}",
+            size_bytes=100 + position,
+        )
+        for position in range(10)
+    )
+    control_blobs = (
+        SimpleNamespace(role="manifest", digest="sha256:" + ("1" * 64), size_bytes=10),
+        SimpleNamespace(role="config", digest="sha256:" + ("2" * 64), size_bytes=20),
+    )
+    layout_plan = SimpleNamespace(
+        oci_evidence=SimpleNamespace(),
+        blobs=(*control_blobs, *layer_blobs),
+    )
+    tar_plan = SimpleNamespace(
+        layout_plan=layout_plan,
+        layer_plan=SimpleNamespace(layer_blobs=layer_blobs),
+    )
+    digest_roles = {blob.digest.removeprefix("sha256:"): blob.role for blob in layout_plan.blobs}
+    role_fingerprints = {
+        blob.role: (1, index + 100, blob.size_bytes, 7)
+        for index, blob in enumerate(layout_plan.blobs)
+    }
+    descriptor_roles = {}
+    verified = []
+    sealers = []
+    monkeypatch.setattr(
+        module.runtime_oci_layers,
+        "MAX_OCI_LAYER_UNCOMPRESSED_BYTES",
+        module.runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES,
+    )
+
+    def fail_if(stage):
+        if failure == stage:
+            raise OSError(f"private TAR injected {stage}")
+
+    def own(owned, descriptor):
+        owned.append(descriptor)
+        opened[descriptor] += 1
+        return descriptor
+
+    def open_root(_components, owned):
+        events.append("open-root")
+        return own(owned, 10)
+
+    def capture_control(_root, name, _maximum, _owned):
+        events.append(f"control:{name}")
+        return name.encode(), (2, len(name), len(name), 8)
+
+    def prepare(_evidence, _layout, _index):
+        events.append("plan")
+        fail_if("plan")
+        return layout_plan
+
+    def open_directory(_parent, name, owned):
+        events.append(f"directory:{name}")
+        return own(owned, 11 if name == "blobs" else 12)
+
+    def inventory(*_args):
+        events.append("inventory")
+        fail_if("inventory")
+
+    def rehash(_sha, _plan, blob, _owned):
+        events.append(f"rehash:{blob.role}")
+        fail_if("rehash")
+        return role_fingerprints[blob.role]
+
+    def path_fingerprint(_parent, name, _owned, **_kwargs):
+        role = digest_roles.get(name)
+        events.append(f"path:{role or name}")
+        if failure == "fingerprint" and role == "layer-05" and verified == [0, 1, 2, 3, 4, 5]:
+            return (1, 999_999, layer_blobs[5].size_bytes, 7)
+        if role is not None:
+            return role_fingerprints[role]
+        return (2, len(name), len(name), 8)
+
+    def open_file(_parent, name, owned):
+        role = digest_roles[name]
+        position = int(role.removeprefix("layer-"))
+        descriptor = 100 + position
+        descriptor_roles[descriptor] = role
+        events.append(f"open:{position}")
+        return own(owned, descriptor)
+
+    def fstat(descriptor):
+        events.append(f"fstat:{descriptor_roles[descriptor]}")
+        return SimpleNamespace(descriptor=descriptor)
+
+    def fingerprint(status):
+        return role_fingerprints[descriptor_roles[status.descriptor]]
+
+    def verify(_plan, digest, _chunks, *, max_uncompressed_bytes):
+        position = next(index for index, blob in enumerate(layer_blobs) if blob.digest == digest)
+        events.append(f"layer:{position}:budget:{max_uncompressed_bytes}")
+        fail_if(f"layer-{position}")
+        verified.append(position)
+        size = (
+            module.runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+            if exhaust_after_first and position == 0
+            else position + 1
+        )
+        return SimpleNamespace(layer_receipt=SimpleNamespace(uncompressed_size_bytes=size))
+
+    def close_descriptor(owned, descriptor):
+        events.append(f"close-file:{descriptor_roles[descriptor]}")
+        owned.remove(descriptor)
+        closed[descriptor] += 1
+
+    def final_sweep(*_args):
+        events.append("sweep")
+        fail_if("sweep")
+
+    def close_all(owned):
+        events.append("close-all")
+        while owned:
+            descriptor = owned.pop()
+            closed[descriptor] += 1
+        if failure == "final-close":
+            return OSError("private TAR injected final close")
+        return None
+
+    def authority(*_args, **_kwargs):
+        events.append("authority")
+        sealers.append("authority")
+        return SimpleNamespace()
+
+    def evidence(*_args, **_kwargs):
+        events.append("evidence")
+        sealers.append("evidence")
+        return "sealed-tar-evidence"
+
+    monkeypatch.setattr(module, "_open_root_directory", open_root)
+    monkeypatch.setattr(module, "_require_directory", lambda descriptor: (descriptor,))
+    monkeypatch.setattr(module, "_capture_control", capture_control)
+    monkeypatch.setattr(module.runtime_oci_layout, "prepare_laya_oci_layout_plan", prepare)
+    monkeypatch.setattr(module, "_open_directory", open_directory)
+    monkeypatch.setattr(module, "_verify_exact_laya_oci_layout_inventory", inventory)
+    monkeypatch.setattr(module, "_rehash_blob_for_layer_capture", rehash)
+    monkeypatch.setattr(module, "_path_fingerprint", path_fingerprint)
+    monkeypatch.setattr(module, "_open_file", open_file)
+    monkeypatch.setattr(module.os, "fstat", fstat)
+    monkeypatch.setattr(module, "_require_file", lambda *_args: None)
+    monkeypatch.setattr(module, "_fingerprint", fingerprint)
+    monkeypatch.setattr(module, "_blob_chunks", lambda *_args: (b"captured",))
+    monkeypatch.setattr(
+        module.runtime_oci_tar,
+        "_verify_laya_oci_tar_semantics_chunks_with_budget",
+        verify,
+    )
+    monkeypatch.setattr(module, "_close_descriptor", close_descriptor)
+    monkeypatch.setattr(module, "_verify_laya_oci_layout_final_sweep", final_sweep)
+    monkeypatch.setattr(module, "_close_owned_once", close_all)
+    monkeypatch.setattr(
+        module.runtime_oci_tar,
+        "_seal_laya_oci_tar_semantics_capture_authority",
+        authority,
+    )
+    monkeypatch.setattr(
+        module.runtime_oci_tar,
+        "_seal_laya_runtime_oci_tar_semantics_evidence",
+        evidence,
+    )
+    result = error = None
+    try:
+        result = module._capture_and_verify_tar_semantics(tar_plan, ("tmp", "layout"))
+    except Exception as captured:
+        error = captured
+    return SimpleNamespace(
+        result=result,
+        error=error,
+        events=events,
+        opened=opened,
+        closed=closed,
+        verified=verified,
+        sealers=sealers,
+    )
+
+
+def test_tar_capture_runtime_order_is_exact_and_close_precedes_both_sealers(monkeypatch):
+    observed = _run_tar_capture_harness(monkeypatch)
+    assert observed.error is None
+    assert observed.result == "sealed-tar-evidence"
+    assert observed.verified == list(range(10))
+    assert observed.opened == observed.closed
+    assert all(count == 1 for count in observed.closed.values())
+    events = observed.events
+    assert events.index("plan") < events.index("inventory")
+    assert events.index("inventory") < events.index("rehash:manifest")
+    assert events.index("rehash:layer-09") < events.index("open:0")
+    for position in range(9):
+        assert events.index(
+            f"layer:{position}:budget:{3 * 1024**3 - sum(range(1, position + 1))}"
+        ) < events.index(f"open:{position + 1}")
+    assert events.index(f"layer:9:budget:{3 * 1024**3 - sum(range(1, 10))}") < events.index("sweep")
+    assert events.index("sweep") < events.index("close-all")
+    assert events.index("close-all") < events.index("authority") < events.index("evidence")
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_verified"),
+    [
+        ("plan", []),
+        ("inventory", []),
+        ("rehash", []),
+        ("layer-0", []),
+        ("layer-5", [0, 1, 2, 3, 4]),
+        ("layer-9", list(range(9))),
+        ("fingerprint", [0, 1, 2, 3, 4, 5]),
+        ("sweep", list(range(10))),
+        ("final-close", list(range(10))),
+    ],
+)
+def test_tar_capture_fault_matrix_never_seals_or_opens_the_next_layer(
+    monkeypatch,
+    failure,
+    expected_verified,
+):
+    observed = _run_tar_capture_harness(monkeypatch, failure=failure)
+    assert observed.error is not None
+    assert observed.result is None
+    assert observed.verified == expected_verified
+    assert observed.sealers == []
+    assert observed.opened == observed.closed
+    assert all(count == 1 for count in observed.closed.values())
+    if failure.startswith("layer-"):
+        failed_position = int(failure.removeprefix("layer-"))
+        assert f"open:{failed_position + 1}" not in observed.events
+
+
+def test_tar_capture_rejects_same_size_inode_change_before_next_layer(monkeypatch):
+    observed = _run_tar_capture_harness(monkeypatch, failure="fingerprint")
+    assert observed.error is not None
+    assert observed.verified == [0, 1, 2, 3, 4, 5]
+    assert "open:6" not in observed.events
+    assert observed.sealers == []
+    assert observed.opened == observed.closed
+
+
+def test_tar_rootfs_budget_exhaustion_fails_before_opening_or_consuming_next_layer(
+    monkeypatch,
+):
+    observed = _run_tar_capture_harness(monkeypatch, exhaust_after_first=True)
+    assert observed.error is not None
+    assert observed.verified == [0]
+    assert "open:1" not in observed.events
+    assert not any(event.startswith("layer:1:") for event in observed.events)
+    assert observed.sealers == []
+    assert observed.opened == observed.closed
 
 
 @pytest.mark.parametrize("extra_byte", [False, True])

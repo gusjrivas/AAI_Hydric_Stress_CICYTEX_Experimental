@@ -422,9 +422,7 @@ def test_source_cannot_buffer_payload_or_verify_the_same_stream_twice():
         (
             node.func.id
             if isinstance(node.func, ast.Name)
-            else node.func.attr
-            if isinstance(node.func, ast.Attribute)
-            else ""
+            else node.func.attr if isinstance(node.func, ast.Attribute) else ""
         )
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
@@ -1529,6 +1527,83 @@ def test_private_tar_stream_budget_bridge_is_adapter_only_and_bounded():
     )
     assert parameters["max_uncompressed_bytes"].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["max_uncompressed_bytes"].default is inspect.Parameter.empty
+
+
+def test_private_tar_budget_bridge_forwards_exact_budget_and_sanitizes_stream_errors(
+    monkeypatch,
+    synthetic_pr22,
+):
+    from human_feedback import runtime_oci_layers, runtime_oci_tar
+
+    layer_evidence, _ = synthetic_pr22
+    plan = runtime_oci_tar.prepare_laya_oci_tar_semantics_plan(layer_evidence)
+    historical = layer_evidence.receipts[0]
+    archive = _archive()
+    object.__setattr__(historical, "uncompressed_size_bytes", len(archive))
+    forwarded = []
+
+    def bridge(layer_plan, digest, chunks, consume, *, max_uncompressed_bytes):
+        forwarded.append((layer_plan, digest, max_uncompressed_bytes))
+        total = 0
+        for chunk in chunks:
+            consume(chunk)
+            total += len(chunk)
+        assert total == len(archive)
+        return _forge(
+            type(historical),
+            **{field.name: getattr(historical, field.name) for field in fields(historical)},
+        )
+
+    monkeypatch.setattr(
+        runtime_oci_layers,
+        "_verify_laya_oci_layer_diff_id_chunks_with_consumer",
+        bridge,
+    )
+    receipt = runtime_oci_tar._verify_laya_oci_tar_semantics_chunks_with_budget(
+        plan,
+        historical.layer_blob.digest,
+        (archive,),
+        max_uncompressed_bytes=2048,
+    )
+    assert forwarded == [(layer_evidence.plan, historical.layer_blob.digest, 2048)]
+    assert receipt.tar_semantics_verified is True
+
+    class HostileChunks:
+        def __iter__(self):
+            raise RuntimeError("private-tar-stream-marker")
+
+    with pytest.raises(ValueError, match="tar|stream|valid") as captured:
+        runtime_oci_tar._verify_laya_oci_tar_semantics_chunks_with_budget(
+            plan,
+            historical.layer_blob.digest,
+            HostileChunks(),
+            max_uncompressed_bytes=2048,
+        )
+    _private_error(captured.value, "private-tar-stream-marker")
+
+
+@pytest.mark.parametrize("invalid_budget", [False, 0, -1, 1.0, None, 3 * 1024**3 + 1])
+def test_private_tar_budget_bridge_rejects_invalid_budget_before_generator(
+    synthetic_pr22,
+    invalid_budget,
+):
+    from human_feedback import runtime_oci_tar
+
+    layer_evidence, _ = synthetic_pr22
+    plan = runtime_oci_tar.prepare_laya_oci_tar_semantics_plan(layer_evidence)
+
+    class HostileChunks:
+        def __iter__(self):
+            raise AssertionError("private-invalid-budget-consumed")
+
+    with pytest.raises(ValueError, match="budget|bounded|tar|stream|valid") as captured:
+        runtime_oci_tar._verify_laya_oci_tar_semantics_chunks_with_budget(
+            plan,
+            layer_evidence.receipts[0].layer_blob.digest,
+            HostileChunks(),
+            max_uncompressed_bytes=invalid_budget,
+        )
+    _private_error(captured.value, "private-invalid-budget-consumed")
 
 
 def test_tar_evidence_sealer_rejects_raw_receipts_proxy_and_foreign_authority(
