@@ -402,7 +402,7 @@ describe("HistoricalReplayPage", () => {
     vi.spyOn(api, "getPrediction").mockResolvedValue(predictionAt());
     vi.spyOn(api, "getHistory").mockResolvedValue({
       simulated_date: "2024-10-19",
-      rows: [{ fecha: "2024-10-19", soil_moisture: 0.3 }],
+      rows: [{ fecha: "2024-10-19", estado: "medida", soil_moisture: 0.3 }],
     });
     vi.spyOn(api, "getFeedback").mockResolvedValue({
       timestamp_origen: "2024-10-19",
