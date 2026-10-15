@@ -71,6 +71,25 @@ devices, FIFO y typeflags no autorizados.
 - **WHEN** aparece sparse, un typeflag no permitido o metadata contradictoria
 - **THEN** el sistema rechaza la layer sin fallback permisivo
 
+### Requirement: El root marker tendrá un único perfil estructural
+
+El sistema MAY aceptar `./` como root marker sólo bajo el perfil exacto de los
+escenarios siguientes. MUST rechazar el nombre raw `.` y todo override PAX/GNU a
+`.` o `./`. El marker MUST permanecer fuera del manifest y MUST NOT elevar claims
+de rootfs.
+
+#### Scenario: El root marker exacto se acepta sin crear una entry
+
+- **WHEN** uno o más headers usan exactamente `./`, typeflag `5`, size `0`, link raw vacío y ninguna metadata PAX/GNU local/global/pendiente
+- **THEN** cada marker cuenta para header/cardinalidad y bytes TAR, pero no para payload, manifest ni paths duplicados
+- **AND** su repetición no eleva `oci_rootfs_verified` ni ningún claim de composición
+
+#### Scenario: Un root marker ambiguo se rechaza
+
+- **WHEN** el nombre raw es `.`, `./` tiene otro typeflag, size o link, existe metadata local/global/pendiente, o PAX/GNU intenta override a `.` o `./`
+- **THEN** el sistema falla cerrado sin receipt TAR
+- **AND** no normaliza el caso ambiguo como una entry ordinaria
+
 ### Requirement: Los paths efectivos serán seguros y únicos por layer
 
 El sistema MUST calcular el path efectivo de cada entry después de PAX/GNU mediante
@@ -161,7 +180,7 @@ checkpoint, runtime materialized, executor e inferencia.
 
 - **WHEN** existen exactamente diez receipts válidos, ordenados y ligados a la misma captura
 - **THEN** el sistema emite evidencia inmutable con `tar_semantics_verified=true`
-- **AND** no eleva whiteouts/rootfs, provenance ni claims operativos
+- **AND** aceptar root markers `./` no eleva whiteouts/rootfs, provenance ni claims operativos
 
 ### Requirement: PR32 preservará privacidad y frontera operacional
 

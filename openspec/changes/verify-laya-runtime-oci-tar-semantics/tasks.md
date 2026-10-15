@@ -17,7 +17,7 @@
 - [x] 3.2 Registrar RED para rechazo de sparse, devices/FIFO, typeflags desconocidos, oldgnu ambiguo y overrides contradictorios (`7b9dfe0`, `8f3d604`).
 - [x] 3.3 Registrar RED para normalización segura del entry path y para targets de link POSIX opacos, incluidos absolutos y `..`, acotados y sin NUL/control (`7b9dfe0`).
 - [x] 3.4 Registrar RED para rechazo de paths efectivos duplicados, incluidas colisiones por normalización, slash final y PAX/GNU (`7b9dfe0`, `5785321`).
-- [x] 3.5 Registrar RED para caps de entries, path/link, metadata, payload y TAR agregado, con fail-fast y generadores hostiles (`7b9dfe0`, `8f3d604`).
+- [x] 3.5 Registrar RED para caps públicos de entries, path/link, metadata, payload y TAR agregado, con fail-fast y generadores hostiles (`7b9dfe0`, `5785321`).
 - [x] 3.6 Implementar GREEN mínimo de extensiones, manifest inmutable y límites (`1f9add7`).
 
 ## 4. TDD del adaptador y evidencia
@@ -37,7 +37,7 @@
 - [x] 5.4 Ejecutar regresiones Melchor Romero, Pergamino, CICYTEX y laboratorio/mock: `252 passed, 7 skipped`.
 - [x] 5.5 Ejecutar Black (`313 files`), Ruff, diff-check y OpenSpec strict: PASS.
 - [x] 5.6 Confirmar por tests y reviews cinco roles/runtime identity intactos, blobs externos y cero caller productivo.
-- [ ] 5.7 Completar auditoría independiente requisito por requisito antes de merge: board y gatekeeper dieron GO con P0/P1/P2=`0`, pero falta el gatekeeper final sobre los commits CI `89605b4`/`4c4e944` y root marker `21aeadc`/`39ee8fe`.
+- [x] 5.7 Completar auditoría independiente requisito por requisito antes de merge: gate final `26b1b6b` terminó NO-GO exclusivamente documental con P0=`0`, P1=`0`, P2=`2`; este delta resuelve ambos P2 (contrato exacto del root marker y atribución RED de caps), sin afirmar un GO posterior.
 
 ## 6. Deferred a PR33+
 

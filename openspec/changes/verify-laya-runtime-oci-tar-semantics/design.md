@@ -91,6 +91,16 @@ absolutos, UNC/drive, backslash, NUL/control, componentes `..`, path efectivo
 vacío y exceso de bytes o componentes. Podrá eliminar componentes `.` y slash
 final de directorio sin cambiar el destino.
 
+Existe una sola excepción previa a esa normalización para representar el root del
+archive real: un header cuyo nombre raw sea exactamente `./`, typeflag sea
+directorio `5`, size sea `0`, linkname raw sea vacío y no tenga metadata PAX/GNU
+local, global ni pendiente. Ese root marker puede repetirse. Cada repetición consume
+su header, cardinalidad y bytes TAR en los budgets, pero no consume payload, no crea
+una entrada del manifest y no participa del set de paths duplicados. El nombre raw
+`.` siempre se rechaza; cualquier otro uso de `./`, cualquier override PAX/GNU que
+intente producir `.` o `./`, o cualquier marker con otro typeflag, size, link o
+metadata también falla cerrado.
+
 El path efectivo se calcula después de aplicar PAX/GNU. Dos entries reales de la
 misma layer no podrán terminar en el mismo path normalizado: la segunda se
 rechazará, aunque la colisión provenga de spellings distintos, slash final,
@@ -120,6 +130,10 @@ fuera de presupuesto. Entries de tamaño cero también consumirán presupuesto d
 cardinalidad. El estado residente quedará acotado por header, metadata y manifest
 de entries, nunca por el contenido completo de archivos.
 
+El root marker exacto `./` consume budgets de header/cardinalidad y bytes TAR como
+cualquier header procesado. Su size cero no consume payload y, al no ingresar al
+manifest ni al índice de paths efectivos, sus repeticiones no constituyen duplicados.
+
 ### 6. Captura Linux same-root y cierre temporal
 
 `filesystem_oci_layout.py` añadirá
@@ -146,6 +160,9 @@ La evidencia heredará los claims verdaderos PR22 y añadirá únicamente
 `tar_semantics_verified=true`. Permanecerán falsos `oci_rootfs_verified`,
 `rootfs_materialized`, origen, licencia, base ancestry, checkpoint,
 `runtime_materialized`, `executor_available` e `inference_executed`.
+
+Aceptar el marcador estructural `./` no valida ni compone el rootfs y no modifica
+ninguno de esos claims falsos.
 
 El summary canónico incluirá sólo schemas, flags y
 `runtime_identity_sha256`. Omitirá raíz, paths, link targets, digests, DiffIDs,
