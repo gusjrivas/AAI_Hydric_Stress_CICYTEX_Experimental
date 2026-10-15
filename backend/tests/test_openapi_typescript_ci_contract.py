@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
+import shlex
 from pathlib import Path
 
 import yaml
@@ -124,6 +126,59 @@ def test_api_contract_ci_is_independent_and_runs_on_linux_and_windows():
         forbidden not in command_text.lower()
         for forbidden in ("npx", "http://", "https://", "uvicorn")
     )
+
+
+def test_contract_test_has_one_node_ready_ci_owner_without_skip_paths():
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    backend_job = workflow["jobs"]["backend-quality"]
+    api_job = workflow["jobs"]["api-contract"]
+    contract_test = "tests/test_openapi_typescript_ci_contract.py"
+
+    backend_test_step = next(
+        step for step in backend_job["steps"] if "python -m pytest" in str(step.get("run", ""))
+    )
+    backend_command = str(backend_test_step["run"])
+    backend_arguments = shlex.split(backend_command)
+    ignore_arguments = tuple(
+        argument for argument in backend_arguments if argument.startswith("--ignore")
+    )
+    assert "tests/" in backend_arguments
+    assert ignore_arguments == (f"--ignore={contract_test}",)
+
+    api_steps = api_job["steps"]
+    npm_ci_index = next(
+        index for index, step in enumerate(api_steps) if str(step.get("run", "")) == "npm ci"
+    )
+    contract_step_index = next(
+        index for index, step in enumerate(api_steps) if contract_test in str(step.get("run", ""))
+    )
+    contract_step = api_steps[contract_step_index]
+    contract_command = str(contract_step["run"])
+
+    assert npm_ci_index < contract_step_index
+    assert contract_command.split().count(contract_test) == 1
+    assert "continue-on-error" not in api_job
+    assert "if" not in api_job
+    for step in api_steps:
+        assert "continue-on-error" not in step
+        assert "if" not in step
+    assert all(
+        marker not in contract_command
+        for marker in ("--ignore", "--deselect", "--runxfail", "-k ", "-m ")
+    )
+
+    test_tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    forbidden_marks = {
+        node.attr
+        for node in ast.walk(test_tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr in {"skip", "skipif", "xfail"}
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+    }
+    assert forbidden_marks == set()
 
 
 def test_generated_schema_remains_foundation_only_and_has_no_product_importers():
