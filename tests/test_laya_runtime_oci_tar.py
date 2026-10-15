@@ -1,4 +1,6 @@
 import ast
+import gzip
+import hashlib
 import inspect
 import json
 import traceback
@@ -472,6 +474,76 @@ def test_empty_and_regular_tar_stream_to_identity_bound_receipts(
                 replace(value, **{field.name: getattr(value, field.name)})
 
 
+def test_real_pr22_bridge_verifies_gzip_diff_id_and_tar_end_to_end(
+    monkeypatch,
+    synthetic_pr22,
+):
+    from human_feedback import runtime_oci_layers, runtime_oci_tar
+
+    layer_evidence, _ = synthetic_pr22
+    tar_bytes = _archive(_tar_entry("science/result.txt", b"validated"))
+    compressed = gzip.compress(tar_bytes, mtime=0)
+    blob_digest = "sha256:" + hashlib.sha256(compressed).hexdigest()
+    diff_id = "sha256:" + hashlib.sha256(tar_bytes).hexdigest()
+    layer_plan = layer_evidence.plan
+    blob = layer_plan.layer_blobs[0]
+    blob.digest = blob_digest
+    blob.size_bytes = len(compressed)
+    object.__setattr__(
+        layer_plan,
+        "declared_diff_ids",
+        (diff_id, *layer_plan.declared_diff_ids[1:]),
+    )
+    historical = layer_evidence.receipts[0]
+    object.__setattr__(historical, "declared_diff_id", layer_plan.declared_diff_ids[0])
+    object.__setattr__(historical, "computed_diff_id", layer_plan.declared_diff_ids[0])
+    object.__setattr__(historical, "uncompressed_size_bytes", len(tar_bytes))
+    monkeypatch.setattr(
+        runtime_oci_layers,
+        "_authorize_layer",
+        lambda candidate, digest: (layer_plan, 0),
+    )
+    compressed_calls = []
+
+    def verify_compressed(layout_plan, digest, chunks):
+        captured = bytearray()
+        for chunk in chunks:
+            captured.extend(chunk)
+        compressed_calls.append((layout_plan, digest, bytes(captured)))
+        assert digest == blob_digest
+        assert len(captured) == blob.size_bytes
+        assert "sha256:" + hashlib.sha256(captured).hexdigest() == blob_digest
+        return layer_plan.layer_receipts[0]
+
+    monkeypatch.setattr(
+        runtime_oci_layers.runtime_oci_layout,
+        "verify_laya_oci_blob_chunks",
+        verify_compressed,
+    )
+    plan = runtime_oci_tar.prepare_laya_oci_tar_semantics_plan(layer_evidence)
+
+    receipt = runtime_oci_tar.verify_laya_oci_tar_semantics_chunks(
+        plan,
+        blob_digest,
+        _chunks(compressed, 7),
+    )
+
+    assert len(compressed_calls) == 1
+    assert compressed_calls[0][2] == compressed
+    assert receipt.layer_receipt is not historical
+    assert receipt.layer_receipt.layer_blob is historical.layer_blob
+    assert receipt.layer_receipt.computed_diff_id == diff_id
+    assert receipt.layer_receipt.uncompressed_size_bytes == len(tar_bytes)
+    assert receipt.tar_size_bytes == len(tar_bytes)
+    assert receipt.payload_size_bytes == len(b"validated")
+    assert len(receipt.entries) == 1
+    assert receipt.entries[0].path == "science/result.txt"
+    assert receipt.entries[0].typeflag == "0"
+    assert receipt.entries[0].size_bytes == len(b"validated")
+    assert receipt.tar_semantics_verified is True
+    assert receipt.oci_rootfs_verified is False
+
+
 @pytest.mark.parametrize("linkname", ["/etc/ssl/certs", "../../shared/target"])
 def test_symlink_targets_are_opaque_but_entry_paths_are_root_bound(
     monkeypatch, synthetic_pr22, linkname
@@ -701,6 +773,28 @@ def test_entry_and_receipt_deep_seals_reject_forged_paths_duplicates_and_totals(
             (TypeError, ValueError), match="receipt|entry|duplicate|payload|size|valid"
         ):
             forged.__post_init__(module._FACTORY_TOKEN)
+
+    forged_fresh = _forge(
+        type(fresh),
+        **{
+            field.name: (
+                1024 if field.name == "uncompressed_size_bytes" else getattr(fresh, field.name)
+            )
+            for field in fields(fresh)
+        },
+    )
+    forged_receipt = _forge(
+        type(receipt),
+        **(
+            receipt_values
+            | {
+                "layer_receipt": forged_fresh,
+                "tar_size_bytes": 1024,
+            }
+        ),
+    )
+    with pytest.raises((TypeError, ValueError), match="receipt|historical|uncompressed|size|valid"):
+        forged_receipt.__post_init__(module._FACTORY_TOKEN)
 
 
 @pytest.mark.parametrize(
