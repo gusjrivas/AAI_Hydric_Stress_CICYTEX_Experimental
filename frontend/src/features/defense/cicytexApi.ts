@@ -1,14 +1,82 @@
+import type { components, operations } from "../../api/generated/schema";
+
 const API = import.meta.env.VITE_API_BASE_URL ?? "";
 
-export interface CicytexCatalog { sensors: string[]; emission_dates_by_horizon: Record<string, string[]>; horizons: number[]; first_legitimate_emission: string; last_observation: string; }
-export interface ReplayPrediction { method: string; score: number; alert: boolean; target_date: string; observed_soil_moisture: number | null; observed_label: number | null; outcome: "VP" | "VN" | "FP" | "FN" | null; }
-export interface ReplayMetric { n: number; tp: number; tn: number; fp: number; fn: number; mcc: number | null; precision: number | null; recall: number | null; f1: number | null; coverage: number; }
-export interface ReplayFeedback { estado_validacion: "confirmada" | "rechazada"; etiqueta_corregida: number | null; observacion: string | null; registered_at: string; simulated_at: string; scope: string; }
-export interface CicytexSession { session_id: string; sensor_id: string; emission_date: string; horizon_days: number; revealed_through: string; threshold: number; proxy_notice: string; predictions: ReplayPrediction[]; readings: { date: string; soil_moisture: number }[]; metrics: Record<string, ReplayMetric>; feedback: ReplayFeedback | null; can_advance: boolean; }
+export type CicytexCatalog = components["schemas"]["CicytexCatalogResponse"];
+export type ReplayPrediction = components["schemas"]["CicytexPredictionResponse"];
+export type ReplayMetric = components["schemas"]["CicytexMetricResponse"];
+export type ReplayFeedback = components["schemas"]["CicytexFeedbackResponse"];
+export type CicytexSession = components["schemas"]["CicytexSessionResponse"];
 
-async function json<T>(pending: Promise<Response>): Promise<T> { const response = await pending; if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`); return response.json() as Promise<T>; }
-export const getCicytexCatalog = () => json<CicytexCatalog>(fetch(`${API}/api/v2/cicytex/replay/catalog`));
-export const createCicytexSession = (sensor_id: string, emission_date: string, horizon_days: number) => json<CicytexSession>(fetch(`${API}/api/v2/cicytex/replay/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sensor_id, emission_date, horizon_days }) }));
-export const advanceCicytexSession = (id: string) => json<CicytexSession>(fetch(`${API}/api/v2/cicytex/replay/sessions/${id}/advance`, { method: "POST" }));
-export const resetCicytexSession = (id: string) => json<CicytexSession>(fetch(`${API}/api/v2/cicytex/replay/sessions/${id}/reset`, { method: "POST" }));
-export const submitCicytexFeedback = (id: string, input: { estado_validacion: "confirmada" | "rechazada"; observacion?: string }) => json<ReplayFeedback>(fetch(`${API}/api/v2/cicytex/replay/sessions/${id}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }));
+type CatalogOperation = operations["catalog_api_v2_cicytex_replay_catalog_get"];
+type CreateSessionOperation = operations["create_session_api_v2_cicytex_replay_sessions_post"];
+type AdvanceSessionOperation =
+  operations["advance_api_v2_cicytex_replay_sessions__session_id__advance_post"];
+type ResetSessionOperation =
+  operations["reset_api_v2_cicytex_replay_sessions__session_id__reset_post"];
+type CreateFeedbackOperation =
+  operations["create_feedback_api_v2_cicytex_replay_sessions__session_id__feedback_post"];
+
+type CatalogResponse = CatalogOperation["responses"][200]["content"]["application/json"];
+type SessionRequest = CreateSessionOperation["requestBody"]["content"]["application/json"];
+type CreatedSessionResponse =
+  CreateSessionOperation["responses"][201]["content"]["application/json"];
+type AdvancedSessionResponse =
+  AdvanceSessionOperation["responses"][200]["content"]["application/json"];
+type ResetSessionResponse =
+  ResetSessionOperation["responses"][200]["content"]["application/json"];
+type FeedbackRequest = CreateFeedbackOperation["requestBody"]["content"]["application/json"];
+type FeedbackResponse =
+  CreateFeedbackOperation["responses"][201]["content"]["application/json"];
+
+async function json<T>(pending: Promise<Response>): Promise<T> {
+  const response = await pending;
+  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+  return response.json();
+}
+
+export const getCicytexCatalog = (): Promise<CatalogResponse> =>
+  json(fetch(`${API}/api/v2/cicytex/replay/catalog`));
+
+export const createCicytexSession = (
+  sensor_id: SessionRequest["sensor_id"],
+  emission_date: SessionRequest["emission_date"],
+  horizon_days: SessionRequest["horizon_days"],
+): Promise<CreatedSessionResponse> =>
+  json(
+    fetch(`${API}/api/v2/cicytex/replay/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sensor_id, emission_date, horizon_days }),
+    }),
+  );
+
+export const advanceCicytexSession = (
+  id: AdvanceSessionOperation["parameters"]["path"]["session_id"],
+): Promise<AdvancedSessionResponse> =>
+  json(
+    fetch(`${API}/api/v2/cicytex/replay/sessions/${id}/advance`, {
+      method: "POST",
+    }),
+  );
+
+export const resetCicytexSession = (
+  id: ResetSessionOperation["parameters"]["path"]["session_id"],
+): Promise<ResetSessionResponse> =>
+  json(
+    fetch(`${API}/api/v2/cicytex/replay/sessions/${id}/reset`, {
+      method: "POST",
+    }),
+  );
+
+export const submitCicytexFeedback = (
+  id: CreateFeedbackOperation["parameters"]["path"]["session_id"],
+  input: FeedbackRequest,
+): Promise<FeedbackResponse> =>
+  json(
+    fetch(`${API}/api/v2/cicytex/replay/sessions/${id}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
