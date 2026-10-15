@@ -80,3 +80,43 @@ jobs:
 
       - name: Build
         run: cd frontend && npm run build
+
+  api-contract:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install constrained Python dependencies
+        run: pip install -c backend/openapi-schema-constraints.txt -e ".[dev,backend]"
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test OpenAPI TypeScript contracts
+        run: >-
+          python -m pytest
+          tests/test_openapi_typescript_foundation.py
+          backend/tests/test_openapi_typescript_composition.py
+          backend/tests/test_openapi_typescript_ci_contract.py
+
+      - name: Test local TypeScript generator
+        working-directory: frontend
+        run: npm run test:api-toolchain
+
+      - name: Check generated contract artifacts
+        working-directory: frontend
+        run: npm run api:check
