@@ -66,5 +66,6 @@
   fresh-volume, matching migration, conflict and private-503 regressions pass.
 - [x] 8.4 Specify missing explicit targets, directory/symlink discovery, fresh absence and
   no-policy compatibility as fail-closed boundary cases.
-- [ ] 8.5 Reject invalid discovery node types and force an explicit missing target through the
-  repository so every deployment-policy failure remains a private 503 with no database creation.
+- [x] 8.5 Reject invalid discovery node types and force an explicit missing target through the
+  repository so every deployment-policy failure remains a private 503 with no database creation
+  (RED `0bfc657`, GREEN `a64927f`; focused config/HTTP and repository regressions pass).
