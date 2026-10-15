@@ -941,8 +941,11 @@ export interface components {
         };
         /** FeedbackRequest */
         FeedbackRequest: {
-            /** Estado Validacion */
-            estado_validacion: string;
+            /**
+             * Estado Validacion
+             * @enum {string}
+             */
+            estado_validacion: "confirmada" | "rechazada";
             /** Etiqueta Corregida */
             etiqueta_corregida?: number | null;
             /** Observacion */

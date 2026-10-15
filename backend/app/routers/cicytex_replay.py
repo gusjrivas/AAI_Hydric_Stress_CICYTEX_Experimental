@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -41,7 +42,7 @@ class SessionRequest(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    estado_validacion: str
+    estado_validacion: Literal["confirmada", "rechazada"]
     etiqueta_corregida: int | None = Field(default=None, ge=0, le=1)
     observacion: str | None = Field(default=None, max_length=1000)
 
