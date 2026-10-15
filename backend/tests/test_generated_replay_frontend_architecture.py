@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SOURCE = ROOT / "frontend" / "src"
 HISTORICAL_API = FRONTEND_SOURCE / "features" / "historical-replay" / "api.ts"
 CICYTEX_API = FRONTEND_SOURCE / "features" / "defense" / "cicytexApi.ts"
+QUALITY_API = FRONTEND_SOURCE / "features" / "quality" / "api.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -97,8 +98,8 @@ def _generated_import_names(source: str) -> set[str]:
     return {name.strip() for name in match.group("names").split(",")}
 
 
-def test_only_the_two_initial_replay_clients_consume_the_generated_schema():
-    assert _generated_schema_consumers() == {HISTORICAL_API, CICYTEX_API}
+def test_only_owned_replay_and_quality_clients_consume_the_generated_schema():
+    assert _generated_schema_consumers() == {HISTORICAL_API, CICYTEX_API, QUALITY_API}
 
 
 def test_replay_clients_use_generated_operation_contracts_without_duplicate_dtos():
@@ -128,3 +129,16 @@ def test_replay_client_public_names_and_transport_helpers_remain_stable():
             assert re.search(
                 rf"\bexport\s+(?:type|interface|class|function|const)\s+{name}\b", source
             )
+
+
+def test_quality_client_uses_its_generated_operation_without_a_duplicate_dto():
+    source = QUALITY_API.read_text(encoding="utf-8")
+
+    assert _generated_import_names(source) == {"components", "operations"}
+    assert 'operations["get_quality_report_quality__sensor_id__get"]' in source
+    assert not re.search(r"\b(?:export\s+)?interface\s+", source)
+    assert not re.search(r"(?<![\w.])any(?!\w)", source)
+    assert not re.search(r"\bas\s+unknown\s+as\b", source)
+    assert not re.search(r"\bRecord\s*<\s*string\s*,\s*unknown\s*>", source)
+    assert re.search(r"\bexport\s+type\s+QualityReport\b", source)
+    assert re.search(r"\bexport\s+(?:function|const)\s+getQualityReport\b", source)

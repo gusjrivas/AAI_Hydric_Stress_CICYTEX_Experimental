@@ -1,0 +1,53 @@
+import { describe, expectTypeOf, it } from "vitest";
+
+import type { components, operations } from "./api/generated/schema";
+import { getQualityReport } from "./features/quality/api";
+import type { QualityReport } from "./features/quality/api";
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
+    ? (<Value>() => Value extends Right ? 1 : 2) extends <Value>() => Value extends Left ? 1 : 2
+      ? true
+      : false
+    : false;
+type Assert<Condition extends true> = Condition;
+
+type QualityOperation = operations["get_quality_report_quality__sensor_id__get"];
+type QualityResponse = QualityOperation["responses"][200]["content"]["application/json"];
+type QualitySensorId = QualityOperation["parameters"]["path"]["sensor_id"];
+
+export type GeneratedQualityFunctionContracts = [
+  Assert<Equal<QualityReport, components["schemas"]["QualityReportResponse"]>>,
+  Assert<Equal<QualityReport, QualityResponse>>,
+  Assert<Equal<Parameters<typeof getQualityReport>[0], QualitySensorId>>,
+  Assert<Equal<ReturnType<typeof getQualityReport>, Promise<QualityResponse | null>>>,
+];
+
+const withoutOptionalPeriods: QualityReport = {
+  sensor_id: "sensor-a",
+  total_rows: 0,
+  missing_pct: {},
+  duplicate_timestamps: [],
+  out_of_range: {},
+  anomalies_detected: 0,
+  anomaly_method: "isolation_forest",
+  anomaly_contamination: 0.05,
+  anomaly_columns: [],
+  is_diagnostic_only: true,
+  note: "Sin observaciones suficientes.",
+};
+
+const withNullablePeriods: QualityReport = {
+  ...withoutOptionalPeriods,
+  period_start: null,
+  period_end: null,
+};
+
+void withoutOptionalPeriods;
+void withNullablePeriods;
+
+describe("generated operational quality contracts", () => {
+  it("keeps the established quality function callable", () => {
+    expectTypeOf(getQualityReport).toBeFunction();
+  });
+});
