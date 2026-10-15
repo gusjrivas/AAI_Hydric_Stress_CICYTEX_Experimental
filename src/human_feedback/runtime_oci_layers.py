@@ -339,12 +339,13 @@ def _authorize_layer(
     return plan, positions[0]
 
 
-def _verify_laya_oci_layer_diff_id_chunks(
+def _verify_laya_oci_layer_diff_id_chunks_core(
     plan: object,
     digest: object,
     chunks: object,
     *,
     max_uncompressed_bytes: object = None,
+    output_consumer: object = None,
 ) -> VerifiedLayaOciLayerDiffId:
     global_limit = min(
         MAX_OCI_LAYER_UNCOMPRESSED_BYTES,
@@ -363,19 +364,28 @@ def _verify_laya_oci_layer_diff_id_chunks(
     authorized_plan, position = _authorize_layer(plan, digest)
     if type(chunks) in {bytes, bytearray, memoryview, str}:
         raise TypeError("OCI layer chunks must be an unambiguous byte stream")
+    if output_consumer is not None and not callable(output_consumer):
+        raise TypeError("OCI layer output consumer must be callable")
 
     decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
     uncompressed_hasher = hashlib.sha256()
     uncompressed_size = 0
     chunk_count = 0
     decompression_failed = False
+    consumer_failed = False
 
     def consume_output(output: bytes) -> None:
-        nonlocal uncompressed_size
+        nonlocal consumer_failed, uncompressed_size
         uncompressed_size += len(output)
         if uncompressed_size > expansion_limit:
             raise _LayerExpansionError("OCI layer uncompressed expansion exceeds size limit")
         uncompressed_hasher.update(output)
+        if output and output_consumer is not None:
+            try:
+                output_consumer(output)
+            except Exception:
+                consumer_failed = True
+                raise
 
     def decompress_input(compressed: bytes) -> None:
         if decompressor.eof:
@@ -411,6 +421,8 @@ def _verify_laya_oci_layer_diff_id_chunks(
                 except _LayerExpansionError:
                     raise
                 except (ValueError, zlib.error):
+                    if consumer_failed:
+                        raise
                     decompression_failed = True
             yield chunk
 
@@ -452,6 +464,35 @@ def _verify_laya_oci_layer_diff_id_chunks(
         computed_diff_id=computed_diff_id,
         uncompressed_size_bytes=uncompressed_size,
         _factory_token=_FACTORY_TOKEN,
+    )
+
+
+def _verify_laya_oci_layer_diff_id_chunks(
+    plan: object,
+    digest: object,
+    chunks: object,
+    *,
+    max_uncompressed_bytes: object = None,
+) -> VerifiedLayaOciLayerDiffId:
+    return _verify_laya_oci_layer_diff_id_chunks_core(
+        plan,
+        digest,
+        chunks,
+        max_uncompressed_bytes=max_uncompressed_bytes,
+    )
+
+
+def _verify_laya_oci_layer_diff_id_chunks_with_consumer(
+    plan: object,
+    digest: object,
+    chunks: object,
+    consume: object,
+) -> VerifiedLayaOciLayerDiffId:
+    return _verify_laya_oci_layer_diff_id_chunks_core(
+        plan,
+        digest,
+        chunks,
+        output_consumer=consume,
     )
 
 
