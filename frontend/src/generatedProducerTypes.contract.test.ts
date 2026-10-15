@@ -1,15 +1,20 @@
+import { describe, expectTypeOf, it } from "vitest";
+
 import type { components, operations } from "./api/generated/schema";
+import { listSectors } from "./features/producer/catalogApi";
 import type {
   Sector,
   SectorListResult,
   SensorListResult,
   SensorSummary,
 } from "./features/producer/catalogApi";
+import { getSensorReadings } from "./features/producer/readingsApi";
 import type {
   ReadingRow,
   ReadingsResult,
   VariableCoverage,
 } from "./features/producer/readingsApi";
+import { listForecasts } from "./features/producer/forecastsApi";
 import type {
   EnsembleComponentVote,
   EnsembleDetail,
@@ -133,3 +138,11 @@ export type GeneratedProducerSliceAContract = [
   _ForecastBatch,
   _HistoricalForecastBatch,
 ];
+
+describe("generated producer type contracts", () => {
+  it("keeps the established producer functions callable", () => {
+    expectTypeOf(listSectors).toBeFunction();
+    expectTypeOf(getSensorReadings).toBeFunction();
+    expectTypeOf(listForecasts).toBeFunction();
+  });
+});
