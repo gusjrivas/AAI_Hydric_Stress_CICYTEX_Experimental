@@ -114,6 +114,68 @@ def test_private_consumer_bridge_preserves_public_pr22_api_and_streams_verified_
         )
 
 
+def test_private_consumer_bridge_stops_immediately_on_consumer_rejection(monkeypatch):
+    from human_feedback import runtime_oci_layers as module
+    from tests.test_laya_runtime_oci_tar import _synthetic_pr22_evidence
+
+    evidence = _synthetic_pr22_evidence()
+    plan = evidence.plan
+    payload = b"consumer-visible-output"
+    member = gzip.compress(payload, mtime=0)
+    digest = "sha256:" + hashlib.sha256(member).hexdigest()
+    diff_id = "sha256:" + hashlib.sha256(payload).hexdigest()
+    plan.layer_blobs[0].digest = digest
+    plan.layer_blobs[0].size_bytes = len(member)
+    object.__setattr__(
+        plan,
+        "declared_diff_ids",
+        (diff_id, *plan.declared_diff_ids[1:]),
+    )
+    monkeypatch.setattr(module, "_authorize_layer", lambda candidate, value: (plan, 0))
+
+    def verify_compressed(_layout_plan, value, chunks):
+        for _chunk in chunks:
+            pass
+        assert value == digest
+        return plan.layer_receipts[0]
+
+    monkeypatch.setattr(
+        module.runtime_oci_layout,
+        "verify_laya_oci_blob_chunks",
+        verify_compressed,
+    )
+
+    class HostileCompressedStream:
+        def __init__(self):
+            self.requests = 0
+            self.sentinel_executed = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requests += 1
+            if self.requests == 1:
+                return member
+            self.sentinel_executed = True
+            raise AssertionError("private-post-consumer-sentinel")
+
+    def reject(_output):
+        raise ValueError("consumer rejected TAR output")
+
+    stream = HostileCompressedStream()
+    with pytest.raises(ValueError, match="consumer rejected TAR output") as captured:
+        module._verify_laya_oci_layer_diff_id_chunks_with_consumer(
+            plan,
+            digest,
+            stream,
+            reject,
+        )
+    assert stream.requests == 1
+    assert stream.sentinel_executed is False
+    assert "zlib" not in str(captured.value).lower()
+
+
 def _private_error(error: BaseException, *markers: str) -> None:
     rendered = "".join(traceback.TracebackException.from_exception(error).format(chain=True))
     for marker in markers:

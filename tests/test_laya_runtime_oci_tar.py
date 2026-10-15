@@ -1,5 +1,6 @@
 import ast
 import inspect
+import json
 import traceback
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
@@ -70,6 +71,14 @@ def _tar_entry(
 
 def _archive(*entries: bytes, terminal_blocks: int = 2) -> bytes:
     return b"".join(entries) + (b"\0" * 512 * terminal_blocks)
+
+
+def _header_with_recomputed_checksum(header: bytes, start: int, value: bytes) -> bytes:
+    mutated = bytearray(header)
+    mutated[start : start + len(value)] = value
+    mutated[148:156] = b"        "
+    mutated[148:156] = f"{sum(mutated):06o}".encode("ascii") + b"\0 "
+    return bytes(mutated)
 
 
 def _chunks(payload: bytes, width: int):
@@ -540,6 +549,38 @@ def test_bad_checksum_precedes_size_and_path_and_stops_stream(monkeypatch, synth
     _private_error(captured.value, "private/checksum-before-path", "private-post-checksum-sentinel")
 
 
+@pytest.mark.parametrize(
+    ("offset", "invalid_octal"),
+    [
+        (100, b"0000008\0"),
+        (108, b"0000008\0"),
+        (116, b"0000008\0"),
+        (136, b"00000000008\0"),
+    ],
+    ids=("mode", "uid", "gid", "mtime"),
+)
+def test_all_numeric_header_fields_require_valid_octal_after_checksum(
+    monkeypatch,
+    synthetic_pr22,
+    offset,
+    invalid_octal,
+):
+    from human_feedback import runtime_oci_tar as module
+
+    evidence, _ = synthetic_pr22
+    plan = module.prepare_laya_oci_tar_semantics_plan(evidence)
+    digest = evidence.receipts[0].layer_blob.digest
+    invalid_header = _header_with_recomputed_checksum(
+        _tar_header("private/numeric-field"), offset, invalid_octal
+    )
+    archive = _archive(invalid_header)
+    object.__setattr__(evidence.receipts[0], "uncompressed_size_bytes", len(archive))
+    _install_bridge(monkeypatch, module, evidence.receipts[0])
+    with pytest.raises(ValueError, match="tar|numeric|octal|header|valid") as captured:
+        module.verify_laya_oci_tar_semantics_chunks(plan, digest, (archive,))
+    _private_error(captured.value, "private/numeric-field")
+
+
 def test_truncation_termination_padding_and_caps_fail_closed(monkeypatch, synthetic_pr22):
     from human_feedback import runtime_oci_tar as module
 
@@ -644,7 +685,7 @@ def test_entry_and_receipt_deep_seals_reject_forged_paths_duplicates_and_totals(
         ),
     )
     for invalid in invalid_entries:
-        with pytest.raises((TypeError, ValueError), match="entry|path|link|valid"):
+        with pytest.raises((TypeError, ValueError), match="entry|path|link|size|valid"):
             invalid.__post_init__(module._FACTORY_TOKEN)
 
     receipt_values = {field.name: getattr(receipt, field.name) for field in fields(receipt)}
@@ -660,6 +701,111 @@ def test_entry_and_receipt_deep_seals_reject_forged_paths_duplicates_and_totals(
             (TypeError, ValueError), match="receipt|entry|duplicate|payload|size|valid"
         ):
             forged.__post_init__(module._FACTORY_TOKEN)
+
+
+@pytest.mark.parametrize(
+    ("typeflag", "link_target"),
+    [("1", "data/target"), ("2", "../target"), ("5", None)],
+    ids=("hardlink", "symlink", "directory"),
+)
+def test_non_regular_entry_deep_seal_rejects_nonzero_size(
+    synthetic_pr22,
+    typeflag,
+    link_target,
+):
+    from human_feedback import runtime_oci_tar as module
+
+    forged = _forge(
+        module.LayaOciTarEntry,
+        path="data/private-nonregular",
+        typeflag=typeflag,
+        size_bytes=1,
+        link_target=link_target,
+    )
+    with pytest.raises((TypeError, ValueError), match="entry|size|valid"):
+        forged.__post_init__(module._FACTORY_TOKEN)
+
+
+def test_tar_evidence_and_summary_inherit_every_pr22_claim_and_only_elevate_tar(
+    synthetic_pr22,
+):
+    from human_feedback import runtime_oci_tar as module
+
+    layer_evidence, _ = synthetic_pr22
+    plan = module.prepare_laya_oci_tar_semantics_plan(layer_evidence)
+    receipts = []
+    for position, historical in enumerate(layer_evidence.receipts):
+        fresh = _forge(
+            type(historical),
+            **{
+                field.name: (
+                    1024
+                    if field.name == "uncompressed_size_bytes"
+                    else getattr(historical, field.name)
+                )
+                for field in fields(historical)
+            },
+        )
+        receipts.append(
+            module.VerifiedLayaOciTarLayer(
+                plan=plan,
+                layer_receipt=fresh,
+                layer_position=position,
+                entries=(),
+                payload_size_bytes=0,
+                tar_size_bytes=1024,
+                _factory_token=module._FACTORY_TOKEN,
+            )
+        )
+    evidence = module.LayaRuntimeOciTarSemanticsEvidence(
+        schema_version="laya-runtime-oci-tar-semantics-evidence-v1",
+        plan=plan,
+        runtime_identity=layer_evidence.runtime_identity,
+        receipts=tuple(receipts),
+        _factory_token=module._FACTORY_TOKEN,
+    )
+
+    pr22_bindings = {
+        "schema_version",
+        "plan",
+        "config_evidence",
+        "layout_evidence",
+        "layout_plan",
+        "runtime_identity",
+        "receipts",
+    }
+    inherited_claims = {
+        field.name for field in fields(layer_evidence) if field.name not in pr22_bindings
+    }
+    tar_bindings = {"schema_version", "plan", "runtime_identity", "receipts"}
+    assert {field.name for field in fields(evidence)} - tar_bindings == inherited_claims
+    expected_claims = {
+        claim: (True if claim == "tar_semantics_verified" else getattr(layer_evidence, claim))
+        for claim in inherited_claims
+    }
+    assert (
+        sum(value is True for value in expected_claims.values())
+        == sum(getattr(layer_evidence, claim) is True for claim in inherited_claims) + 1
+    )
+    for claim, expected in expected_claims.items():
+        assert getattr(evidence, claim) is expected
+
+    summary = json.loads(module.canonical_laya_runtime_oci_tar_semantics_summary_bytes(evidence))
+    assert summary == {
+        "schema_version": evidence.schema_version,
+        "plan_schema_version": plan.schema_version,
+        "runtime_identity_sha256": layer_evidence.runtime_identity.sha256,
+        **expected_claims,
+    }
+    rendered = repr(evidence)
+    assert all(receipt.layer_blob.digest not in rendered for receipt in layer_evidence.receipts)
+
+    evidence_values = {field.name: getattr(evidence, field.name) for field in fields(evidence)}
+    for claim, expected in expected_claims.items():
+        forged = _forge(type(evidence), **(evidence_values | {claim: not expected}))
+        with pytest.raises((TypeError, ValueError), match="evidence|claim|valid") as captured:
+            module.canonical_laya_runtime_oci_tar_semantics_summary_bytes(forged)
+        _private_error(captured.value)
 
 
 def test_summary_rejects_unsealed_evidence_and_no_public_finalizer_exists():
