@@ -16,9 +16,9 @@ FRONTEND_ROOT = ROOT / "frontend"
 GENERATED_ROOT = FRONTEND_ROOT / "src" / "api" / "generated"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 GENERATED_ARTIFACTS = {
-    "manifest.json": (348, "9d56bf7c48d6a3fec1414f229b9e96e2322263acf72ce7f1f36004f1ef9f982f"),
-    "openapi.json": (71_662, "655e94125c304ab34f2ebf8745bb56c56e4fdadb1bd5a13dee0630d79f61f96e"),
-    "schema.d.ts": (103_403, "c744277eec28db4314d3210dfc28b8024f7ee0c194fdc5bcae772774c4bf0bac"),
+    "manifest.json": (348, "d619ad7c0905629c36f95838d7ab90a2c5448785c1c31ff5d07140516069f725"),
+    "openapi.json": (76_608, "e5022ffb12376dfbc4f64bd6f66a0f55670281de997fc80b611da78d76a9163f"),
+    "schema.d.ts": (108_012, "7ff50d5220ef2a6fd58e8249aefabc68cb16d02e3f596e0baeda713a028cf5f5"),
 }
 RAW_TO_TRACKED = {
     "openapi.json": "openapi.json",
@@ -187,16 +187,19 @@ def test_contract_test_has_one_node_ready_ci_owner_without_skip_paths():
     assert forbidden_marks == set()
 
 
-def test_generated_schema_remains_foundation_only_and_has_no_product_importers():
+def test_generated_schema_has_only_the_two_owned_product_consumers():
     assert set(_bytes_by_name(GENERATED_ROOT)) == set(GENERATED_ARTIFACTS)
-    offenders = []
+    consumers = []
     for path in (FRONTEND_ROOT / "src").rglob("*.ts*"):
         if GENERATED_ROOT in path.parents or path.name.endswith((".test.ts", ".test.tsx")):
             continue
         source = path.read_text(encoding="utf-8")
         if "api/generated" in source or "generated/schema" in source:
-            offenders.append(path.relative_to(ROOT).as_posix())
-    assert offenders == []
+            consumers.append(path.relative_to(FRONTEND_ROOT / "src").as_posix())
+    assert set(consumers) == {
+        "features/defense/cicytexApi.ts",
+        "features/historical-replay/api.ts",
+    }
     assert not any("client" in path.name.lower() for path in GENERATED_ROOT.iterdir())
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -25,6 +26,11 @@ from ..dependencies import (
     get_cicytex_feedback_application,
     get_cicytex_replay_application,
 )
+from ..schemas_cicytex_replay import (
+    CicytexCatalogResponse,
+    CicytexFeedbackResponse,
+    CicytexSessionResponse,
+)
 
 router = APIRouter(prefix="/api/v2/cicytex/replay", tags=["cicytex-replay"])
 
@@ -36,12 +42,16 @@ class SessionRequest(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    estado_validacion: str
+    estado_validacion: Literal["confirmada", "rechazada"]
     etiqueta_corregida: int | None = Field(default=None, ge=0, le=1)
     observacion: str | None = Field(default=None, max_length=1000)
 
 
-@router.get("/catalog")
+@router.get(
+    "/catalog",
+    response_model=CicytexCatalogResponse,
+    response_model_exclude_unset=True,
+)
 def catalog(
     application: CicytexCatalogApplication = Depends(get_cicytex_catalog_application),
 ) -> dict:
@@ -51,7 +61,7 @@ def catalog(
         raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
 
 
-@router.post("/sessions", status_code=201)
+@router.post("/sessions", response_model=CicytexSessionResponse, status_code=201)
 def create_session(
     request: SessionRequest,
     application: CicytexReplayApplication = Depends(get_cicytex_replay_application),
@@ -68,7 +78,7 @@ def create_session(
         raise HTTPException(404, "No existe esa emision CICYTEX") from None
 
 
-@router.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}", response_model=CicytexSessionResponse)
 def get_session(
     session_id: str,
     application: CicytexReplayApplication = Depends(get_cicytex_replay_application),
@@ -81,7 +91,7 @@ def get_session(
         raise HTTPException(404, "No existe esa emision CICYTEX") from None
 
 
-@router.post("/sessions/{session_id}/advance")
+@router.post("/sessions/{session_id}/advance", response_model=CicytexSessionResponse)
 def advance(
     session_id: str,
     application: CicytexReplayApplication = Depends(get_cicytex_replay_application),
@@ -94,7 +104,7 @@ def advance(
         raise HTTPException(404, "No existe esa emision CICYTEX") from None
 
 
-@router.post("/sessions/{session_id}/reset")
+@router.post("/sessions/{session_id}/reset", response_model=CicytexSessionResponse)
 def reset(
     session_id: str,
     application: CicytexReplayApplication = Depends(get_cicytex_replay_application),
@@ -107,7 +117,11 @@ def reset(
         raise HTTPException(404, "No existe esa emision CICYTEX") from None
 
 
-@router.post("/sessions/{session_id}/feedback", status_code=201)
+@router.post(
+    "/sessions/{session_id}/feedback",
+    response_model=CicytexFeedbackResponse,
+    status_code=201,
+)
 def create_feedback(
     session_id: str,
     request: FeedbackRequest,

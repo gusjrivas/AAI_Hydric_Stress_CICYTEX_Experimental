@@ -389,7 +389,7 @@ export function HistoricalReplayPage() {
               </div>
             </dl>
 
-            {prediction.target_observed === undefined && (
+            {prediction.target_observed == null && (
               <p role="status" className="hr-status">
                 Observación posterior: todavía no revelada en la fecha simulada.
               </p>
