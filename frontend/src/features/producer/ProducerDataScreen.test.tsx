@@ -7,6 +7,7 @@ import type { ReadingsResult } from "./readingsApi";
 afterEach(() => vi.restoreAllMocks());
 
 const baseReadings: ReadingsResult = {
+  ...{ input_roles: [] },
   sensor_id: "sensor-a",
   calendar_timezone: "UTC",
   server_today: "2023-06-20",

@@ -9,6 +9,7 @@ import {
   RevisionConflictError,
   alertOutlookSummary,
   displayProbability,
+  emitForecasts,
   getForecast,
   listForecasts,
   submitReview,
@@ -76,6 +77,33 @@ describe("listForecasts", () => {
     expect(url.searchParams.get("cursor")).toBe("c0");
   });
 
+  it("encodes sensor and every optional query without renaming cursors", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, { items: [], next_cursor: null, pending_total: 0, reviewable_pending_total: 0 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listForecasts("sensor / á", {
+      targetFrom: "2026-01-01",
+      targetTo: "2026-01-31",
+      horizonDays: 3,
+      reviewStatus: "rejected",
+      limit: 25,
+      cursor: "cursor / á",
+    });
+
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(url.pathname).toBe("/api/v2/sensors/sensor%20%2F%20%C3%A1/forecasts");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      target_from: "2026-01-01",
+      target_to: "2026-01-31",
+      horizon_days: "3",
+      review_status: "rejected",
+      limit: "25",
+      cursor: "cursor / á",
+    });
+  });
+
   it("treats a bodyless 404 as the v2 facade being unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => { throw new Error("no body"); } }));
     await expect(listForecasts("sensor-a")).rejects.toBeInstanceOf(ProducerV2UnavailableError);
@@ -105,6 +133,16 @@ describe("getForecast", () => {
     await expect(getForecast("sensor-a", "fc-1")).resolves.toEqual(forecast);
   });
 
+  it("encodes both resource identifiers and preserves response identity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, forecast));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getForecast("sensor / á", "forecast / ñ")).resolves.toBe(forecast);
+    expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe(
+      "/api/v2/sensors/sensor%20%2F%20%C3%A1/forecasts/forecast%20%2F%20%C3%B1",
+    );
+  });
+
   it("maps forecast_not_found to ForecastNotFoundError", async () => {
     vi.stubGlobal(
       "fetch",
@@ -122,10 +160,11 @@ describe("submitReview", () => {
   it("sends the exact request body the contract expects", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, forecast.review));
     vi.stubGlobal("fetch", fetchMock);
-    await submitReview("sensor-a", "fc-1", request);
+    await expect(submitReview("sensor-a", "fc-1", request)).resolves.toBe(forecast.review);
     const [url, init] = fetchMock.mock.calls[0];
     expect(new URL(url).pathname).toBe("/api/v2/sensors/sensor-a/forecasts/fc-1/reviews");
     expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
     expect(JSON.parse(init.body)).toEqual({
       request_id: "req-1",
       expected_revision: 0,
@@ -196,6 +235,38 @@ describe("submitReview", () => {
     expect(error).not.toBeInstanceOf(DemoWriteLockedError);
     expect((error as Error).message).toBe("no disponible");
   });
+});
+
+describe("emitForecasts", () => {
+  for (const status of [200, 201]) {
+    it(`accepts ${status} while preserving the exact empty body and idempotency header`, async () => {
+      const payload = {
+        batch_id: "batch-1",
+        revision: 1,
+        as_of_date: "2026-01-01",
+        data_age_days: 0,
+        server_today: "2026-01-01",
+        slots: [],
+        provenance: "real",
+        calendar_timezone: "UTC",
+      };
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(status, payload));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(emitForecasts("sensor / á", "request-123")).resolves.toBe(payload);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v2/sensors/sensor%20%2F%20%C3%A1/forecasts"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": "request-123",
+          },
+          body: "{}",
+        },
+      );
+    });
+  }
 });
 
 describe("displayProbability", () => {

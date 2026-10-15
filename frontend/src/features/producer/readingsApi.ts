@@ -1,4 +1,5 @@
 import { PRODUCER_API_BASE_URL } from "../../api/baseUrl";
+import type { components, operations } from "../../api/generated/schema";
 import { ProducerV2UnavailableError } from "./catalogApi";
 
 export type ReadingVariable =
@@ -20,60 +21,11 @@ export const READING_VARIABLES: ReadingVariable[] = [
   "et0",
 ];
 
-export interface ReadingRow {
-  date: string;
-  soil_moisture: number | null;
-  relative_humidity: number | null;
-  solar_radiation: number | null;
-  temperature: number | null;
-  precipitation: number | null;
-  wind_speed: number | null;
-  et0: number | null;
-  origin: "real" | "synthetic" | "external_reanalysis" | "unknown";
-  quality_flags: string[];
-  /** Variables whose value on this date was completed by causal
-   * forward-fill instead of present in the source for that day. Distinct
-   * from `origin` (dataset-level provenance): a real dataset can still
-   * contain imputed values. Always `[]` for datasets that never impute. */
-  imputed_variables: ReadingVariable[];
-  /** Variables whose value on this date has imputation tracking in the
-   * dataset (i.e. this dataset context does track imputation) but whose
-   * per-row flag for this date is present-but-null: neither confirmed real
-   * nor confirmed imputed. Never render as an independent observation --
-   * "Procedencia del valor no verificada". Always `[]` for datasets that
-   * never track imputation, and disjoint from `imputed_variables`. */
-  unverified_variables: ReadingVariable[];
-}
+export type ReadingRow = components["schemas"]["ReadingRow"];
+export type VariableCoverage = components["schemas"]["VariableCoverage"];
+export type ReadingsResult = components["schemas"]["ReadingsResponse"];
 
-export interface VariableCoverage {
-  variable: string;
-  observed_days: number;
-  missing_days: number;
-  /** Days counted as having a value only because it was imputed, never
-   * included in `observed_days`. `0` for datasets that never impute. */
-  imputed_days: number;
-  /** Days where this variable had a value but its imputation-tracking flag
-   * was present-but-null: provenance not verified, never included in
-   * `observed_days` or `imputed_days`. `0` for datasets that never track
-   * imputation for this variable. */
-  unverified_days: number;
-}
-
-export interface ReadingsResult {
-  sensor_id: string;
-  calendar_timezone: "UTC";
-  server_today: string;
-  snapshot_id: string | null;
-  window: { start_date: string; end_date: string; expected_days: number };
-  status: "ready" | "no_readings";
-  rows: ReadingRow[];
-  missing_dates: string[];
-  variable_coverage: VariableCoverage[];
-  units: Record<string, string>;
-  last_reading_date: string | null;
-  data_age_days: number | null;
-  provenance: "real" | "synthetic" | "external_reanalysis" | "mixed" | "unknown";
-}
+type ReadingsOperation = operations["get_readings_api_v2_sensors__sensor_id__readings_get"];
 
 /** Un sensor desconocido (404 con cuerpo de error v2). */
 export class SensorNotFoundError extends Error {
@@ -83,7 +35,10 @@ export class SensorNotFoundError extends Error {
   }
 }
 
-export async function getSensorReadings(sensorId: string, days: number): Promise<ReadingsResult> {
+export async function getSensorReadings(
+  sensorId: ReadingsOperation["parameters"]["path"]["sensor_id"],
+  days: NonNullable<NonNullable<ReadingsOperation["parameters"]["query"]>["days"]>,
+): Promise<ReadingsOperation["responses"][200]["content"]["application/json"]> {
   const response = await fetch(
     `${PRODUCER_API_BASE_URL}/api/v2/sensors/${encodeURIComponent(sensorId)}/readings?days=${days}`,
   );

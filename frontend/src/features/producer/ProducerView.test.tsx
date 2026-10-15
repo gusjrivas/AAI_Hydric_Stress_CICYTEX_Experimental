@@ -31,6 +31,7 @@ describe("ProducerView", () => {
     vi.spyOn(catalogApi, "listSectors").mockResolvedValue({ items: [sector], next_cursor: null });
     vi.spyOn(catalogApi, "listSensors").mockResolvedValue({ items: [sensor], next_cursor: null });
     vi.spyOn(readingsApi, "getSensorReadings").mockResolvedValue({
+      ...{ input_roles: [] },
       sensor_id: "sensor-a",
       calendar_timezone: "UTC",
       server_today: "2026-01-05",
@@ -64,6 +65,7 @@ describe("ProducerView", () => {
     vi.spyOn(catalogApi, "listSectors").mockResolvedValue({ items: [sector], next_cursor: null });
     vi.spyOn(catalogApi, "listSensors").mockResolvedValue({ items: [sensor], next_cursor: null });
     vi.spyOn(readingsApi, "getSensorReadings").mockResolvedValue({
+      ...{ input_roles: [] },
       sensor_id: "sensor-a", calendar_timezone: "UTC", server_today: "2026-01-05", snapshot_id: null,
       window: { start_date: "2026-01-01", end_date: "2026-01-01", expected_days: 1 }, status: "no_readings",
       rows: [], missing_dates: [], variable_coverage: [], units: {}, last_reading_date: null,
@@ -91,6 +93,7 @@ describe("ProducerView", () => {
     vi.spyOn(catalogApi, "listSensors").mockResolvedValue({ items: [sensor], next_cursor: null });
     vi.spyOn(forecastsApi, "listForecasts").mockResolvedValue({ items: [], next_cursor: null, pending_total: 0, reviewable_pending_total: 0 });
     vi.spyOn(readingsApi, "getSensorReadings").mockResolvedValue({
+      ...{ input_roles: [] },
       sensor_id: "sensor-a", calendar_timezone: "UTC", server_today: "2026-01-07", snapshot_id: null,
       window: { start_date: "2026-01-01", end_date: "2026-01-01", expected_days: 1 }, status: "no_readings",
       rows: [], missing_dates: [], variable_coverage: [], units: {}, last_reading_date: null,
@@ -114,6 +117,7 @@ describe("ProducerView", () => {
     vi.spyOn(catalogApi, "listSectors").mockResolvedValue({ items: [sector], next_cursor: null });
     vi.spyOn(catalogApi, "listSensors").mockResolvedValue({ items: [sensor], next_cursor: null });
     vi.spyOn(readingsApi, "getSensorReadings").mockResolvedValue({
+      ...{ input_roles: [] },
       sensor_id: "sensor-a", calendar_timezone: "UTC", server_today: "2026-01-05", snapshot_id: null,
       window: { start_date: "2026-01-01", end_date: "2026-01-01", expected_days: 1 }, status: "no_readings",
       rows: [], missing_dates: [], variable_coverage: [], units: {}, last_reading_date: null,

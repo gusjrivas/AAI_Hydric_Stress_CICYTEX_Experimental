@@ -32,6 +32,7 @@ describe("HistoricalWalkthrough", () => {
     const readings = vi.spyOn(historicalApi, "getHistoricalReadings")
       .mockRejectedValueOnce(new Error("Sin conexión"))
       .mockResolvedValueOnce({
+        ...{ input_roles: [] },
         sensor_id: "pergamino-ensemble-demo", calendar_timezone: "UTC", server_today: "2023-06-13",
         snapshot_id: null, window: { start_date: "2023-06-04", end_date: "2023-06-13", expected_days: 10 },
         status: "ready", rows: [], missing_dates: ["2023-06-13"], variable_coverage: [], units: {},
@@ -48,6 +49,7 @@ describe("HistoricalWalkthrough", () => {
   it("limits defense navigation to the five persisted emission dates and does not show a later target as observed", async () => {
     vi.spyOn(historicalApi, "getHistoricalForecastBatch").mockResolvedValue(batchFor("2023-06-13", "14"));
     vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue({
+      ...{ input_roles: [] },
       sensor_id: "pergamino-ensemble-demo", calendar_timezone: "UTC", server_today: "2023-06-13",
       snapshot_id: null, window: { start_date: "2023-06-04", end_date: "2023-06-13", expected_days: 10 },
       status: "ready", rows: [], missing_dates: ["2023-06-12"], variable_coverage: [], units: {},
@@ -64,6 +66,7 @@ describe("HistoricalWalkthrough", () => {
   it("keeps the emission date and the walked-forward reveal date visually separate, never merged", async () => {
     vi.spyOn(historicalApi, "getHistoricalForecastBatch").mockResolvedValue(batchFor("2023-06-13", "14"));
     vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue({
+      ...{ input_roles: [] },
       sensor_id: "sensor-a",
       calendar_timezone: "UTC",
       server_today: "2023-06-13",
@@ -311,6 +314,7 @@ describe("HistoricalWalkthrough", () => {
     batch.slots[0] = { ...slotWithReviewable(false), alert: true };
     vi.spyOn(historicalApi, "getHistoricalForecastBatch").mockResolvedValue(batch);
     vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue({
+      ...{ input_roles: [] },
       sensor_id: "pergamino-ensemble-demo", calendar_timezone: "UTC", server_today: "2023-06-13",
       snapshot_id: null, window: { start_date: "2023-06-04", end_date: "2023-06-13", expected_days: 10 },
       status: "ready", rows: [{
@@ -537,6 +541,7 @@ describe("HistoricalWalkthrough", () => {
   // deliberadamente distinto de la fecha real 27/10 (que sí tiene valor
   // propio en la fuente): nunca se conflan.
   const MELCHOR_ROMERO_READINGS: ReadingsResult = {
+    ...{ input_roles: [] },
     sensor_id: "melchor-romero-demo", calendar_timezone: "UTC" as const, server_today: "2024-10-27",
     snapshot_id: null, window: { start_date: "2024-10-18", end_date: "2024-10-27", expected_days: 10 },
     status: "ready" as const,
