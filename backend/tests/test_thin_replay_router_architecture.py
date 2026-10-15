@@ -57,37 +57,45 @@ ROUTER_CONTRACTS = {
 
 EXPECTED_REPLAY_OPENAPI = {
     "/api/v2/cicytex/replay/catalog": {
-        "get": ("catalog_api_v2_cicytex_replay_catalog_get", ("200",), None)
+        "get": (
+            "catalog_api_v2_cicytex_replay_catalog_get",
+            ("200",),
+            "CicytexCatalogResponse",
+        )
     },
     "/api/v2/cicytex/replay/sessions": {
-        "post": ("create_session_api_v2_cicytex_replay_sessions_post", ("201", "422"), None)
+        "post": (
+            "create_session_api_v2_cicytex_replay_sessions_post",
+            ("201", "422"),
+            "CicytexSessionResponse",
+        )
     },
     "/api/v2/cicytex/replay/sessions/{session_id}": {
         "get": (
             "get_session_api_v2_cicytex_replay_sessions__session_id__get",
             ("200", "422"),
-            None,
+            "CicytexSessionResponse",
         )
     },
     "/api/v2/cicytex/replay/sessions/{session_id}/advance": {
         "post": (
             "advance_api_v2_cicytex_replay_sessions__session_id__advance_post",
             ("200", "422"),
-            None,
+            "CicytexSessionResponse",
         )
     },
     "/api/v2/cicytex/replay/sessions/{session_id}/feedback": {
         "post": (
             "create_feedback_api_v2_cicytex_replay_sessions__session_id__feedback_post",
             ("201", "422"),
-            None,
+            "CicytexFeedbackResponse",
         )
     },
     "/api/v2/cicytex/replay/sessions/{session_id}/reset": {
         "post": (
             "reset_api_v2_cicytex_replay_sessions__session_id__reset_post",
             ("200", "422"),
-            None,
+            "CicytexSessionResponse",
         )
     },
     "/replay/candidate": {
