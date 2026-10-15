@@ -487,11 +487,14 @@ def _verify_laya_oci_layer_diff_id_chunks_with_consumer(
     digest: object,
     chunks: object,
     consume: object,
+    *,
+    max_uncompressed_bytes: object = None,
 ) -> VerifiedLayaOciLayerDiffId:
     return _verify_laya_oci_layer_diff_id_chunks_core(
         plan,
         digest,
         chunks,
+        max_uncompressed_bytes=max_uncompressed_bytes,
         output_consumer=consume,
     )
 

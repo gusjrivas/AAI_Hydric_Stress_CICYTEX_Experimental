@@ -270,6 +270,54 @@ class VerifiedLayaOciTarLayer:
     __repr__ = _private_repr
 
 
+def _validate_tar_receipts(
+    plan: LayaOciTarSemanticsPlan,
+    receipts: object,
+) -> tuple[VerifiedLayaOciTarLayer, ...]:
+    if type(receipts) is not tuple or len(receipts) != len(plan.layer_receipts):
+        raise ValueError("OCI TAR receipt coverage is invalid")
+    for position, receipt in enumerate(receipts):
+        if type(receipt) is not VerifiedLayaOciTarLayer:
+            raise ValueError("OCI TAR receipt type is invalid")
+        receipt.__post_init__(_FACTORY_TOKEN)
+        if receipt.plan is not plan or receipt.layer_position != position:
+            raise ValueError("OCI TAR receipt order is invalid")
+    return receipts
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _LayaOciTarSemanticsCaptureAuthority:
+    plan: LayaOciTarSemanticsPlan = field(repr=False)
+    receipts: tuple[VerifiedLayaOciTarLayer, ...] = field(repr=False)
+    controls_captured_from_same_root: bool
+    blobs_captured_from_same_root: bool
+    inventory_captured_from_same_root: bool
+    final_fd_sweep_verified: bool
+    descriptors_closed_before_seal: bool
+    _factory_token: InitVar[object]
+
+    def __post_init__(self, _factory_token: object) -> None:
+        if _factory_token is not _FACTORY_TOKEN:
+            raise ValueError("OCI TAR capture authority requires the factory seal token")
+        if type(self.plan) is not LayaOciTarSemanticsPlan:
+            raise ValueError("OCI TAR capture authority plan is invalid")
+        self.plan.__post_init__(_FACTORY_TOKEN)
+        _validate_tar_receipts(self.plan, self.receipts)
+        if any(
+            flag is not True
+            for flag in (
+                self.controls_captured_from_same_root,
+                self.blobs_captured_from_same_root,
+                self.inventory_captured_from_same_root,
+                self.final_fd_sweep_verified,
+                self.descriptors_closed_before_seal,
+            )
+        ):
+            raise ValueError("OCI TAR capture authority closure is invalid")
+
+    __repr__ = _private_repr
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class LayaRuntimeOciTarSemanticsEvidence:
     schema_version: str
@@ -791,12 +839,7 @@ def verify_laya_oci_tar_semantics_chunks(
     failed = False
     try:
         authorized_plan, position = _authorize_plan_and_digest(plan, digest)
-    except Exception:
-        failed = True
-    if failed:
-        _raise_private(ValueError, "OCI TAR plan or layer digest validation failed")
-    parser = _TarParser(max_entries)
-    try:
+        parser = _TarParser(max_entries)
         layer_receipt = runtime_oci_layers._verify_laya_oci_layer_diff_id_chunks_with_consumer(
             authorized_plan.layer_plan,
             digest,
@@ -817,6 +860,92 @@ def verify_laya_oci_tar_semantics_chunks(
         failed = True
     if failed:
         _raise_private(ValueError, "OCI TAR stream validation failed")
+    raise AssertionError("unreachable")
+
+
+def _verify_laya_oci_tar_semantics_chunks_with_budget(
+    plan: object,
+    digest: object,
+    compressed_chunks: object,
+    *,
+    max_uncompressed_bytes: object,
+) -> VerifiedLayaOciTarLayer:
+    failed = False
+    try:
+        authorized_plan, position = _authorize_plan_and_digest(plan, digest)
+        parser = _TarParser(MAX_OCI_TAR_ENTRIES)
+        layer_receipt = runtime_oci_layers._verify_laya_oci_layer_diff_id_chunks_with_consumer(
+            authorized_plan.layer_plan,
+            digest,
+            compressed_chunks,
+            parser.feed,
+            max_uncompressed_bytes=max_uncompressed_bytes,
+        )
+        entries, payload_size, tar_size = parser.finish()
+        return VerifiedLayaOciTarLayer(
+            plan=authorized_plan,
+            layer_receipt=layer_receipt,
+            layer_position=position,
+            entries=entries,
+            payload_size_bytes=payload_size,
+            tar_size_bytes=tar_size,
+            _factory_token=_FACTORY_TOKEN,
+        )
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(ValueError, "OCI TAR bounded stream validation failed")
+    raise AssertionError("unreachable")
+
+
+def _seal_laya_oci_tar_semantics_capture_authority(
+    plan: LayaOciTarSemanticsPlan,
+    receipts: tuple[VerifiedLayaOciTarLayer, ...],
+    *,
+    controls_captured_from_same_root: bool,
+    blobs_captured_from_same_root: bool,
+    inventory_captured_from_same_root: bool,
+    final_fd_sweep_verified: bool,
+    descriptors_closed_before_seal: bool,
+) -> _LayaOciTarSemanticsCaptureAuthority:
+    failed = False
+    try:
+        return _LayaOciTarSemanticsCaptureAuthority(
+            plan=plan,
+            receipts=receipts,
+            controls_captured_from_same_root=controls_captured_from_same_root,
+            blobs_captured_from_same_root=blobs_captured_from_same_root,
+            inventory_captured_from_same_root=inventory_captured_from_same_root,
+            final_fd_sweep_verified=final_fd_sweep_verified,
+            descriptors_closed_before_seal=descriptors_closed_before_seal,
+            _factory_token=_FACTORY_TOKEN,
+        )
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(ValueError, "OCI TAR capture authority sealing failed")
+    raise AssertionError("unreachable")
+
+
+def _seal_laya_runtime_oci_tar_semantics_evidence(
+    authority: object,
+) -> LayaRuntimeOciTarSemanticsEvidence:
+    failed = False
+    try:
+        if type(authority) is not _LayaOciTarSemanticsCaptureAuthority:
+            raise TypeError("OCI TAR evidence requires an exact capture authority")
+        authority.__post_init__(_FACTORY_TOKEN)
+        return LayaRuntimeOciTarSemanticsEvidence(
+            schema_version=OCI_TAR_SEMANTICS_EVIDENCE_SCHEMA,
+            plan=authority.plan,
+            runtime_identity=authority.plan.runtime_identity,
+            receipts=authority.receipts,
+            _factory_token=_FACTORY_TOKEN,
+        )
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(ValueError, "OCI TAR evidence sealing failed")
     raise AssertionError("unreachable")
 
 
