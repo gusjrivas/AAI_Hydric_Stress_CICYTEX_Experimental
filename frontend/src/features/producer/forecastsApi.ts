@@ -65,14 +65,13 @@ export type EnsembleComponentVote = Expand<
   }
 >;
 export type EnsembleDetail = Expand<
-  Omit<GeneratedEnsemble, "weights" | "components"> & {
-    weights: Record<EnsembleFamily, number>;
+  Omit<GeneratedEnsemble, "components"> & {
     components: EnsembleComponentVote[];
   }
 >;
 export type Forecast = Expand<
   Omit<GeneratedForecast, "ensemble" | "model_reference"> & {
-    ensemble: EnsembleDetail | null;
+    ensemble?: EnsembleDetail | null;
     model_reference: ModelReference;
   }
 >;

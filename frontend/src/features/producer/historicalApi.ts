@@ -1,4 +1,5 @@
 import { PRODUCER_API_BASE_URL } from "../../api/baseUrl";
+import type { components, operations } from "../../api/generated/schema";
 import { ProducerV2UnavailableError } from "./catalogApi";
 import {
   DemoWriteLockedError,
@@ -9,8 +10,25 @@ import {
   isTargetObservationReason,
   RevisionConflictError,
 } from "./forecastsApi";
-import type { ForecastBatch, ForecastReview, ReviewRequest } from "./forecastsApi";
-import type { ReadingsResult } from "./readingsApi";
+import type { ForecastBatch, ReviewRequest } from "./forecastsApi";
+
+type HistoricalForecastsOperation =
+  operations["get_historical_forecasts_api_v2_sensors__sensor_id__historical__as_of_date__forecasts_get"];
+type HistoricalReadingsOperation =
+  operations["get_historical_readings_api_v2_sensors__sensor_id__historical__as_of_date__readings_get"];
+type HistoricalReviewOperation =
+  operations["create_historical_review_api_v2_sensors__sensor_id__historical__as_of_date__forecasts__forecast_id__reviews_post"];
+
+type ReviewCreate = components["schemas"]["ReviewCreate"];
+type HistoricalForecastsResponse =
+  HistoricalForecastsOperation["responses"][200]["content"]["application/json"];
+type HistoricalForecastBatch = HistoricalForecastsResponse extends ForecastBatch
+  ? ForecastBatch
+  : never;
+type HistoricalReadingsResponse =
+  HistoricalReadingsOperation["responses"][200]["content"]["application/json"];
+type HistoricalReviewResponse =
+  HistoricalReviewOperation["responses"][201]["content"]["application/json"];
 
 /** Una emisión existe pero corresponde a otra fecha posterior a la
  * navegada: nunca se expone como visible desde una fecha anterior. */
@@ -56,7 +74,10 @@ async function readErrorEnvelope(response: Response): Promise<ErrorEnvelope | nu
   return null;
 }
 
-function historicalPath(sensorId: string, asOfDate: string): string {
+function historicalPath(
+  sensorId: HistoricalForecastsOperation["parameters"]["path"]["sensor_id"],
+  asOfDate: HistoricalForecastsOperation["parameters"]["path"]["as_of_date"],
+): string {
   return `${PRODUCER_API_BASE_URL}/api/v2/sensors/${encodeURIComponent(sensorId)}/historical/${asOfDate}`;
 }
 
@@ -68,10 +89,12 @@ function historicalPath(sensorId: string, asOfDate: string): string {
  * seleccionó -- afecta únicamente la elegibilidad de revisión calculada por
  * el backend. */
 export async function getHistoricalForecastBatch(
-  sensorId: string,
-  asOfDate: string,
-  revealedThrough?: string,
-): Promise<ForecastBatch> {
+  sensorId: HistoricalForecastsOperation["parameters"]["path"]["sensor_id"],
+  asOfDate: HistoricalForecastsOperation["parameters"]["path"]["as_of_date"],
+  revealedThrough?: NonNullable<
+    NonNullable<HistoricalForecastsOperation["parameters"]["query"]>["revealed_through"]
+  >,
+): Promise<HistoricalForecastBatch> {
   const query = revealedThrough ? `?revealed_through=${revealedThrough}` : "";
   const response = await fetch(`${historicalPath(sensorId, asOfDate)}/forecasts${query}`);
   if (response.ok) return response.json();
@@ -88,10 +111,12 @@ export async function getHistoricalForecastBatch(
 /** Observaciones reveladas exactamente hasta `revealedThrough`: nunca una
  * fila posterior. Nunca dispara inferencia. */
 export async function getHistoricalReadings(
-  sensorId: string,
-  revealedThrough: string,
-  days = 30,
-): Promise<ReadingsResult> {
+  sensorId: HistoricalReadingsOperation["parameters"]["path"]["sensor_id"],
+  revealedThrough: HistoricalReadingsOperation["parameters"]["path"]["as_of_date"],
+  days: NonNullable<
+    NonNullable<HistoricalReadingsOperation["parameters"]["query"]>["days"]
+  > = 30,
+): Promise<HistoricalReadingsResponse> {
   const response = await fetch(`${historicalPath(sensorId, revealedThrough)}/readings?days=${days}`);
   if (response.ok) return response.json();
 
@@ -103,20 +128,21 @@ export async function getHistoricalReadings(
 /** Revisión histórica, gateada por el reloj simulado del recorrido
  * (`revealedThrough`), nunca por el reloj real. */
 export async function submitHistoricalReview(
-  sensorId: string,
-  revealedThrough: string,
-  forecastId: string,
+  sensorId: HistoricalReviewOperation["parameters"]["path"]["sensor_id"],
+  revealedThrough: HistoricalReviewOperation["parameters"]["path"]["as_of_date"],
+  forecastId: HistoricalReviewOperation["parameters"]["path"]["forecast_id"],
   request: ReviewRequest,
-): Promise<ForecastReview> {
+): Promise<HistoricalReviewResponse> {
+  const payload = {
+    request_id: request.requestId,
+    expected_revision: request.expectedRevision,
+    action: request.action,
+    comment: request.comment,
+  } satisfies ReviewCreate;
   const response = await fetch(`${historicalPath(sensorId, revealedThrough)}/forecasts/${encodeURIComponent(forecastId)}/reviews`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      request_id: request.requestId,
-      expected_revision: request.expectedRevision,
-      action: request.action,
-      comment: request.comment,
-    }),
+    body: JSON.stringify(payload),
   });
   if (response.ok) return response.json();
 
