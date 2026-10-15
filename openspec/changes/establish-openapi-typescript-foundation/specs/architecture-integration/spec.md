@@ -68,3 +68,18 @@ client or be imported by production backend/frontend modules in this change.
 - **THEN** its TypeScript version satisfies the generator's declared peer range
 - **AND** the binary under `node_modules/.bin` executes twice deterministically
 - **AND** no force, legacy-peer, `npx` or URL fallback is used.
+
+#### Scenario: platform-independent contract gate
+
+- **GIVEN** a temporary output path containing spaces
+- **WHEN** the real locked generator runs on Windows and Linux
+- **THEN** both generations match the three committed artifact bytes and hashes
+- **AND** checkout attributes preserve those exact LF bytes
+- **AND** no generated client or product import is introduced.
+
+#### Scenario: independent CI detects generated drift
+
+- **WHEN** the independent `api-contract` job runs on Windows and Linux
+- **THEN** it uses Python 3.11, Node 22 and the exact backend constraints
+- **AND** it runs plain `npm ci`, the focused toolchain tests and `api:check`
+- **AND** generation starts no server and uses no HTTP, URL or `npx` fallback.

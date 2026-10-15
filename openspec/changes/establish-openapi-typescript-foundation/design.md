@@ -36,6 +36,23 @@ The lock must be installable by plain `npm ci`.  In particular, the TypeScript
 version must satisfy the peer range declared by the exact
 `openapi-typescript` package; force and legacy-peer overrides are not accepted.
 
+The independent `api-contract` CI job runs the same contract on Windows and
+Linux with Python 3.11 and Node 22.  It installs the backend schema environment
+under `backend/openapi-schema-constraints.txt`, installs the exact npm lock,
+runs the Python and local-binary toolchain tests, and finishes with the
+read-only `api:check`.  The three committed generated files are checkout-opaque
+in `.gitattributes`, so their LF bytes and hashes cannot vary by platform.
+
+The current npm audit reports two inherited high-severity findings:
+`source-map-js@1.2.1` through the existing Vite/jsdom toolchain and
+`undici@8.10.0` through existing jsdom.  Both were present before this change,
+are transitive development dependencies, and are not bundled or imported by
+the application.  Their reported attack surfaces require processing hostile
+source maps or network/WebSocket traffic, while this generator consumes the
+repository-owned schema offline.  They are therefore recorded as non-blocking
+for this foundation PR and remain dependency-maintenance work; this assessment
+does not downgrade or auto-fix them.
+
 ## Type safety and rollout boundary
 
 The generated source is checked through a TypeScript AST representation.
