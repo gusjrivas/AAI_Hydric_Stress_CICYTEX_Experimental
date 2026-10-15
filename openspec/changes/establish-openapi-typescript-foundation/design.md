@@ -26,6 +26,12 @@ always regenerates in a temporary directory and compares all three tracked
 artifacts (`openapi.json`, `openapi.ts`, manifest), so a failing check cannot
 repair or partially overwrite the evidence it is evaluating.
 
+`src/openapi_typescript_exporter.py` is the sole tooling successor of the pure
+contract core.  It imports and calls the core's public canonicalization,
+operation-ID and manifest functions directly.  Backend product modules and all
+other `src` modules remain forbidden callers; dynamic imports or copied local
+implementations are not alternative boundaries.
+
 The lock must be installable by plain `npm ci`.  In particular, the TypeScript
 version must satisfy the peer range declared by the exact
 `openapi-typescript` package; force and legacy-peer overrides are not accepted.

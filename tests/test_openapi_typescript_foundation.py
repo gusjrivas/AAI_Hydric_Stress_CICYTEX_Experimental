@@ -12,6 +12,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "src" / "openapi_typescript_toolchain.py"
+EXPORTER_PATH = ROOT / "src" / "openapi_typescript_exporter.py"
+EXPORTER_CORE_SYMBOLS = {
+    "build_openapi_typescript_manifest",
+    "canonical_openapi_json_bytes",
+    "validate_openapi_operation_ids",
+    "verify_openapi_typescript_manifest",
+}
 
 
 def _toolchain() -> ModuleType:
@@ -191,7 +198,55 @@ def _imports(tree: ast.AST) -> set[str]:
     return imported
 
 
-def test_toolchain_core_is_pure_offline_and_has_no_product_callers():
+def _direct_imported_names(tree: ast.AST, module: str) -> set[str]:
+    return {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == module
+        for alias in node.names
+    }
+
+
+def _called_names(tree: ast.AST) -> set[str]:
+    return {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+
+def _uses_dynamic_or_duplicated_toolchain_contract(tree: ast.AST) -> bool:
+    dynamic_calls = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    attributes = {
+        (node.func.value.id, node.func.attr)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+    }
+    definitions = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    string_literals = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    return bool(
+        "__import__" in dynamic_calls
+        or ("importlib", "import_module") in attributes
+        or "openapi_typescript_toolchain" in string_literals
+        or definitions & EXPORTER_CORE_SYMBOLS
+    )
+
+
+def test_toolchain_core_is_pure_offline_and_has_only_exact_tooling_successor():
     assert MODULE_PATH.is_file()
     source = MODULE_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -216,13 +271,23 @@ def test_toolchain_core_is_pure_offline_and_has_no_product_callers():
         for marker in ("http://", "https://", "npx", "uvicorn")
     )
 
+    assert EXPORTER_PATH.is_file()
+    exporter_tree = ast.parse(EXPORTER_PATH.read_text(encoding="utf-8"))
+    assert _direct_imported_names(exporter_tree, "openapi_typescript_toolchain") == (
+        EXPORTER_CORE_SYMBOLS
+    )
+    assert EXPORTER_CORE_SYMBOLS <= _called_names(exporter_tree)
+    assert not _uses_dynamic_or_duplicated_toolchain_contract(exporter_tree)
+
     offenders = []
     for root in (ROOT / "backend" / "app", ROOT / "src"):
         for path in root.rglob("*.py"):
-            if path == MODULE_PATH:
+            if path in {MODULE_PATH, EXPORTER_PATH}:
                 continue
             candidate = ast.parse(path.read_text(encoding="utf-8"))
-            if "openapi_typescript_toolchain" in _imports(candidate):
+            if "openapi_typescript_toolchain" in _imports(
+                candidate
+            ) or _uses_dynamic_or_duplicated_toolchain_contract(candidate):
                 offenders.append(path.relative_to(ROOT).as_posix())
     assert offenders == []
 
