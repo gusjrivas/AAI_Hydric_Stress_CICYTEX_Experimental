@@ -9,6 +9,7 @@ HISTORICAL_API = FRONTEND_SOURCE / "features" / "historical-replay" / "api.ts"
 CICYTEX_API = FRONTEND_SOURCE / "features" / "defense" / "cicytexApi.ts"
 QUALITY_API = FRONTEND_SOURCE / "features" / "quality" / "api.ts"
 LINEAGE_API = FRONTEND_SOURCE / "features" / "lineage" / "api.ts"
+SENSOR_LAB_API = FRONTEND_SOURCE / "features" / "lab" / "sensorLabApi.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -105,6 +106,7 @@ def test_only_owned_clients_consume_the_generated_schema():
         CICYTEX_API,
         QUALITY_API,
         LINEAGE_API,
+        SENSOR_LAB_API,
     }
 
 
@@ -162,3 +164,16 @@ def test_lineage_client_uses_its_generated_operation_without_duplicate_dtos():
     for name in ("FeedbackReference", "LineageEntry", "LineageResponse"):
         assert re.search(rf"\bexport\s+type\s+{name}\b", source)
     assert re.search(r"\bexport\s+(?:function|const)\s+getLineage\b", source)
+
+
+def test_sensor_lab_client_uses_its_generated_operation_without_duplicate_dtos():
+    source = SENSOR_LAB_API.read_text(encoding="utf-8")
+
+    assert _generated_import_names(source) == {"components", "operations"}
+    assert 'operations["ingest_reading_sensors__sensor_id__readings_post"]' in source
+    assert not re.search(r"\b(?:export\s+)?interface\s+LabIngestResult\b", source)
+    assert not re.search(r"(?<![\w.])any(?!\w)", source)
+    assert not re.search(r"\bas\s+unknown\s+as\b", source)
+    assert not re.search(r"\bRecord\s*<\s*string\s*,\s*unknown\s*>", source)
+    assert re.search(r"\bexport\s+type\s+LabIngestResult\b", source)
+    assert re.search(r"\bexport\s+(?:function|const)\s+ingestLabReading\b", source)

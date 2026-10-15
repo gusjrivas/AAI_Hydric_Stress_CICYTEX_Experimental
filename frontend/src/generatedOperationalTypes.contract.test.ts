@@ -9,6 +9,9 @@ import type {
   LineageEntry,
   LineageResponse,
 } from "./features/lineage/api";
+import { ingestLabReading } from "./features/lab/sensorLabApi";
+import type { LabIngestResult } from "./features/lab/sensorLabApi";
+import type { LabReadingValues } from "./features/lab/readingGenerator";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -25,6 +28,12 @@ type LineageOperation = operations["get_lineage_lineage__sensor_id__get"];
 type GeneratedLineageResponse =
   LineageOperation["responses"][200]["content"]["application/json"];
 type LineageSensorId = LineageOperation["parameters"]["path"]["sensor_id"];
+type LabIngestOperation = operations["ingest_reading_sensors__sensor_id__readings_post"];
+type GeneratedLabIngestRequest =
+  LabIngestOperation["requestBody"]["content"]["application/json"];
+type GeneratedLabIngestResponse =
+  LabIngestOperation["responses"][200]["content"]["application/json"];
+type LabSensorId = LabIngestOperation["parameters"]["path"]["sensor_id"];
 
 export type GeneratedQualityFunctionContracts = [
   Assert<Equal<QualityReport, components["schemas"]["QualityReportResponse"]>>,
@@ -40,6 +49,15 @@ export type GeneratedLineageFunctionContracts = [
   Assert<Equal<LineageResponse, GeneratedLineageResponse>>,
   Assert<Equal<Parameters<typeof getLineage>[0], LineageSensorId>>,
   Assert<Equal<ReturnType<typeof getLineage>, Promise<GeneratedLineageResponse>>>,
+];
+
+export type GeneratedLabIngestFunctionContracts = [
+  Assert<Equal<LabIngestResult, components["schemas"]["SensorReadingResponse"]>>,
+  Assert<Equal<LabIngestResult, GeneratedLabIngestResponse>>,
+  Assert<Equal<Parameters<typeof ingestLabReading>[0], LabSensorId>>,
+  Assert<Equal<Parameters<typeof ingestLabReading>[1], string>>,
+  Assert<Equal<Parameters<typeof ingestLabReading>[2], LabReadingValues>>,
+  Assert<Equal<ReturnType<typeof ingestLabReading>, Promise<GeneratedLabIngestResponse>>>,
 ];
 
 const withoutOptionalPeriods: QualityReport = {
@@ -85,9 +103,23 @@ const withNullableEvidence: LineageEntry = {
 void withoutOptionalEvidence;
 void withNullableEvidence;
 
+const generatedLabRequest: GeneratedLabIngestRequest = {
+  timestamp: "2026-04-30T00:00:00Z",
+  soil_moisture: 0.31,
+  temperature: 22.5,
+  relative_humidity: 61,
+  precipitation: 0,
+  solar_radiation: 18.4,
+  wind_speed: 2.3,
+  procedencia: "sintetico",
+};
+
+void generatedLabRequest;
+
 describe("generated operational quality contracts", () => {
   it("keeps the established quality function callable", () => {
     expectTypeOf(getQualityReport).toBeFunction();
     expectTypeOf(getLineage).toBeFunction();
+    expectTypeOf(ingestLabReading).toBeFunction();
   });
 });
