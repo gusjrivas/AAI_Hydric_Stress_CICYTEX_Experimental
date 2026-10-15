@@ -773,6 +773,54 @@ def test_posix_and_gnu_header_profiles_cannot_be_crossed(
         _verify_archive(monkeypatch, synthetic_pr22, archive)
 
 
+def test_posix_ustar_prefix_is_composed_into_the_effective_path(
+    monkeypatch,
+    synthetic_pr22,
+):
+    header = _header_with_recomputed_checksum(
+        _tar_header("result.txt"),
+        345,
+        b"safe/prefix",
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, _archive(header))
+
+    assert len(receipt.entries) == 1
+    assert receipt.entries[0].path == "safe/prefix/result.txt"
+
+
+@pytest.mark.parametrize(
+    ("offset", "value"),
+    [
+        pytest.param(345, b"00000000001\0", id="oldgnu-atime"),
+        pytest.param(357, b"00000000001\0", id="oldgnu-ctime"),
+        pytest.param(369, b"00000000001\0", id="oldgnu-offset"),
+        pytest.param(386, b"00000000001\0", id="oldgnu-sparse-map"),
+        pytest.param(482, b"1", id="oldgnu-sparse-extended"),
+        pytest.param(483, b"00000000001\0", id="oldgnu-real-size"),
+    ],
+)
+def test_gnu_headers_reject_oldgnu_extra_and_sparse_fields_before_path_use(
+    monkeypatch,
+    synthetic_pr22,
+    offset,
+    value,
+):
+    header = _header_with_recomputed_checksum(
+        _tar_header(
+            "safe/result.txt",
+            magic=b"ustar ",
+            version=b" \0",
+        ),
+        offset,
+        value,
+    )
+
+    with pytest.raises(ValueError, match="tar|gnu|sparse|profile|metadata|valid") as captured:
+        _verify_archive(monkeypatch, synthetic_pr22, _archive(header))
+    _private_error(captured.value, "safe/result.txt")
+
+
 @pytest.mark.parametrize(
     "extension",
     [
