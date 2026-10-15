@@ -193,9 +193,15 @@ def test_nullable_replay_fields_are_explicit_and_feedback_states_are_one_literal
     expected_states = ["confirmada", "rechazada"]
     request_states = components["ReplayFeedbackRequest"]["properties"]["estado_validacion"]
     entry_states = components["ReplayFeedbackEntry"]["properties"]["estado_validacion"]
-    cicytex_states = components["CicytexFeedbackResponse"]["properties"]["estado_validacion"]
+    cicytex_request_states = components["FeedbackRequest"]["properties"][
+        "estado_validacion"
+    ]
+    cicytex_states = components["CicytexFeedbackResponse"]["properties"][
+        "estado_validacion"
+    ]
     assert request_states["enum"] == expected_states
     assert entry_states["enum"] == expected_states
+    assert cicytex_request_states.get("enum") == expected_states
     assert cicytex_states["enum"] == expected_states
 
     historical_route = next(

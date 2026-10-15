@@ -55,6 +55,7 @@ type CicytexFeedbackRequest =
   CicytexFeedbackOperation["requestBody"]["content"]["application/json"];
 type CicytexFeedback =
   CicytexFeedbackOperation["responses"][201]["content"]["application/json"];
+type FeedbackValidationState = "confirmada" | "rechazada";
 
 export type GeneratedReplayFunctionContracts = [
   Assert<Equal<ReturnType<typeof getCandidate>, Promise<HistoricalCandidate>>>,
@@ -69,6 +70,12 @@ export type GeneratedReplayFunctionContracts = [
   Assert<Equal<ReturnType<typeof advanceCicytexSession>, Promise<CicytexSession>>>,
   Assert<Equal<ReturnType<typeof resetCicytexSession>, Promise<CicytexSession>>>,
   Assert<Equal<Parameters<typeof submitCicytexFeedback>[1], CicytexFeedbackRequest>>,
+  Assert<
+    Equal<
+      Parameters<typeof submitCicytexFeedback>[1]["estado_validacion"],
+      FeedbackValidationState
+    >
+  >,
   Assert<Equal<ReturnType<typeof submitCicytexFeedback>, Promise<CicytexFeedback>>>,
 ];
 

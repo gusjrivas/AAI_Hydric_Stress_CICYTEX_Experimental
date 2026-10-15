@@ -187,16 +187,19 @@ def test_contract_test_has_one_node_ready_ci_owner_without_skip_paths():
     assert forbidden_marks == set()
 
 
-def test_generated_schema_remains_foundation_only_and_has_no_product_importers():
+def test_generated_schema_has_only_the_two_owned_product_consumers():
     assert set(_bytes_by_name(GENERATED_ROOT)) == set(GENERATED_ARTIFACTS)
-    offenders = []
+    consumers = []
     for path in (FRONTEND_ROOT / "src").rglob("*.ts*"):
         if GENERATED_ROOT in path.parents or path.name.endswith((".test.ts", ".test.tsx")):
             continue
         source = path.read_text(encoding="utf-8")
         if "api/generated" in source or "generated/schema" in source:
-            offenders.append(path.relative_to(ROOT).as_posix())
-    assert offenders == []
+            consumers.append(path.relative_to(FRONTEND_ROOT / "src").as_posix())
+    assert set(consumers) == {
+        "features/defense/cicytexApi.ts",
+        "features/historical-replay/api.ts",
+    }
     assert not any("client" in path.name.lower() for path in GENERATED_ROOT.iterdir())
 
 
