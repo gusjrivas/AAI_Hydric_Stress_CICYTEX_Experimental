@@ -69,7 +69,8 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       CICYTEX_REPLAY_DIR: /workspace/results/cicytex/causal_replay
-      CICYTEX_REPLAY_FEEDBACK_DIR: /workspace/cicytex-feedback
+      CICYTEX_REPLAY_SESSION_DB: /workspace/cicytex-feedback/cicytex_replay_sessions.sqlite3
+      CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON: "${CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON:-}"
     ports: ["127.0.0.1:55800:8000"]
     networks: [cicytex]
     volumes: ["cicytex-feedback:/workspace/cicytex-feedback"]
