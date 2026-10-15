@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SOURCE = ROOT / "frontend" / "src"
 HISTORICAL_API = FRONTEND_SOURCE / "features" / "historical-replay" / "api.ts"
@@ -88,7 +87,7 @@ def _generated_schema_consumers() -> set[Path]:
 
 def _generated_import_names(source: str) -> set[str]:
     match = re.search(
-        rf'import\s+type\s+\{{(?P<names>[^}}]+)\}}\s+from\s+'
+        rf"import\s+type\s+\{{(?P<names>[^}}]+)\}}\s+from\s+"
         rf'["\']{re.escape(GENERATED_IMPORT)}["\'];',
         source,
         re.DOTALL,
