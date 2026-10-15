@@ -35,24 +35,8 @@ from experiment_runner.cicytex.training_protocol import (
     FAMILY_PARAMS,
     FEATURES,
     prepare_horizon,
-    select_partition,
-)
-from experiment_runner.cicytex.training_protocol import (
-    TemporalSplit as _TemporalSplit,
-)
-from experiment_runner.cicytex.training_protocol import (
-    build_features as _build_features,
-)
-from experiment_runner.cicytex.training_protocol import (
-    temporal_split as _temporal_split,
 )
 from experiment_runner.controlled_daily_v4.models import fit_estimator
-
-# Backward-compatible private alias retained while callers migrate to the shared seam.
-TemporalSplit = _TemporalSplit
-build_features = _build_features
-temporal_split = _temporal_split
-_part = select_partition
 
 
 def _safe_metrics(y: pd.Series, probability: np.ndarray) -> dict[str, Any]:
