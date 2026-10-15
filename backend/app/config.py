@@ -7,6 +7,7 @@ deployment: se derivan por sensor (ADR-0008,
 from __future__ import annotations
 
 import os
+import stat
 from pathlib import Path
 
 from data_ingestion.storage import DEFAULT_DATA_DIR
@@ -97,7 +98,21 @@ def get_cicytex_legacy_feedback_json() -> Path | None:
         raise CicytexLegacyFeedbackConfigurationError(
             "cicytex legacy feedback configuration is inconsistent"
         )
-    return discovery_path if discovery_path.is_file() else None
+    try:
+        details = discovery_path.lstat()
+    except FileNotFoundError:
+        return discovery_path if configured else None
+    except OSError:
+        raise CicytexLegacyFeedbackConfigurationError(
+            "cicytex legacy feedback configuration is inaccessible"
+        ) from None
+    if not stat.S_ISREG(details.st_mode) or not details.st_mode & (
+        stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+    ):
+        raise CicytexLegacyFeedbackConfigurationError(
+            "cicytex legacy feedback configuration is invalid"
+        )
+    return discovery_path
 
 
 def get_historical_replay_package_dir() -> Path:
