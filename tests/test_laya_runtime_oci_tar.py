@@ -948,6 +948,101 @@ def test_hardlinks_and_oci_whiteout_names_are_valid_but_not_applied(
     assert receipt.oci_rootfs_verified is False
 
 
+@pytest.mark.parametrize("gnu", [False, True], ids=("posix", "gnu"))
+def test_exact_root_directory_markers_are_accounted_but_not_manifest_entries(
+    monkeypatch,
+    synthetic_pr22,
+    gnu,
+):
+    archive = _archive(
+        _tar_entry("./", typeflag=b"5", gnu=gnu),
+        _tar_entry("./", typeflag=b"5", gnu=gnu),
+        _tar_entry("data/result.txt", b"x", gnu=gnu),
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+    assert tuple(entry.path for entry in receipt.entries) == ("data/result.txt",)
+    assert receipt.payload_size_bytes == 1
+    assert receipt.tar_size_bytes == len(archive)
+
+
+@pytest.mark.parametrize(
+    "archive",
+    [
+        pytest.param(_archive(_tar_entry(".", typeflag=b"5")), id="noncanonical-dot"),
+        pytest.param(_archive(_tar_entry("./")), id="regular"),
+        pytest.param(
+            _archive(_tar_entry("./", typeflag=b"1", linkname="target")),
+            id="hardlink",
+        ),
+        pytest.param(
+            _archive(_tar_entry("./", typeflag=b"2", linkname="target")),
+            id="symlink",
+        ),
+        pytest.param(
+            _archive(_tar_entry("./", b"x", typeflag=b"5")),
+            id="directory-size",
+        ),
+        pytest.param(
+            _archive(_tar_entry("./", typeflag=b"5", linkname="private-root-link")),
+            id="directory-link-field",
+        ),
+        pytest.param(
+            _archive(
+                _pax_entry((("path", "private/pax-root"),)),
+                _tar_entry("./", typeflag=b"5"),
+            ),
+            id="pax-path-override",
+        ),
+        pytest.param(
+            _archive(
+                _pax_entry((("linkpath", "private/pax-link"),)),
+                _tar_entry("./", typeflag=b"5"),
+            ),
+            id="pax-link-override",
+        ),
+        pytest.param(
+            _archive(
+                _gnu_extension("private/gnu-root"),
+                _tar_entry("./", typeflag=b"5", gnu=True),
+            ),
+            id="gnu-name-override",
+        ),
+        pytest.param(
+            _archive(
+                _gnu_extension("private/gnu-link", link=True),
+                _tar_entry("./", typeflag=b"5", gnu=True),
+            ),
+            id="gnu-link-override",
+        ),
+        pytest.param(
+            _archive(
+                _tar_entry("./", typeflag=b"5"),
+                _pax_entry((("path", "private/dangling-after-root"),)),
+            ),
+            id="dangling-metadata-after-root",
+        ),
+    ],
+)
+def test_root_marker_cannot_be_a_file_link_override_or_metadata_sink(
+    monkeypatch,
+    synthetic_pr22,
+    archive,
+):
+    with pytest.raises(ValueError, match="tar|root|directory|metadata|path|link|valid") as captured:
+        _verify_archive(monkeypatch, synthetic_pr22, archive)
+    _private_error(
+        captured.value,
+        "private-root-link",
+        "private/pax-root",
+        "private/pax-link",
+        "private/gnu-root",
+        "private/gnu-link",
+        "private/dangling-after-root",
+    )
+
+
 def test_public_extended_metadata_caps_and_oversized_record_fail_fast(
     monkeypatch,
     synthetic_pr22,
