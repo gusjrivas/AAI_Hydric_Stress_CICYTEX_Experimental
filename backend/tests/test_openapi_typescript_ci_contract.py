@@ -132,7 +132,8 @@ def test_contract_test_has_one_node_ready_ci_owner_without_skip_paths():
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     backend_job = workflow["jobs"]["backend-quality"]
     api_job = workflow["jobs"]["api-contract"]
-    contract_test = "tests/test_openapi_typescript_ci_contract.py"
+    backend_contract_test = "tests/test_openapi_typescript_ci_contract.py"
+    root_contract_test = "backend/tests/test_openapi_typescript_ci_contract.py"
 
     backend_test_step = next(
         step for step in backend_job["steps"] if "python -m pytest" in str(step.get("run", ""))
@@ -143,28 +144,33 @@ def test_contract_test_has_one_node_ready_ci_owner_without_skip_paths():
         argument for argument in backend_arguments if argument.startswith("--ignore")
     )
     assert "tests/" in backend_arguments
-    assert ignore_arguments == (f"--ignore={contract_test}",)
+    assert ignore_arguments == (f"--ignore={backend_contract_test}",)
 
     api_steps = api_job["steps"]
     npm_ci_index = next(
         index for index, step in enumerate(api_steps) if str(step.get("run", "")) == "npm ci"
     )
     contract_step_index = next(
-        index for index, step in enumerate(api_steps) if contract_test in str(step.get("run", ""))
+        index
+        for index, step in enumerate(api_steps)
+        if root_contract_test in str(step.get("run", ""))
     )
     contract_step = api_steps[contract_step_index]
     contract_command = str(contract_step["run"])
+    contract_arguments = shlex.split(contract_command)
+    pytest_arguments = contract_arguments[contract_arguments.index("pytest") + 1 :]
 
     assert npm_ci_index < contract_step_index
-    assert contract_command.split().count(contract_test) == 1
+    assert pytest_arguments.count(root_contract_test) == 1
+    assert backend_contract_test not in pytest_arguments
     assert "continue-on-error" not in api_job
     assert "if" not in api_job
     for step in api_steps:
         assert "continue-on-error" not in step
         assert "if" not in step
-    assert all(
-        marker not in contract_command
-        for marker in ("--ignore", "--deselect", "--runxfail", "-k ", "-m ")
+    assert not any(
+        argument in {"--runxfail", "-k", "-m"} or argument.startswith(("--ignore", "--deselect"))
+        for argument in pytest_arguments
     )
 
     test_tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
