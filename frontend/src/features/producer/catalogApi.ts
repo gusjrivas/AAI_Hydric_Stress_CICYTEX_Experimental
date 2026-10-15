@@ -1,23 +1,13 @@
 import { PRODUCER_API_BASE_URL } from "../../api/baseUrl";
+import type { components, operations } from "../../api/generated/schema";
 
-export interface Sector {
-  sector_id: string;
-  display_name: string;
-  crop: string | null;
-  primary_sensor_id: string | null;
-  revision: number;
-  created_at: string;
-}
+export type Sector = components["schemas"]["SectorResponse"];
+export type SensorSummary = components["schemas"]["SensorResponse"];
+export type SectorListResult = components["schemas"]["SectorListResponse"];
+export type SensorListResult = components["schemas"]["SensorListResponse"];
 
-export interface SensorSummary {
-  sensor_id: string;
-  display_name: string;
-  sector_id: string | null;
-  source_kind: "real" | "synthetic" | "unknown";
-  revision: number;
-  created_at: string | null;
-  registered: boolean;
-}
+type SectorListOperation = operations["list_sectors_api_v2_sectors_get"];
+type SensorListOperation = operations["list_sensors_api_v2_sensors_get"];
 
 /** La fachada v2 no está disponible en este backend (`PRODUCER_V2_ENABLED`
  * desactivado o ruta inexistente): FastAPI responde 404 plano, sin el cuerpo
@@ -49,21 +39,17 @@ async function getV2<T>(path: string): Promise<T> {
   throw new Error(errorCode?.message ?? "No se pudo consultar el catálogo. Intentá nuevamente.");
 }
 
-export interface SectorListResult {
-  items: Sector[];
-  next_cursor: string | null;
-}
-
-export interface SensorListResult {
-  items: SensorSummary[];
-  next_cursor: string | null;
-}
-
-export async function listSectors(): Promise<SectorListResult> {
+export async function listSectors(): Promise<
+  SectorListOperation["responses"][200]["content"]["application/json"]
+> {
   return getV2<SectorListResult>("/sectors");
 }
 
-export async function listSensors(sectorId?: string): Promise<SensorListResult> {
+export async function listSensors(
+  sectorId?: NonNullable<
+    NonNullable<SensorListOperation["parameters"]["query"]>["sector_id"]
+  >,
+): Promise<SensorListOperation["responses"][200]["content"]["application/json"]> {
   const query = sectorId ? `?sector_id=${encodeURIComponent(sectorId)}` : "";
   return getV2<SensorListResult>(`/sensors${query}`);
 }
