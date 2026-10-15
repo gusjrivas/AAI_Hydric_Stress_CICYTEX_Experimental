@@ -31,3 +31,14 @@
 - [x] 5.2 Specify AST mutation evidence against legacy aliases and the unused partition import.
 - [ ] 5.3 Remove the aliases and unused import from `experiment.py` while preserving the complete
   experiment, protocol and provenance regression suites.
+
+## 6. Offline replay-storage cutover staging
+
+- [x] 6.1 Specify source hashing, SQLite backup/WAL discipline, repository-owned import, read-only
+  verification, privacy-safe evidence and atomic publication.
+- [x] 6.2 Specify explicit empty-source behavior and fail closed when legacy feedback lacks matching
+  session lineage.
+- [x] 6.3 Publish the operator runbook while keeping the active volume and all captured inputs
+  immutable.
+- [ ] 6.4 Implement `scripts/stage_cicytex_replay_cutover.py` and pass the focused failure,
+  privacy, alias and regression gates before any live cutover.

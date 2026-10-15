@@ -29,21 +29,26 @@ environment variable.
   until destination verification completes
 - **AND** any failed check SHALL abort cutover without deleting or overwriting the source
 
-#### Scenario: Existing legacy feedback is imported explicitly
+#### Scenario: Existing legacy feedback is imported only with session lineage
 
 - **GIVEN** the preserved volume contains the historical `feedback.json`
+- **AND** an authoritative captured database contains every matching replay session
 - **WHEN** an existing deployment enters its controlled migration window
 - **THEN** its operator SHALL override `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON` with exactly
   `/workspace/cicytex-feedback/feedback.json`
+- **AND** the importer SHALL validate every record against that session lineage
 - **AND** an empty override SHALL remain valid for a fresh deployment
 - **AND** any other non-empty path SHALL fail before migration
+- **BUT WHEN** no authoritative session database exists
+- **THEN** the JSON SHALL remain unimported and byte-identical for manual reconciliation
 
 #### Scenario: Compatibility remains available until separately sunset
 
 - **WHEN** obsolete deployment configuration is retired
 - **THEN** SQLite schema-v1 migration and JSON/JSONL importers SHALL remain unchanged
-- **AND** the existing `feedback.json` SHALL be presented to the explicit CICYTEX compatibility
-  importer
+- **AND** the existing `feedback.json` SHALL always be preserved
+- **AND** it SHALL be presented to the explicit CICYTEX compatibility importer only with an
+  authoritative matching session database and full validation
 - **AND** no stored session, feedback record, backup or rollback artifact SHALL be deleted
 
 ### Requirement: Test-only replay doubles do not remain in production packages
@@ -77,3 +82,38 @@ compatibility aliases or retain unused partition imports.
   dependencies
 - **AND** feature boundaries, temporal partitions, experiment outputs and provenance equivalence
   SHALL remain unchanged
+
+### Requirement: Replay storage cutover is staged offline and fail-closed
+
+The project SHALL provide an offline staging tool that creates a new verified replay database
+without modifying the source database, WAL/SHM companions, legacy JSON or active named volume.
+
+#### Scenario: Captured source and matching feedback stage atomically
+
+- **GIVEN** a quiesced or SQLite-online-backup source database and optional matching legacy JSON
+- **AND** the operator supplies expected SHA-256 values for every input
+- **WHEN** a new absent output directory is staged
+- **THEN** SQLite backup SHALL capture the database consistently
+- **AND** the existing session and CICYTEX-feedback repositories SHALL validate schema and import
+- **AND** read-only verification SHALL report schema v2, `PRAGMA integrity_check=ok`, exact session
+  and feedback counts, and the staged database digest
+- **AND** the output SHALL publish atomically only after every check succeeds
+- **AND** evidence SHALL contain no absolute path, raw feedback, observation, session identifier or
+  other captured content
+
+#### Scenario: Empty source cannot invent feedback lineage
+
+- **GIVEN** the operator explicitly selects `--empty-source`
+- **WHEN** no legacy JSON is supplied
+- **THEN** an empty verified schema-v2 database MAY be staged
+- **BUT WHEN** a non-empty legacy JSON is supplied without a source database
+- **THEN** staging SHALL fail closed with no output
+- **AND** the JSON SHALL remain byte-identical for manual reconciliation with real sessions
+
+#### Scenario: Unsafe paths and failures never publish
+
+- **WHEN** an input hash differs, a path is a symlink or alias, the output already exists, an import
+  is invalid, verification fails or publication raises
+- **THEN** the command SHALL return a stable non-zero private error
+- **AND** no partial output SHALL be visible
+- **AND** every captured source SHALL remain byte-identical

@@ -12,7 +12,8 @@ rollback path.
 
 - Bind the active CICYTEX replay SQLite database to the existing named feedback volume.
 - Expose an empty-default optional legacy-import setting for fresh volumes, while documenting the
-  exact `feedback.json` override required when migrating an existing deployment.
+  exact `feedback.json` override permitted only when an authoritative source database contains
+  matching session lineage; feedback-only state remains preserved for manual reconciliation.
 - Remove the obsolete CICYTEX feedback-directory environment variable without renaming or
   abandoning the existing volume.
 - Require a safe live-data migration and rollback record before deleting any compatibility

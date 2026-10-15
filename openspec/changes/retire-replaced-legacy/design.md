@@ -14,10 +14,12 @@ The deployment SHALL set
 `CICYTEX_REPLAY_SESSION_DB=/workspace/cicytex-feedback/cicytex_replay_sessions.sqlite3`, remove
 `CICYTEX_REPLAY_FEEDBACK_DIR`, and declare
 `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON=${CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON:-}`.  The empty default
-keeps fresh volumes valid without inventing a legacy file.  An existing deployment that contains
-the historical file MUST opt in with the exact override
+keeps fresh volumes valid without inventing a legacy file.  An existing deployment MAY opt in
+with the exact override only when its authoritative source database contains every matching
+replay session required for full importer validation:
 `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON=/workspace/cicytex-feedback/feedback.json` for its migration
-window.  Both modes preserve the `cicytex-feedback` compose key and external name
+window.  A feedback-only volume MUST remain unimported and preserved for manual reconciliation.
+Both modes preserve the `cicytex-feedback` compose key and external name
 `aai-cicytex-experiment-feedback`.  The database parent, migration-file parent and mount target
 form one closed contract, verified by parsing Compose rather than matching independent strings.
 
