@@ -8,6 +8,7 @@ from app.dependencies import (
     get_cicytex_replay_application,
 )
 from app.main import app
+from app.routers.replay import router as historical_replay_router
 from fastapi.testclient import TestClient
 
 CATALOG_RESPONSE = {
@@ -190,7 +191,7 @@ def test_nullable_replay_fields_are_explicit_and_feedback_states_are_one_literal
 
     historical_route = next(
         route
-        for route in app.routes
+        for route in historical_replay_router.routes
         if getattr(route, "path", None) == "/replay/predictions/{timestamp_origen}"
         and "GET" in getattr(route, "methods", set())
     )
