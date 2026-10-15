@@ -6,7 +6,8 @@
 `CICYTEX_REPLAY_FEEDBACK_DIR`.  Removing the old mount would discard the only stable upgrade and
 rollback location; keeping the stale variable would leave the active database ephemeral.  The
 active named volume also contains `/workspace/cicytex-feedback/feedback.json`, but production only
-imports that file when `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON` names it explicitly.
+imports that file when `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON` names it explicitly.  With the new
+empty default, that behavior could silently bootstrap an empty database beside preserved feedback.
 
 ## Decision
 
@@ -19,6 +20,13 @@ with the exact override only when its authoritative source database contains eve
 replay session required for full importer validation:
 `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON=/workspace/cicytex-feedback/feedback.json` for its migration
 window.  A feedback-only volume MUST remain unimported and preserved for manual reconciliation.
+Compose also SHALL set
+`CICYTEX_REPLAY_LEGACY_FEEDBACK_DISCOVERY=/workspace/cicytex-feedback/feedback.json`.  Discovery is
+existence-sensitive: an absent file resolves to no import, while a present file is passed to the
+repository and therefore either validates against authoritative sessions or makes startup fail
+closed.  When discovery policy is configured, a non-empty explicit override MUST equal that path;
+arbitrary administrator-controlled legacy paths remain supported only outside deployment policy
+(for tests and local tooling).
 Both modes preserve the `cicytex-feedback` compose key and external name
 `aai-cicytex-experiment-feedback`.  The database parent, migration-file parent and mount target
 form one closed contract, verified by parsing Compose rather than matching independent strings.
@@ -53,7 +61,8 @@ contract intentionally does not promise SHM byte identity during online backup.
 ## Test strategy
 
 A parsed Compose contract validates the durable database, empty-default legacy interpolation,
-mount source/target and external volume identity together.  A separate migration-mode assertion
-accepts only the exact historical file inside that mount.  Mutation cases cover stale,
+exact discovery path, mount source/target and external volume identity together.  Runtime tests
+cover absent discovery, detected feedback, conflicting explicit overrides and feedback-only
+fail-closed behavior.  Mutation cases cover stale,
 missing or fixed-value variables, migration paths outside the mount, and removed or renamed
 mount/volume identities.

@@ -51,3 +51,12 @@
   byte identity for ephemeral SQLite reader marks.
 - [ ] 7.3 Reject late sidecars without deleting source files and emit the complete comparison
   evidence before declaring the staging tool ready.
+
+## 8. Preserved legacy-feedback discovery
+
+- [x] 8.1 Specify exact Compose discovery, absent-file fresh startup, present-file repository
+  validation and explicit-override conflict rejection.
+- [x] 8.2 Document why feedback-only volumes must block instead of silently bootstrapping an empty
+  database.
+- [ ] 8.3 Implement discovery-aware configuration and pass Compose, fresh-volume, migration and
+  private-503 regressions.

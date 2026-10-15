@@ -9,6 +9,7 @@ import yaml
 
 from backend.app.config import get_cicytex_legacy_feedback_json
 from historical_replay.adapters import sqlite_sessions
+from historical_replay.cicytex_feedback import CicytexFeedbackRepositoryError
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = ROOT / "compose.cicytex.yml"
@@ -21,6 +22,7 @@ LEGACY_FEEDBACK = f"{VOLUME_TARGET}/feedback.json"
 LEGACY_ENVIRONMENT_KEY = "CICYTEX_REPLAY_FEEDBACK_DIR"
 LEGACY_FEEDBACK_KEY = "CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON"
 LEGACY_FEEDBACK_DEFAULT = "${CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON:-}"
+LEGACY_FEEDBACK_DISCOVERY_KEY = "CICYTEX_REPLAY_LEGACY_FEEDBACK_DISCOVERY"
 SESSION_DATABASE_KEY = "CICYTEX_REPLAY_SESSION_DB"
 
 
@@ -54,6 +56,8 @@ def _assert_durable_replay_storage(
         violations.append(f"{SESSION_DATABASE_KEY} must equal {SESSION_DATABASE}")
     if environment.get(LEGACY_FEEDBACK_KEY) != LEGACY_FEEDBACK_DEFAULT:
         violations.append(f"{LEGACY_FEEDBACK_KEY} must use optional empty-default interpolation")
+    if environment.get(LEGACY_FEEDBACK_DISCOVERY_KEY) != LEGACY_FEEDBACK:
+        violations.append(f"{LEGACY_FEEDBACK_DISCOVERY_KEY} must equal the preserved legacy path")
 
     expected_mount = f"{VOLUME_KEY}:{VOLUME_TARGET}"
     if type(mounts) is not list or mounts.count(expected_mount) != 1:
@@ -97,6 +101,7 @@ def _valid_document() -> dict:
                 "environment": {
                     SESSION_DATABASE_KEY: SESSION_DATABASE,
                     LEGACY_FEEDBACK_KEY: LEGACY_FEEDBACK_DEFAULT,
+                    LEGACY_FEEDBACK_DISCOVERY_KEY: LEGACY_FEEDBACK,
                 },
                 "volumes": [f"{VOLUME_KEY}:{VOLUME_TARGET}"],
             }
@@ -157,6 +162,22 @@ def _interpolate_wrong_legacy_feedback_variable(document: dict) -> None:
     ] = "${CICYTEX_WRONG_LEGACY_FEEDBACK_JSON:-}"
 
 
+def _remove_legacy_feedback_discovery(document: dict) -> None:
+    del document["services"]["backend"]["environment"][LEGACY_FEEDBACK_DISCOVERY_KEY]
+
+
+def _change_legacy_feedback_discovery(document: dict) -> None:
+    document["services"]["backend"]["environment"][
+        LEGACY_FEEDBACK_DISCOVERY_KEY
+    ] = f"{VOLUME_TARGET}/other.json"
+
+
+def _move_legacy_feedback_discovery_outside_mount(document: dict) -> None:
+    document["services"]["backend"]["environment"][
+        LEGACY_FEEDBACK_DISCOVERY_KEY
+    ] = "/workspace/data/feedback.json"
+
+
 def _remove_mount(document: dict) -> None:
     document["services"]["backend"]["volumes"] = []
 
@@ -194,6 +215,9 @@ def _rename_external_volume(document: dict) -> None:
         _hardcode_exact_legacy_feedback,
         _use_nonempty_legacy_feedback_default,
         _interpolate_wrong_legacy_feedback_variable,
+        _remove_legacy_feedback_discovery,
+        _change_legacy_feedback_discovery,
+        _move_legacy_feedback_discovery_outside_mount,
         _remove_mount,
         _rename_mount_source,
         _rename_mount_target,
@@ -225,12 +249,82 @@ def test_optional_legacy_feedback_config_resolves_absent_or_empty_to_none(
     configured: str | None,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.delenv(LEGACY_FEEDBACK_DISCOVERY_KEY, raising=False)
     if configured is None:
         monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
     else:
         monkeypatch.setenv(LEGACY_FEEDBACK_KEY, configured)
 
     assert get_cicytex_legacy_feedback_json() is None
+
+
+@pytest.mark.parametrize("configured", (None, ""))
+def test_deployment_discovers_existing_legacy_feedback_when_override_is_empty(
+    tmp_path: Path,
+    configured: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    legacy = tmp_path / "feedback.json"
+    legacy.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(legacy))
+    if configured is None:
+        monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+    else:
+        monkeypatch.setenv(LEGACY_FEEDBACK_KEY, configured)
+
+    assert get_cicytex_legacy_feedback_json() == legacy
+
+
+def test_deployment_discovery_absent_keeps_fresh_volume_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    discovery = tmp_path / "feedback.json"
+    monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(discovery))
+    monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+
+    assert get_cicytex_legacy_feedback_json() is None
+
+
+def test_deployment_rejects_explicit_legacy_path_that_disagrees_with_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    discovery = tmp_path / "feedback.json"
+    override = tmp_path / "other.json"
+    discovery.write_text("{}", encoding="utf-8")
+    override.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(discovery))
+    monkeypatch.setenv(LEGACY_FEEDBACK_KEY, str(override))
+
+    with pytest.raises(ValueError):
+        get_cicytex_legacy_feedback_json()
+
+
+def test_feedback_only_discovery_fails_closed_instead_of_creating_empty_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    legacy = tmp_path / "feedback.json"
+    database = tmp_path / "fresh.sqlite3"
+    legacy.write_text(
+        '{"CP1_S1|2023-07-06|1":{"estado_validacion":"confirmada",'
+        '"etiqueta_corregida":1,"observacion":"preserved-review",'
+        '"registered_at":"2026-10-12T10:00:00+00:00",'
+        '"simulated_at":"2023-07-07",'
+        '"scope":"demostracion; no recalibra ni reentrena"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(legacy))
+    monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+
+    with pytest.raises(CicytexFeedbackRepositoryError):
+        sqlite_sessions.SQLiteCicytexFeedbackRepository(
+            database,
+            legacy_feedback_path=get_cicytex_legacy_feedback_json(),
+        )
+
+    assert not database.exists()
 
 
 def test_fresh_database_does_not_attempt_legacy_feedback_parsing(

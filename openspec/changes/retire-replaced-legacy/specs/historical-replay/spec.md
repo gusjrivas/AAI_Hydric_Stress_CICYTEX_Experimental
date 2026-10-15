@@ -13,6 +13,8 @@ environment variable.
   `/workspace/cicytex-feedback/cicytex_replay_sessions.sqlite3`
 - **AND** `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON` SHALL use empty-default interpolation
   `${CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON:-}` so a fresh volume requires no legacy file
+- **AND** `CICYTEX_REPLAY_LEGACY_FEEDBACK_DISCOVERY` SHALL equal
+  `/workspace/cicytex-feedback/feedback.json`
 - **AND** `/workspace/cicytex-feedback` SHALL be mounted from `cicytex-feedback`
 - **AND** that volume SHALL retain external name `aai-cicytex-experiment-feedback`
 - **AND** `CICYTEX_REPLAY_FEEDBACK_DIR` SHALL be absent
@@ -44,6 +46,19 @@ environment variable.
 - **AND** any other non-empty path SHALL fail before migration
 - **BUT WHEN** no authoritative session database exists
 - **THEN** the JSON SHALL remain unimported and byte-identical for manual reconciliation
+
+#### Scenario: Preserved feedback cannot be hidden by an empty override
+
+- **GIVEN** deployment discovery points to the preserved `feedback.json`
+- **WHEN** the explicit override is empty or unset and the discovery file exists
+- **THEN** that file SHALL be presented to the repository for complete validation
+- **AND** feedback-only or invalid state SHALL fail closed instead of creating an empty database
+- **BUT WHEN** the discovery file is absent
+- **THEN** a fresh volume SHALL initialize without attempting a legacy import
+- **AND WHEN** a non-empty explicit override disagrees with deployment discovery
+- **THEN** configuration SHALL fail closed
+- **AND** arbitrary explicit paths MAY remain available only when no deployment discovery policy
+  is configured
 
 #### Scenario: Compatibility remains available until separately sunset
 

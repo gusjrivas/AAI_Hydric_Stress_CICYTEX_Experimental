@@ -237,6 +237,46 @@ def test_invalid_legacy_import_returns_private_503_and_no_partial_rows(tmp_path,
     assert marker not in response.text
 
 
+def test_conflicting_explicit_and_discovered_legacy_paths_return_private_503(
+    tmp_path,
+    monkeypatch,
+):
+    replay = tmp_path / "replay"
+    replay.mkdir()
+    _package(replay)
+    database = tmp_path / "sessions.sqlite3"
+    discovery = tmp_path / "preserved-feedback.json"
+    override = tmp_path / "wrong-feedback.json"
+    discovery.write_text("{}", encoding="utf-8")
+    override.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(replay))
+    monkeypatch.setenv("CICYTEX_REPLAY_SESSION_DB", str(database))
+    monkeypatch.setenv("CICYTEX_REPLAY_LEGACY_FEEDBACK_DISCOVERY", str(discovery))
+    monkeypatch.setenv("CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON", str(override))
+    _clear_dependencies()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/api/v2/cicytex/replay/sessions",
+                json={
+                    "sensor_id": "CP1_S1",
+                    "emission_date": "2023-07-06",
+                    "horizon_days": 1,
+                },
+            )
+    finally:
+        _clear_dependencies()
+
+    assert response.status_code == 503
+    assert response.json()["error"]["message"] == (
+        "El almacenamiento de feedback CICYTEX no esta disponible"
+    )
+    assert str(database) not in response.text
+    assert str(discovery) not in response.text
+    assert str(override) not in response.text
+    assert not database.exists()
+
+
 @pytest.mark.parametrize("failure", ["invalid-json", "import-crash"])
 def test_v1_bootstrap_failure_is_owned_by_one_transaction_and_preserves_bytes(
     tmp_path, monkeypatch, failure

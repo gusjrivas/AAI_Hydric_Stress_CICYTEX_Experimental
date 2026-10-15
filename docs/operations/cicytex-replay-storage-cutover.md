@@ -25,6 +25,15 @@ An active volume that contains only `feedback.json` does **not** have enough ses
 automatic import.  Preserve that JSON byte-for-byte and stop for manual reconciliation.  Never
 fabricate sessions from feedback fields, and never mark such a deployment migrated.
 
+The deployment sets
+`CICYTEX_REPLAY_LEGACY_FEEDBACK_DISCOVERY=/workspace/cicytex-feedback/feedback.json` while keeping
+`CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON` empty-default.  If the discovery file is absent, a fresh
+volume starts normally.  If it exists, startup presents it to the repository so complete lineage
+is imported or feedback-only/invalid state fails closed with the existing private storage error;
+it must never silently create an empty database.  An explicit override under this deployment
+policy must name exactly the discovery path.  Tests and local tools without a discovery policy may
+still provide another administrator-controlled legacy path.
+
 ## Existing legacy feedback
 
 Only use `--legacy-feedback-json` when a captured source database contains the matching replay
