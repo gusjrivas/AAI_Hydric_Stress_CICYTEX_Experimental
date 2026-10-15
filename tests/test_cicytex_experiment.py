@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from experiment_runner.cicytex.experiment import build_features, temporal_split
 from experiment_runner.cicytex.ingestion import load_normalized_cicytex
+from experiment_runner.cicytex.training_protocol import build_features, temporal_split
 
 
 def test_ingestion_preserves_sensor_identity_and_units(tmp_path: Path):

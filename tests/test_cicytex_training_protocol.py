@@ -23,16 +23,81 @@ def _daily_sensor(sensor_id: str, base: float, days: int = 100) -> pd.DataFrame:
     )
 
 
-def test_training_protocol_preserves_the_legacy_public_contract():
-    protocol = _protocol()
-    legacy = importlib.import_module("experiment_runner.cicytex.experiment")
+FORBIDDEN_EXPERIMENT_TRAINING_BINDINGS = {
+    "TemporalSplit",
+    "build_features",
+    "temporal_split",
+    "_part",
+    "select_partition",
+}
 
-    assert legacy.FEATURES is protocol.FEATURES
-    assert legacy.FAMILY_PARAMS is protocol.FAMILY_PARAMS
-    assert legacy.TemporalSplit is protocol.TemporalSplit
-    assert legacy.build_features is protocol.build_features
-    assert legacy.temporal_split is protocol.temporal_split
-    assert legacy._part is protocol.select_partition
+
+def _forbidden_experiment_training_bindings(source: str) -> set[str]:
+    tree = ast.parse(source)
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    found.update(FORBIDDEN_EXPERIMENT_TRAINING_BINDINGS)
+                if alias.name in FORBIDDEN_EXPERIMENT_TRAINING_BINDINGS:
+                    found.add(alias.name)
+                if alias.asname in FORBIDDEN_EXPERIMENT_TRAINING_BINDINGS:
+                    found.add(alias.asname)
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                for nested in ast.walk(target):
+                    if isinstance(nested, ast.Name) and nested.id in (
+                        FORBIDDEN_EXPERIMENT_TRAINING_BINDINGS
+                    ):
+                        found.add(nested.id)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "getattr" and len(node.args) >= 2:
+                attribute = node.args[1]
+                if (
+                    isinstance(attribute, ast.Constant)
+                    and attribute.value in FORBIDDEN_EXPERIMENT_TRAINING_BINDINGS
+                ):
+                    found.add(attribute.value)
+    return found
+
+
+def test_experiment_module_has_no_legacy_training_aliases_or_unused_partition_import():
+    experiment = (
+        Path(__file__).parents[1] / "src" / "experiment_runner" / "cicytex" / "experiment.py"
+    )
+
+    assert _forbidden_experiment_training_bindings(experiment.read_text(encoding="utf-8")) == set()
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (
+            "from experiment_runner.cicytex.training_protocol import "
+            "build_features as _build_features",
+            {"build_features"},
+        ),
+        ("build_features = canonical", {"build_features"}),
+        ("_part = canonical", {"_part"}),
+        (
+            "from experiment_runner.cicytex.training_protocol import select_partition",
+            {"select_partition"},
+        ),
+        ("value = getattr(protocol, 'temporal_split')", {"temporal_split"}),
+        (
+            "from experiment_runner.cicytex.training_protocol import "
+            "FAMILY_PARAMS, FEATURES, prepare_horizon",
+            set(),
+        ),
+    ),
+)
+def test_experiment_legacy_binding_detector_is_not_tautological(
+    source: str,
+    expected: set[str],
+):
+    assert _forbidden_experiment_training_bindings(source) == expected
 
 
 @pytest.mark.parametrize("horizon", [1, 2, 3])

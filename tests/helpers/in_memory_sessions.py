@@ -1,4 +1,4 @@
-"""Process-local synchronized adapter for replay sessions."""
+"""Test-only synchronized repository for replay-session unit tests."""
 
 from __future__ import annotations
 

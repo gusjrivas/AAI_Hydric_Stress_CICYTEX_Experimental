@@ -9,9 +9,43 @@ from threading import Barrier
 
 import pytest
 
+from tests.helpers.in_memory_sessions import InMemorySessionRepository
+
+LEGACY_IN_MEMORY_MODULE = "historical_replay.adapters.in_memory_sessions"
+
+
+def _imports_legacy_in_memory_module(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == LEGACY_IN_MEMORY_MODULE
+            or alias.name.startswith(f"{LEGACY_IN_MEMORY_MODULE}.")
+            for alias in node.names
+        ):
+            return True
+        if isinstance(node, ast.ImportFrom):
+            if node.module is not None and (
+                node.module == LEGACY_IN_MEMORY_MODULE
+                or node.module.startswith(f"{LEGACY_IN_MEMORY_MODULE}.")
+            ):
+                return True
+            if node.module == "historical_replay.adapters" and any(
+                alias.name == "in_memory_sessions" for alias in node.names
+            ):
+                return True
+            if node.level > 0 and (
+                node.module == "in_memory_sessions"
+                or (
+                    node.module is None
+                    and any(alias.name == "in_memory_sessions" for alias in node.names)
+                )
+            ):
+                return True
+        if isinstance(node, ast.Constant) and node.value == LEGACY_IN_MEMORY_MODULE:
+            return True
+    return False
+
 
 def _session_contract():
-    from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
     from historical_replay.sessions import ReplaySessionNotFound, ReplaySessionService
 
     repository = InMemorySessionRepository()
@@ -24,7 +58,6 @@ def _session_contract():
 
 
 def test_session_repository_boundary_is_explicit_and_in_memory_adapter_conforms():
-    from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
     from historical_replay.ports import SessionRepository
 
     repository = InMemorySessionRepository()
@@ -82,7 +115,6 @@ def test_missing_session_has_one_domain_error_for_all_use_cases(operation):
 
 
 def test_sessions_are_isolated_by_repository_identity():
-    from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
     from historical_replay.sessions import ReplaySessionNotFound, ReplaySessionService
 
     first = ReplaySessionService(
@@ -260,7 +292,7 @@ def test_session_boundary_modules_are_transport_and_io_free():
     modules = (
         repository / "src" / "historical_replay" / "sessions.py",
         repository / "src" / "historical_replay" / "ports.py",
-        repository / "src" / "historical_replay" / "adapters" / "in_memory_sessions.py",
+        repository / "tests" / "helpers" / "in_memory_sessions.py",
     )
     forbidden_modules = {
         "fastapi",
@@ -293,3 +325,49 @@ def test_session_boundary_modules_are_transport_and_io_free():
         }
         assert imports.isdisjoint(forbidden_modules)
         assert calls.isdisjoint({"open", "read_bytes", "read_text", "write_bytes", "write_text"})
+
+
+def test_test_only_in_memory_repository_has_no_product_module_or_consumer():
+    repository = Path(__file__).parents[1]
+    legacy_path = repository / "src" / "historical_replay" / "adapters" / "in_memory_sessions.py"
+    product_roots = tuple(
+        path
+        for path in (
+            repository / "src",
+            repository / "backend" / "app",
+            repository / "scripts",
+            repository / "config",
+            repository / "recovery",
+        )
+        if path.exists()
+    )
+    consumers: list[str] = []
+    for root in product_roots:
+        for path in root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            if _imports_legacy_in_memory_module(tree):
+                consumers.append(path.relative_to(repository).as_posix())
+
+    violations = []
+    if legacy_path.exists():
+        violations.append(legacy_path.relative_to(repository).as_posix())
+    violations.extend(consumers)
+    assert violations == []
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("import historical_replay.adapters.in_memory_sessions", True),
+        ("from historical_replay.adapters.in_memory_sessions import Adapter", True),
+        ("from historical_replay.adapters import in_memory_sessions", True),
+        ("from . import in_memory_sessions", True),
+        ("__import__('historical_replay.adapters.in_memory_sessions')", True),
+        ("from tests.helpers.in_memory_sessions import InMemorySessionRepository", False),
+    ),
+)
+def test_legacy_in_memory_repository_consumer_detector_is_not_tautological(
+    source: str,
+    expected: bool,
+):
+    assert _imports_legacy_in_memory_module(ast.parse(source)) is expected

@@ -27,7 +27,10 @@ from historical_replay.cicytex_application import (
     CicytexFeedbackApplication,
     CicytexReplayApplication,
 )
-from historical_replay.cicytex_feedback import CicytexFeedbackService
+from historical_replay.cicytex_feedback import (
+    CicytexFeedbackRepositoryError,
+    CicytexFeedbackService,
+)
 from historical_replay.feedback import HistoricalReplayFeedbackRepository
 from historical_replay.package_loader import LoadedReplayPackage, load_package
 from historical_replay.replay_application import (
@@ -42,6 +45,7 @@ from human_feedback.historical_review_store import HistoricalReviewStore
 from human_feedback.operational_repository import OperationalRepository
 
 from .config import (
+    CicytexLegacyFeedbackConfigurationError,
     get_cicytex_legacy_feedback_json,
     get_cicytex_replay_session_database,
     get_dataset_data_dir,
@@ -51,6 +55,13 @@ from .config import (
     is_historical_replay_enabled,
     is_producer_v2_enabled,
 )
+
+
+def _get_cicytex_legacy_feedback_json() -> Path | None:
+    try:
+        return get_cicytex_legacy_feedback_json()
+    except CicytexLegacyFeedbackConfigurationError:
+        raise CicytexFeedbackRepositoryError("cicytex review store unavailable") from None
 
 
 def get_valid_sensor_id(sensor_id: str) -> str:
@@ -144,7 +155,7 @@ def get_cicytex_replay_sessions() -> ReplaySessionService:
     database = get_cicytex_replay_session_database()
     SQLiteCicytexFeedbackRepository(
         database,
-        legacy_feedback_path=get_cicytex_legacy_feedback_json(),
+        legacy_feedback_path=_get_cicytex_legacy_feedback_json(),
     )
     return ReplaySessionService(
         SQLiteSessionRepository(database),
@@ -157,7 +168,7 @@ def get_cicytex_replay_feedback() -> CicytexFeedbackService:
     return CicytexFeedbackService(
         SQLiteCicytexFeedbackRepository(
             get_cicytex_replay_session_database(),
-            legacy_feedback_path=get_cicytex_legacy_feedback_json(),
+            legacy_feedback_path=_get_cicytex_legacy_feedback_json(),
         )
     )
 
