@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SOURCE = ROOT / "frontend" / "src"
 HISTORICAL_API = FRONTEND_SOURCE / "features" / "historical-replay" / "api.ts"
@@ -10,6 +12,7 @@ CICYTEX_API = FRONTEND_SOURCE / "features" / "defense" / "cicytexApi.ts"
 QUALITY_API = FRONTEND_SOURCE / "features" / "quality" / "api.ts"
 LINEAGE_API = FRONTEND_SOURCE / "features" / "lineage" / "api.ts"
 SENSOR_LAB_API = FRONTEND_SOURCE / "features" / "lab" / "sensorLabApi.ts"
+FORECAST_API = FRONTEND_SOURCE / "features" / "forecast" / "api.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -100,6 +103,19 @@ def _generated_import_names(source: str) -> set[str]:
     return {name.strip() for name in match.group("names").split(",")}
 
 
+def _assert_sensor_lab_request_binding(source: str) -> None:
+    assert re.search(
+        r'type\s+LabIngestRequest\s*=\s*LabIngestOperation\["requestBody"\]'
+        r'\["content"\]\["application/json"\]\s*;',
+        source,
+    )
+    assert re.search(r"}\s+satisfies\s+LabIngestRequest\s*;", source)
+    assert not re.search(
+        r"(?:interface\s+LabIngestRequest\b|type\s+LabIngestRequest\s*=\s*\{)",
+        source,
+    )
+
+
 def test_only_owned_clients_consume_the_generated_schema():
     assert _generated_schema_consumers() == {
         HISTORICAL_API,
@@ -107,6 +123,7 @@ def test_only_owned_clients_consume_the_generated_schema():
         QUALITY_API,
         LINEAGE_API,
         SENSOR_LAB_API,
+        FORECAST_API,
     }
 
 
@@ -175,5 +192,65 @@ def test_sensor_lab_client_uses_its_generated_operation_without_duplicate_dtos()
     assert not re.search(r"(?<![\w.])any(?!\w)", source)
     assert not re.search(r"\bas\s+unknown\s+as\b", source)
     assert not re.search(r"\bRecord\s*<\s*string\s*,\s*unknown\s*>", source)
+    _assert_sensor_lab_request_binding(source)
     assert re.search(r"\bexport\s+type\s+LabIngestResult\b", source)
     assert re.search(r"\bexport\s+(?:function|const)\s+ingestLabReading\b", source)
+
+
+def test_sensor_lab_request_binding_rejects_manual_or_unchecked_mutations():
+    source = SENSOR_LAB_API.read_text(encoding="utf-8")
+    generated_alias = (
+        'type LabIngestRequest = LabIngestOperation["requestBody"]'
+        '["content"]["application/json"];'
+    )
+
+    manual_request = source.replace(
+        generated_alias,
+        "interface LabIngestRequest { timestamp: string }",
+    )
+    unchecked_payload = source.replace("} satisfies LabIngestRequest;", "};")
+    assert manual_request != source
+    assert unchecked_payload != source
+    with pytest.raises(AssertionError):
+        _assert_sensor_lab_request_binding(manual_request)
+    with pytest.raises(AssertionError):
+        _assert_sensor_lab_request_binding(unchecked_payload)
+
+
+def test_forecast_client_uses_all_generated_operations_without_duplicate_dtos():
+    source = FORECAST_API.read_text(encoding="utf-8")
+
+    assert _generated_import_names(source) == {"components", "operations"}
+    for operation_id in (
+        "run_forecast_forecast__sensor_id__run_post",
+        "list_feedback_feedback__sensor_id__get",
+        "confirm_feedback_feedback__sensor_id___fecha__confirm_post",
+        "reject_feedback_feedback__sensor_id___fecha__reject_post",
+        "recalibrate_recalibrate__sensor_id__post",
+        "get_active_predictor_models__sensor_id__active_get",
+    ):
+        assert f'operations["{operation_id}"]' in source
+    assert not re.search(r"\b(?:export\s+)?interface\s+", source)
+    assert not re.search(r"(?<![\w.])any(?!\w)", source)
+    assert not re.search(r"\bas\s+unknown\s+as\b", source)
+    assert not re.search(r"\bRecord\s*<\s*string\s*,\s*unknown\s*>", source)
+    for name in (
+        "Verdict",
+        "ForecastRunResponse",
+        "FeedbackRow",
+        "FeedbackListResponse",
+        "RecalibrationResponse",
+        "ActivePredictor",
+    ):
+        assert re.search(rf"\bexport\s+type\s+{name}\b", source)
+    for name in (
+        "HttpError",
+        "NO_READINGS_MESSAGE",
+        "runForecast",
+        "listFeedback",
+        "confirmAlert",
+        "rejectAlert",
+        "recalibrate",
+        "getActivePredictor",
+    ):
+        assert re.search(rf"\bexport\s+(?:async\s+)?(?:class|const|function)\s+{name}\b", source)

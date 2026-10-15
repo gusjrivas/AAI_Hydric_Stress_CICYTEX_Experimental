@@ -198,6 +198,7 @@ def test_generated_schema_has_only_the_owned_product_consumers():
             consumers.append(path.relative_to(FRONTEND_ROOT / "src").as_posix())
     assert set(consumers) == {
         "features/defense/cicytexApi.ts",
+        "features/forecast/api.ts",
         "features/historical-replay/api.ts",
         "features/lineage/api.ts",
         "features/lab/sensorLabApi.ts",
