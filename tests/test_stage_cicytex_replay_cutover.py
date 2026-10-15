@@ -8,6 +8,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from types import ModuleType
 
@@ -39,14 +40,14 @@ def _sha256(path: Path) -> str:
 
 
 def _create_v1_database(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        connection.execute("""CREATE TABLE replay_session_metadata (
+        with connection:
+            connection.execute("""CREATE TABLE replay_session_metadata (
                    key TEXT PRIMARY KEY NOT NULL,
                    value TEXT NOT NULL
                ) WITHOUT ROWID""")
-        connection.execute("""CREATE TABLE replay_sessions (
+            connection.execute("""CREATE TABLE replay_sessions (
                    session_id TEXT PRIMARY KEY NOT NULL,
                    sensor_id TEXT NOT NULL,
                    start_date TEXT NOT NULL,
@@ -55,22 +56,24 @@ def _create_v1_database(path: Path) -> None:
                    revealed_through TEXT NOT NULL,
                    last_observation TEXT NOT NULL
                ) WITHOUT ROWID""")
-        connection.execute(
-            "INSERT INTO replay_session_metadata(key, value) VALUES ('schema_version', '1')"
-        )
-        connection.execute("PRAGMA user_version = 1")
-        connection.execute(
-            "INSERT INTO replay_sessions VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                "session-1",
-                "CP1_S1",
-                "2023-07-06",
-                "2023-07-06",
-                1,
-                "2023-07-07",
-                "2023-07-25",
-            ),
-        )
+            connection.execute(
+                "INSERT INTO replay_session_metadata(key, value) VALUES ('schema_version', '1')"
+            )
+            connection.execute("PRAGMA user_version = 1")
+            connection.execute(
+                "INSERT INTO replay_sessions VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "session-1",
+                    "CP1_S1",
+                    "2023-07-06",
+                    "2023-07-06",
+                    1,
+                    "2023-07-07",
+                    "2023-07-25",
+                ),
+            )
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.execute("PRAGMA journal_mode = DELETE")
 
 
 def _write_legacy_feedback(path: Path, marker: str = "captured-review") -> None:
