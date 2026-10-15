@@ -720,14 +720,10 @@ def test_entry_and_receipt_deep_seals_reject_forged_paths_duplicates_and_totals(
         _factory_token=module._FACTORY_TOKEN,
     )
     historical = evidence.receipts[0]
+    object.__setattr__(historical, "uncompressed_size_bytes", 2048)
     fresh = _forge(
         type(historical),
-        **{
-            field.name: (
-                2048 if field.name == "uncompressed_size_bytes" else getattr(historical, field.name)
-            )
-            for field in fields(historical)
-        },
+        **{field.name: getattr(historical, field.name) for field in fields(historical)},
     )
     receipt = module.VerifiedLayaOciTarLayer(
         plan=plan,
