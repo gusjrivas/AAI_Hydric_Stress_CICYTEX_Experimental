@@ -7,6 +7,9 @@ from pathlib import Path, PurePosixPath
 import pytest
 import yaml
 
+from backend.app.config import get_cicytex_legacy_feedback_json
+from historical_replay.adapters import sqlite_sessions
+
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = ROOT / "compose.cicytex.yml"
 
@@ -138,6 +141,22 @@ def _move_legacy_feedback_outside_mount(document: dict) -> None:
     ] = "/workspace/data/feedback.json"
 
 
+def _hardcode_exact_legacy_feedback(document: dict) -> None:
+    document["services"]["backend"]["environment"][LEGACY_FEEDBACK_KEY] = LEGACY_FEEDBACK
+
+
+def _use_nonempty_legacy_feedback_default(document: dict) -> None:
+    document["services"]["backend"]["environment"][
+        LEGACY_FEEDBACK_KEY
+    ] = f"${{{LEGACY_FEEDBACK_KEY}:-{LEGACY_FEEDBACK}}}"
+
+
+def _interpolate_wrong_legacy_feedback_variable(document: dict) -> None:
+    document["services"]["backend"]["environment"][
+        LEGACY_FEEDBACK_KEY
+    ] = "${CICYTEX_WRONG_LEGACY_FEEDBACK_JSON:-}"
+
+
 def _remove_mount(document: dict) -> None:
     document["services"]["backend"]["volumes"] = []
 
@@ -172,6 +191,9 @@ def _rename_external_volume(document: dict) -> None:
         _remove_legacy_feedback_environment,
         _change_legacy_feedback_filename,
         _move_legacy_feedback_outside_mount,
+        _hardcode_exact_legacy_feedback,
+        _use_nonempty_legacy_feedback_default,
+        _interpolate_wrong_legacy_feedback_variable,
         _remove_mount,
         _rename_mount_source,
         _rename_mount_target,
@@ -196,6 +218,37 @@ def test_durable_replay_storage_contract_accepts_only_the_coherent_profile():
 
 def test_fresh_volume_accepts_an_empty_optional_legacy_feedback_override():
     _assert_durable_replay_storage(_valid_document(), legacy_feedback_override="")
+
+
+@pytest.mark.parametrize("configured", (None, ""))
+def test_optional_legacy_feedback_config_resolves_absent_or_empty_to_none(
+    configured: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    if configured is None:
+        monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+    else:
+        monkeypatch.setenv(LEGACY_FEEDBACK_KEY, configured)
+
+    assert get_cicytex_legacy_feedback_json() is None
+
+
+def test_fresh_database_does_not_attempt_legacy_feedback_parsing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def forbidden_parse(path: Path):
+        raise AssertionError(f"fresh database attempted legacy parse: {path.name}")
+
+    monkeypatch.setattr(sqlite_sessions, "_parse_cicytex_legacy", forbidden_parse)
+    database = tmp_path / "fresh.sqlite3"
+
+    sqlite_sessions.SQLiteCicytexFeedbackRepository(
+        database,
+        legacy_feedback_path=None,
+    )
+
+    assert database.is_file()
 
 
 def test_existing_deployment_accepts_only_the_exact_legacy_migration_path():
