@@ -204,6 +204,7 @@ def test_generated_schema_has_only_the_owned_product_consumers():
         "features/lab/sensorLabApi.ts",
         "features/producer/catalogApi.ts",
         "features/producer/forecastsApi.ts",
+        "features/producer/historicalApi.ts",
         "features/producer/readingsApi.ts",
         "features/quality/api.ts",
     }

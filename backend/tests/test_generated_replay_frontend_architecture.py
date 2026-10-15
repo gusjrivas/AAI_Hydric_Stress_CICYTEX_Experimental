@@ -16,6 +16,7 @@ FORECAST_API = FRONTEND_SOURCE / "features" / "forecast" / "api.ts"
 PRODUCER_CATALOG_API = FRONTEND_SOURCE / "features" / "producer" / "catalogApi.ts"
 PRODUCER_READINGS_API = FRONTEND_SOURCE / "features" / "producer" / "readingsApi.ts"
 PRODUCER_FORECASTS_API = FRONTEND_SOURCE / "features" / "producer" / "forecastsApi.ts"
+PRODUCER_HISTORICAL_API = FRONTEND_SOURCE / "features" / "producer" / "historicalApi.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -197,6 +198,21 @@ def _assert_producer_forecasts_binding(source: str) -> None:
     )
 
 
+def _assert_producer_historical_binding(source: str) -> None:
+    operation_ids = {
+        "get_historical_forecasts_api_v2_sensors__sensor_id__historical__as_of_date__forecasts_get",
+        "get_historical_readings_api_v2_sensors__sensor_id__historical__as_of_date__readings_get",
+        "create_historical_review_api_v2_sensors__sensor_id__historical__as_of_date__forecasts__forecast_id__reviews_post",
+    }
+    assert _generated_import_names(source) == {"components", "operations"}
+    for operation_id in operation_ids:
+        assert f'operations["{operation_id}"]' in source
+    assert re.search(r"}\s+satisfies\s+ReviewCreate\s*;", source)
+    assert re.search(r'HistoricalForecastsOperation\["responses"\]\[200\]', source)
+    assert re.search(r'HistoricalReadingsOperation\["responses"\]\[200\]', source)
+    assert re.search(r'HistoricalReviewOperation\["responses"\]\[201\]', source)
+
+
 def test_only_owned_clients_consume_the_generated_schema():
     assert _generated_schema_consumers() == {
         HISTORICAL_API,
@@ -208,6 +224,7 @@ def test_only_owned_clients_consume_the_generated_schema():
         PRODUCER_CATALOG_API,
         PRODUCER_READINGS_API,
         PRODUCER_FORECASTS_API,
+        PRODUCER_HISTORICAL_API,
     }
 
 
@@ -329,6 +346,47 @@ def test_producer_forecasts_binding_rejects_manual_and_unchecked_mutations():
     for mutation in mutations:
         with pytest.raises(AssertionError):
             _assert_producer_forecasts_binding(mutation)
+
+
+def test_producer_historical_uses_three_generated_operations_and_checked_review():
+    _assert_producer_historical_binding(PRODUCER_HISTORICAL_API.read_text(encoding="utf-8"))
+
+
+def test_producer_historical_binding_rejects_import_only_and_wrong_contracts():
+    source = (
+        'import type { components, operations } from "../../api/generated/schema";\n'
+        'type HistoricalForecastsOperation = operations["get_historical_forecasts_api_v2_'
+        'sensors__sensor_id__historical__as_of_date__forecasts_get"];\n'
+        'type HistoricalReadingsOperation = operations["get_historical_readings_api_v2_'
+        'sensors__sensor_id__historical__as_of_date__readings_get"];\n'
+        'type HistoricalReviewOperation = operations["create_historical_review_api_v2_'
+        'sensors__sensor_id__historical__as_of_date__forecasts__forecast_id__reviews_post"];\n'
+        'type ForecastResponse = HistoricalForecastsOperation["responses"][200];\n'
+        'type ReadingsResponse = HistoricalReadingsOperation["responses"][200];\n'
+        'type ReviewResponse = HistoricalReviewOperation["responses"][201];\n'
+        'type ReviewCreate = components["schemas"]["ReviewCreate"];\n'
+        'const review = { request_id: "r" } satisfies ReviewCreate;\n'
+    )
+    _assert_producer_historical_binding(source)
+    mutations = (
+        source.replace("satisfies ReviewCreate", "as ReviewCreate"),
+        source.replace(
+            'HistoricalReviewOperation["responses"][201]',
+            'HistoricalReviewOperation["responses"][200]',
+        ),
+        source.replace(
+            "get_historical_readings_api_v2_sensors__sensor_id__historical__as_of_date__readings_get",
+            "wrong_historical_readings_operation",
+        ),
+        re.sub(
+            r"type HistoricalForecastsOperation = operations\[[^;]+;\n",
+            "",
+            source,
+        ),
+    )
+    for mutation in mutations:
+        with pytest.raises(AssertionError):
+            _assert_producer_historical_binding(mutation)
 
 
 def test_replay_clients_use_generated_operation_contracts_without_duplicate_dtos():

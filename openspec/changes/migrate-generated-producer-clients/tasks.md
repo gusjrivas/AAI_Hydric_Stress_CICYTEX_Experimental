@@ -20,6 +20,9 @@
 
 ## 4. Historical slice and closure
 
-- [ ] 4.1 RED historical operation and race/error contracts.
-- [ ] 4.2 GREEN migrate historical as consumer ten.
-- [ ] 4.3 Pass full frontend/backend, lint, OpenSpec and generated-artifact drift gates.
+- [x] 4.1 Require historical to complete the exact ten-consumer allowlist and bind three operations.
+- [x] 4.2 Freeze emission versus reveal clocks, default days, encoding and read-only GET behavior.
+- [x] 4.3 Freeze checked review body/status and all existing private error mappings.
+- [x] 4.4 Add mutation evidence for missing/wrong operations and unchecked review payloads.
+- [ ] 4.5 GREEN migrate historical as consumer ten without changing race behavior.
+- [ ] 4.6 Pass full frontend/backend, lint, OpenSpec and generated-artifact drift gates.

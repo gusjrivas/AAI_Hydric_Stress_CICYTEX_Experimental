@@ -42,3 +42,11 @@ identity, error classes/messages or producer-specific base URL selection.
 - **AND** emission SHALL bind the existing `Idempotency-Key` to the generated header contract
 - **AND** successful 201 reviews and successful 200 or 201 emissions SHALL preserve their
   response payload identity
+
+#### Scenario: Historical replay keeps its two clocks separate
+
+- **WHEN** an existing emission is read at a later reveal date
+- **THEN** `as_of_date` SHALL select the persisted emission path
+- **AND** `revealed_through` SHALL remain a distinct optional query parameter
+- **AND** historical readings SHALL use the reveal date with the existing default day window
+- **AND** neither GET SHALL emit forecasts or attach write request options
