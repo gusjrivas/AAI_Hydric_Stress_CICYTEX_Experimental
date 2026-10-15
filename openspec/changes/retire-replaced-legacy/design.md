@@ -32,10 +32,12 @@ deployment, an operator MUST:
 2. checkpoint WAL state under the same discipline and never copy only the main file while writers
    remain active;
 3. retain the source database, its WAL/SHM companions and the original `feedback.json` as a
-   rollback set;
+   rollback set; the staging tool never deletes or replaces source sidecars;
 4. record SHA-256 and byte size for the captured database;
 5. run `PRAGMA integrity_check` on the destination;
-6. compare session-row and CICYTEX-feedback-row counts between source and destination;
+6. record source-snapshot version, integrity and row counts, then require destination sessions to
+   equal source sessions and destination feedback to equal source feedback plus validated legacy
+   imports;
 7. start the service against the destination and perform a read-only verification before allowing
    writes; and
 8. keep the source untouched until the verification window closes, with a documented rollback
@@ -43,6 +45,10 @@ deployment, an operator MUST:
 
 Failure at any step leaves the source authoritative and aborts deployment.  Compatibility
 importers and the v1-to-v2 migration remain until a separate, evidence-backed sunset decision.
+An existing WAL is byte-stable evidence and must remain byte-identical.  A sidecar that appears
+after preflight is a concurrent-write race and aborts without being removed.  SHM remains
+source-owned and must never be deleted or replaced, but SQLite reader marks are ephemeral, so the
+contract intentionally does not promise SHM byte identity during online backup.
 
 ## Test strategy
 

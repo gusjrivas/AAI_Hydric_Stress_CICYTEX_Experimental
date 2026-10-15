@@ -182,8 +182,18 @@ def test_source_database_and_matching_legacy_feedback_stage_atomically(tmp_path:
     assert evidence["staged_database_sha256"] == _sha256(staged)
     assert evidence["database_user_version"] == 2
     assert evidence["integrity_check"] == "ok"
+    assert evidence["source_database_user_version"] == 1
+    assert evidence["source_integrity_check"] == "ok"
+    assert evidence["source_session_count"] == 1
+    assert evidence["source_feedback_count"] == 0
+    assert evidence["legacy_feedback_imported_count"] == 1
     assert evidence["session_count"] == 1
     assert evidence["feedback_count"] == 1
+    assert evidence["session_count"] == evidence["source_session_count"]
+    assert evidence["feedback_count"] == (
+        evidence["source_feedback_count"] + evidence["legacy_feedback_imported_count"]
+    )
+    assert evidence["staged_database_size_bytes"] == staged.stat().st_size
     serialized = json.dumps(evidence, sort_keys=True)
     assert str(tmp_path) not in serialized
     assert "captured-review" not in serialized
@@ -224,7 +234,72 @@ def test_sqlite_backup_captures_committed_wal_without_publishing_companions(tmp_
         assert source.read_bytes() == source_before
         assert wal.read_bytes() == wal_before
     assert evidence["session_count"] == 2
+    assert evidence["source_database_user_version"] == 1
+    assert evidence["source_integrity_check"] == "ok"
+    assert evidence["source_session_count"] == 2
+    assert evidence["source_feedback_count"] == 0
+    assert evidence["legacy_feedback_imported_count"] == 0
+    assert evidence["session_count"] == evidence["source_session_count"]
     assert sorted(path.name for path in output.iterdir()) == [DATABASE_NAME, EVIDENCE_NAME]
+
+
+@requires_cutover_tool
+def test_wal_created_during_backup_aborts_without_deleting_source_sidecar(
+    tmp_path: Path,
+    monkeypatch,
+):
+    source = tmp_path / "source.sqlite3"
+    output = tmp_path / "must-not-publish"
+    _create_v1_database(source)
+    real_backup = CUTOVER._backup_database
+    real_unlink = CUTOVER.Path.unlink
+    writers: list[sqlite3.Connection] = []
+    captured: dict[str, Path | bytes | bool] = {"unlink_attempted": False}
+
+    def backup_after_concurrent_commit(database: Path, destination: Path) -> None:
+        writer = sqlite3.connect(database)
+        writers.append(writer)
+        assert writer.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
+        writer.execute(
+            "INSERT INTO replay_sessions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "session-race",
+                "CP1_S2",
+                "2023-07-07",
+                "2023-07-07",
+                2,
+                "2023-07-09",
+                "2023-07-25",
+            ),
+        )
+        writer.commit()
+        wal = database.with_name(f"{database.name}-wal")
+        assert wal.is_file()
+        captured["wal"] = wal
+        captured["wal_bytes"] = wal.read_bytes()
+        real_backup(database, destination)
+
+    def preserve_source_wal(path: Path, *args, **kwargs) -> None:
+        if path == captured.get("wal"):
+            captured["unlink_attempted"] = True
+            return
+        real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(CUTOVER, "_backup_database", backup_after_concurrent_commit)
+    monkeypatch.setattr(CUTOVER.Path, "unlink", preserve_source_wal)
+    try:
+        with pytest.raises(CUTOVER.CutoverError):
+            _stage(source_database=source, legacy_feedback_json=None, output_dir=output)
+
+        wal = captured["wal"]
+        assert isinstance(wal, Path)
+        assert wal.is_file()
+        assert wal.read_bytes() == captured["wal_bytes"]
+        assert captured["unlink_attempted"] is False
+        assert not output.exists()
+    finally:
+        for writer in writers:
+            writer.close()
 
 
 @requires_cutover_tool
@@ -349,6 +424,48 @@ def test_symlinked_input_is_rejected_without_touching_its_target(tmp_path: Path)
         _stage(source_database=source_link, legacy_feedback_json=None, output_dir=output)
 
     assert source.read_bytes() == before
+    assert not output.exists()
+
+
+@requires_cutover_tool
+@pytest.mark.parametrize("path_role", ("database", "legacy", "output"))
+def test_symlinked_path_ancestor_is_rejected_before_staging(
+    tmp_path: Path,
+    path_role: str,
+):
+    real_root = tmp_path / "real-root"
+    real_root.mkdir()
+    nested = real_root / "nested"
+    nested.mkdir()
+    alias_root = tmp_path / "alias-root"
+    try:
+        alias_root.symlink_to(real_root, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this host")
+
+    source = nested / "source.sqlite3"
+    legacy = nested / "feedback.json"
+    _create_v1_database(source)
+    _write_legacy_feedback(legacy)
+    source_before = source.read_bytes()
+    legacy_before = legacy.read_bytes()
+    source_argument = alias_root / "nested" / source.name if path_role == "database" else source
+    legacy_argument = alias_root / "nested" / legacy.name if path_role == "legacy" else legacy
+    output = (
+        alias_root / "nested" / "must-not-publish"
+        if path_role == "output"
+        else tmp_path / "must-not-publish"
+    )
+
+    with pytest.raises(CUTOVER.CutoverError):
+        _stage(
+            source_database=source_argument,
+            legacy_feedback_json=legacy_argument,
+            output_dir=output,
+        )
+
+    assert source.read_bytes() == source_before
+    assert legacy.read_bytes() == legacy_before
     assert not output.exists()
 
 

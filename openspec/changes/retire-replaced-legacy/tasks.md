@@ -7,8 +7,8 @@
 
 ## 2. GREEN deployment correction
 
-- [ ] 2.1 Bind Compose to the durable SQLite path and remove only the obsolete variable.
-- [ ] 2.2 Execute focused and regression gates without modifying persisted data.
+- [x] 2.1 Bind Compose to the durable SQLite path and remove only the obsolete variable.
+- [x] 2.2 Execute focused and regression gates without modifying persisted data.
 
 ## 3. Bounded retirement audit
 
@@ -21,7 +21,7 @@
 - [x] 4.1 Move the synchronized in-memory session repository into `tests/helpers` without changing
   conflict, update or `with_session` semantics.
 - [x] 4.2 Migrate replay-session tests and CICYTEX dependency fakes to the test-only helper.
-- [ ] 4.3 Remove the production-path in-memory adapter after the absence and zero-consumer gate is
+- [x] 4.3 Remove the production-path in-memory adapter after the absence and zero-consumer gate is
   RED first and all replay regressions remain green.
 
 ## 5. Canonical CICYTEX training seam
@@ -29,7 +29,7 @@
 - [x] 5.1 Migrate experiment and provenance tests to import feature/split contracts directly from
   `training_protocol`.
 - [x] 5.2 Specify AST mutation evidence against legacy aliases and the unused partition import.
-- [ ] 5.3 Remove the aliases and unused import from `experiment.py` while preserving the complete
+- [x] 5.3 Remove the aliases and unused import from `experiment.py` while preserving the complete
   experiment, protocol and provenance regression suites.
 
 ## 6. Offline replay-storage cutover staging
@@ -42,3 +42,12 @@
   immutable.
 - [ ] 6.4 Implement `scripts/stage_cicytex_replay_cutover.py` and pass the focused failure,
   privacy, alias and regression gates before any live cutover.
+
+## 7. Source snapshot and sidecar safety hardening
+
+- [x] 7.1 Specify a deterministic concurrent-WAL race, source snapshot evidence, destination count
+  comparison, staged byte size and symlink-ancestor rejection.
+- [x] 7.2 Document WAL byte stability and the narrower SHM ownership guarantee without claiming
+  byte identity for ephemeral SQLite reader marks.
+- [ ] 7.3 Reject late sidecars without deleting source files and emit the complete comparison
+  evidence before declaring the staging tool ready.

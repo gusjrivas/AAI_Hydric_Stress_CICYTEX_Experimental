@@ -23,9 +23,12 @@ environment variable.
 - **WHEN** its deployment path changes
 - **THEN** writers SHALL be quiesced or SQLite online backup SHALL be used
 - **AND** WAL state SHALL be handled coherently
-- **AND** destination SHA-256, size, `PRAGMA integrity_check`, session count and feedback count
-  SHALL be recorded and compared
-- **AND** the source database and original `feedback.json` SHALL remain available for rollback
+- **AND** source-snapshot version, integrity and row counts plus destination SHA-256, size,
+  `PRAGMA integrity_check`, session count and feedback count SHALL be recorded
+- **AND** destination sessions SHALL equal source-snapshot sessions
+- **AND** destination feedback SHALL equal source-snapshot feedback plus validated legacy imports
+- **AND** the source database, WAL/SHM sidecars and original `feedback.json` SHALL remain available
+  for rollback
   until destination verification completes
 - **AND** any failed check SHALL abort cutover without deleting or overwriting the source
 
@@ -96,7 +99,10 @@ without modifying the source database, WAL/SHM companions, legacy JSON or active
 - **THEN** SQLite backup SHALL capture the database consistently
 - **AND** the existing session and CICYTEX-feedback repositories SHALL validate schema and import
 - **AND** read-only verification SHALL report schema v2, `PRAGMA integrity_check=ok`, exact session
-  and feedback counts, and the staged database digest
+  and feedback counts, the staged database digest and byte size
+- **AND** evidence SHALL report the backup snapshot's version, integrity and row counts
+- **AND** destination sessions SHALL equal source-snapshot sessions
+- **AND** destination feedback SHALL equal source-snapshot feedback plus validated legacy imports
 - **AND** the output SHALL publish atomically only after every check succeeds
 - **AND** evidence SHALL contain no absolute path, raw feedback, observation, session identifier or
   other captured content
@@ -112,8 +118,18 @@ without modifying the source database, WAL/SHM companions, legacy JSON or active
 
 #### Scenario: Unsafe paths and failures never publish
 
-- **WHEN** an input hash differs, a path is a symlink or alias, the output already exists, an import
-  is invalid, verification fails or publication raises
+- **WHEN** an input hash differs, any path component is a symlink or alias, the output already
+  exists, an import is invalid, verification fails or publication raises
 - **THEN** the command SHALL return a stable non-zero private error
 - **AND** no partial output SHALL be visible
 - **AND** every captured source SHALL remain byte-identical
+
+#### Scenario: A concurrent source sidecar aborts without source mutation
+
+- **GIVEN** no WAL existed at input preflight
+- **WHEN** a valid WAL appears before or during SQLite backup
+- **THEN** staging SHALL abort without publishing output
+- **AND** the tool SHALL NOT delete, replace or truncate that WAL or any source SHM
+- **AND** a WAL that existed before capture SHALL remain byte-identical
+- **AND** SHM byte identity SHALL NOT be claimed because online-backup readers can update ephemeral
+  reader marks
