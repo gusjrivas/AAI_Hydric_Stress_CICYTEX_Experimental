@@ -25,6 +25,10 @@ HORIZON_DAYS = 3
 PIPELINE_VERSION = "controlled_daily_v3"
 
 
+class CicytexLegacyFeedbackConfigurationError(ValueError):
+    """The deployment legacy-feedback policy is internally inconsistent."""
+
+
 def get_feedback_data_dir() -> Path:
     """Dependencia de FastAPI: directorio donde persisten los registros
     de retroalimentación. Overrideable en tests
@@ -84,7 +88,16 @@ def get_historical_replay_feedback_database() -> Path:
 
 def get_cicytex_legacy_feedback_json() -> Path | None:
     configured = os.environ.get("CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON")
-    return Path(configured) if configured else None
+    discovery = os.environ.get("CICYTEX_REPLAY_LEGACY_FEEDBACK_DISCOVERY")
+    if discovery is None:
+        return Path(configured) if configured else None
+
+    discovery_path = Path(discovery)
+    if configured and Path(configured) != discovery_path:
+        raise CicytexLegacyFeedbackConfigurationError(
+            "cicytex legacy feedback configuration is inconsistent"
+        )
+    return discovery_path if discovery_path.is_file() else None
 
 
 def get_historical_replay_package_dir() -> Path:

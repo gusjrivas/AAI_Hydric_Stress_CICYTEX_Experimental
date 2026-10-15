@@ -631,6 +631,8 @@ class SQLiteCicytexFeedbackRepository:
         try:
             with interprocess_lock(lock, timeout=self._busy_timeout_ms / 1_000):
                 exists = self._database.exists()
+                if not exists and imported is not None and imported[1]:
+                    raise CicytexFeedbackRepositoryError("cicytex review store unavailable")
                 if not exists:
                     self._database.parent.mkdir(parents=True, exist_ok=True)
                 connection = sqlite3.connect(
@@ -661,8 +663,6 @@ class SQLiteCicytexFeedbackRepository:
                         else:
                             raise SQLiteSessionRepositoryError(_REPOSITORY_ERROR)
                     else:
-                        if imported is not None and imported[1]:
-                            raise CicytexFeedbackRepositoryError("cicytex review store unavailable")
                         connection.execute(_METADATA_DDL)
                         connection.execute(_SESSION_DDL)
                         connection.execute(_CICYTEX_FEEDBACK_DDL)
