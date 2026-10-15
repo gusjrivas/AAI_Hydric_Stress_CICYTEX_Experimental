@@ -12,13 +12,15 @@ OCI_TAR_SEMANTICS_EVIDENCE_SCHEMA = "laya-runtime-oci-tar-semantics-evidence-v1"
 MAX_OCI_TAR_CHUNK_BYTES = 1_024 * 1_024
 MAX_OCI_TAR_CHUNKS = 4_096
 MAX_OCI_TAR_ENTRIES = 65_536
+MAX_OCI_TAR_PATH_BYTES = 4_096
+MAX_OCI_TAR_LINK_BYTES = 4_096
+MAX_OCI_TAR_PAX_RECORD_BYTES = 64 * 1_024
+MAX_OCI_TAR_PAX_BYTES = 1_024 * 1_024
+MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES = 2 * 1_024 * 1_024 * 1_024
+MAX_OCI_TAR_PAYLOAD_BYTES = 3 * 1_024 * 1_024 * 1_024
+MAX_OCI_TAR_BYTES = MAX_OCI_TAR_PAYLOAD_BYTES + (MAX_OCI_TAR_ENTRIES + 2) * 512
 
 _BLOCK_BYTES = 512
-_MAX_ENTRY_PAYLOAD_BYTES = 2 * 1_024 * 1_024 * 1_024
-_MAX_PAYLOAD_BYTES = 3 * 1_024 * 1_024 * 1_024
-_MAX_TAR_BYTES = _MAX_PAYLOAD_BYTES + (MAX_OCI_TAR_ENTRIES + 2) * _BLOCK_BYTES
-_MAX_PATH_BYTES = 4_096
-_MAX_LINK_BYTES = 4_096
 _FACTORY_TOKEN = object()
 _ZERO_BLOCK = b"\0" * _BLOCK_BYTES
 _INHERITED_CLAIMS = (
@@ -137,7 +139,7 @@ class LayaOciTarEntry:
         if (
             self.typeflag not in ("0", "1", "2", "5")
             or type(self.size_bytes) is not int
-            or not 0 <= self.size_bytes <= _MAX_ENTRY_PAYLOAD_BYTES
+            or not 0 <= self.size_bytes <= MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES
             or (self.typeflag in ("1", "2", "5") and self.size_bytes != 0)
             or (self.typeflag in ("1", "2")) != (type(self.link_target) is str)
             or (self.typeflag not in ("1", "2") and self.link_target is not None)
@@ -235,13 +237,15 @@ class VerifiedLayaOciTarLayer:
             or self.layer_receipt.rootfs_verified is not False
             or self.layer_receipt.origin_verified is not False
             or type(self.layer_receipt.uncompressed_size_bytes) is not int
-            or not 0 <= self.layer_receipt.uncompressed_size_bytes <= _MAX_ENTRY_PAYLOAD_BYTES
+            or not 0
+            <= self.layer_receipt.uncompressed_size_bytes
+            <= MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES
             or self.layer_receipt.uncompressed_size_bytes != historical.uncompressed_size_bytes
             or type(self.entries) is not tuple
             or len(self.entries) > MAX_OCI_TAR_ENTRIES
             or any(type(entry) is not LayaOciTarEntry for entry in self.entries)
             or type(self.payload_size_bytes) is not int
-            or not 0 <= self.payload_size_bytes <= _MAX_PAYLOAD_BYTES
+            or not 0 <= self.payload_size_bytes <= MAX_OCI_TAR_PAYLOAD_BYTES
             or type(self.tar_size_bytes) is not int
             or self.tar_size_bytes != self.layer_receipt.uncompressed_size_bytes
             or self.tar_semantics_verified is not True
@@ -258,7 +262,7 @@ class VerifiedLayaOciTarLayer:
                 raise ValueError("OCI TAR receipt has duplicate entry paths")
             paths.add(entry.path)
             payload_size += entry.size_bytes
-            if payload_size > _MAX_PAYLOAD_BYTES:
+            if payload_size > MAX_OCI_TAR_PAYLOAD_BYTES:
                 raise ValueError("OCI TAR receipt payload size is invalid")
         if payload_size != self.payload_size_bytes:
             raise ValueError("OCI TAR receipt payload size is invalid")
@@ -349,7 +353,7 @@ def _validate_link_target(value: object) -> str:
     if (
         type(value) is not str
         or not value
-        or len(value.encode("utf-8")) > _MAX_LINK_BYTES
+        or len(value.encode("utf-8")) > MAX_OCI_TAR_LINK_BYTES
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
     ):
         raise ValueError("OCI TAR link target is invalid")
@@ -360,7 +364,7 @@ def _normalize_entry_path(value: object) -> str:
     if (
         type(value) is not str
         or not value
-        or len(value.encode("utf-8")) > _MAX_PATH_BYTES
+        or len(value.encode("utf-8")) > MAX_OCI_TAR_PATH_BYTES
         or value.startswith("/")
         or "\\" in value
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
@@ -399,18 +403,93 @@ def _validate_header_checksum(header: bytes) -> None:
         raise ValueError("OCI TAR header checksum is invalid")
 
 
-def _normalized_entry_path(header: bytes) -> str:
+def _header_entry_path(header: bytes, profile: str) -> str:
     name = _decode_field(header[0:100], limit=100)
+    if profile == "gnu":
+        return name
     prefix_field = header[345:500]
     prefix = _decode_field(prefix_field, limit=155) if any(prefix_field) else ""
-    value = name if not prefix else prefix + "/" + name
-    return _normalize_entry_path(value)
+    return name if not prefix else prefix + "/" + name
 
 
-def _link_target(header: bytes, typeflag: str) -> str | None:
-    if typeflag not in ("1", "2"):
-        return None
-    return _validate_link_target(_decode_field(header[157:257], limit=min(100, _MAX_LINK_BYTES)))
+def _header_link_target(header: bytes) -> str:
+    return _validate_link_target(
+        _decode_field(header[157:257], limit=min(100, MAX_OCI_TAR_LINK_BYTES))
+    )
+
+
+def _parse_pax_size(value: str) -> int:
+    if (
+        not value
+        or any(character not in "0123456789" for character in value)
+        or (len(value) > 1 and value.startswith("0"))
+    ):
+        raise ValueError("OCI TAR PAX size is invalid")
+    size = int(value)
+    if size > MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES:
+        raise ValueError("OCI TAR PAX size exceeds limit")
+    return size
+
+
+def _parse_pax_payload(payload: bytes) -> dict[str, str | int]:
+    records: dict[str, str | int] = {}
+    offset = 0
+    while offset < len(payload):
+        separator = payload.find(b" ", offset)
+        if separator < 0:
+            raise ValueError("OCI TAR PAX record length is invalid")
+        length_bytes = payload[offset:separator]
+        if (
+            not length_bytes
+            or any(value < 48 or value > 57 for value in length_bytes)
+            or (len(length_bytes) > 1 and length_bytes.startswith(b"0"))
+        ):
+            raise ValueError("OCI TAR PAX record length is invalid")
+        record_size = int(length_bytes)
+        record_end = offset + record_size
+        if (
+            record_size > MAX_OCI_TAR_PAX_RECORD_BYTES
+            or record_end > len(payload)
+            or record_end <= separator + 2
+            or payload[record_end - 1 : record_end] != b"\n"
+        ):
+            raise ValueError("OCI TAR PAX record is invalid")
+        body = payload[separator + 1 : record_end - 1]
+        equals = body.find(b"=")
+        if equals <= 0:
+            raise ValueError("OCI TAR PAX record is invalid")
+        key_bytes = body[:equals]
+        value_bytes = body[equals + 1 :]
+        try:
+            key = key_bytes.decode("ascii")
+            value = value_bytes.decode("utf-8")
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            raise ValueError("OCI TAR PAX encoding is invalid") from None
+        if key not in {"path", "linkpath", "size"} or key in records:
+            raise ValueError("OCI TAR PAX key is invalid or ambiguous")
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("OCI TAR PAX value is invalid")
+        if key == "path":
+            records[key] = _normalize_entry_path(value)
+        elif key == "linkpath":
+            records[key] = _validate_link_target(value)
+        else:
+            records[key] = _parse_pax_size(value)
+        offset = record_end
+    if not records:
+        raise ValueError("OCI TAR PAX payload is empty")
+    return records
+
+
+def _parse_gnu_payload(payload: bytes, *, link: bool) -> str:
+    if not payload or payload[-1:] != b"\0" or b"\0" in payload[:-1]:
+        raise ValueError("OCI TAR GNU metadata is invalid")
+    raw = payload[:-1]
+    try:
+        value = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("OCI TAR GNU encoding is invalid") from None
+    return _validate_link_target(value) if link else _normalize_entry_path(value)
 
 
 class _TarParser:
@@ -426,6 +505,15 @@ class _TarParser:
         self.padding_remaining = 0
         self.zero_blocks = 0
         self.terminated = False
+        self.header_count = 0
+        self.pax_bytes = 0
+        self.current_extension: str | None = None
+        self.extension_payload = bytearray()
+        self.global_pax: dict[str, str | int] = {}
+        self.local_pax: dict[str, str | int] = {}
+        self.gnu_longname: str | None = None
+        self.gnu_longlink: str | None = None
+        self.global_metadata_pending = False
 
     def feed(self, chunk: bytes) -> None:
         self.chunk_count += 1
@@ -437,7 +525,7 @@ class _TarParser:
         ):
             raise ValueError("OCI TAR chunk limit is invalid")
         self.total_bytes += len(chunk)
-        if self.total_bytes > _MAX_TAR_BYTES:
+        if self.total_bytes > MAX_OCI_TAR_BYTES:
             raise ValueError("OCI TAR aggregate byte limit is invalid")
         self.buffer.extend(chunk)
         self._advance()
@@ -448,8 +536,12 @@ class _TarParser:
                 consumed = min(self.payload_remaining, len(self.buffer))
                 if not consumed:
                     return
+                if self.current_extension is not None:
+                    self.extension_payload.extend(self.buffer[:consumed])
                 del self.buffer[:consumed]
                 self.payload_remaining -= consumed
+                if not self.payload_remaining:
+                    self._complete_payload()
                 continue
             if self.padding_remaining:
                 consumed = min(self.padding_remaining, len(self.buffer))
@@ -475,31 +567,109 @@ class _TarParser:
                 raise ValueError("OCI TAR termination is invalid")
             self._accept_header(header)
 
+    def _merge_pax(self, target: dict[str, str | int], payload: bytes) -> None:
+        parsed = _parse_pax_payload(payload)
+        if any(key in target for key in parsed):
+            raise ValueError("OCI TAR PAX key is repeated ambiguously")
+        target.update(parsed)
+
+    def _complete_payload(self) -> None:
+        extension = self.current_extension
+        if extension is None:
+            return
+        payload = bytes(self.extension_payload)
+        self.current_extension = None
+        self.extension_payload.clear()
+        if extension == "x":
+            self._merge_pax(self.local_pax, payload)
+        elif extension == "g":
+            self._merge_pax(self.global_pax, payload)
+            self.global_metadata_pending = True
+        elif extension == "L":
+            if self.gnu_longname is not None:
+                raise ValueError("OCI TAR GNU longname is repeated ambiguously")
+            self.gnu_longname = _parse_gnu_payload(payload, link=False)
+        elif extension == "K":
+            if self.gnu_longlink is not None:
+                raise ValueError("OCI TAR GNU longlink is repeated ambiguously")
+            self.gnu_longlink = _parse_gnu_payload(payload, link=True)
+        else:
+            raise AssertionError("unreachable")
+
     def _accept_header(self, header: bytes) -> None:
         _validate_header_checksum(header)
-        if header[257:263] != b"ustar\0" or header[263:265] != b"00":
+        profile_pair = (header[257:263], header[263:265])
+        if profile_pair == (b"ustar\0", b"00"):
+            profile = "posix"
+        elif profile_pair == (b"ustar ", b" \0"):
+            profile = "gnu"
+            if any(header[345:500]):
+                raise ValueError("OCI TAR GNU extended header fields are invalid")
+        else:
             raise ValueError("OCI TAR header profile is invalid")
         for start, end in ((100, 108), (108, 116), (116, 124), (136, 148)):
             _parse_octal(header[start:end])
-        size = _parse_octal(header[124:136])
-        if size > _MAX_ENTRY_PAYLOAD_BYTES or size > _MAX_PAYLOAD_BYTES - self.payload_size:
-            raise ValueError("OCI TAR payload limit is invalid")
+        header_size = _parse_octal(header[124:136])
         raw_typeflag = header[156:157]
-        if raw_typeflag not in (b"\0", b"0", b"1", b"2", b"5"):
+        if raw_typeflag not in (b"\0", b"0", b"1", b"2", b"5", b"g", b"x", b"L", b"K"):
             raise ValueError("OCI TAR entry type is invalid")
         typeflag = "0" if raw_typeflag == b"\0" else raw_typeflag.decode("ascii")
+        self.header_count += 1
+        if self.header_count > self.max_entries:
+            raise ValueError("OCI TAR entry limit is invalid")
+        if typeflag in ("g", "x", "L", "K"):
+            self._accept_extension(typeflag, header_size, profile)
+            return
+
+        if (
+            profile == "gnu"
+            and (self.local_pax or self.global_pax)
+            or profile == "posix"
+            and (self.gnu_longname is not None or self.gnu_longlink is not None)
+        ):
+            raise ValueError("OCI TAR metadata and target profile conflict")
+
+        size_value = self.local_pax.get("size", self.global_pax.get("size", header_size))
+        if type(size_value) is not int:
+            raise ValueError("OCI TAR effective size is invalid")
+        size = size_value
+        if (
+            size > MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES
+            or size > MAX_OCI_TAR_PAYLOAD_BYTES - self.payload_size
+        ):
+            raise ValueError("OCI TAR payload limit is invalid")
         if typeflag in ("1", "2", "5") and size != 0:
             raise ValueError("OCI TAR metadata entry size is invalid")
-        path = _normalized_entry_path(header)
+        path_value = self.local_pax.get(
+            "path",
+            self.gnu_longname if self.gnu_longname is not None else self.global_pax.get("path"),
+        )
+        path = (
+            _normalize_entry_path(path_value)
+            if path_value is not None
+            else _normalize_entry_path(_header_entry_path(header, profile))
+        )
         if path in self.paths:
             raise ValueError("OCI TAR duplicate entry path is invalid")
-        if len(self.entries) >= self.max_entries:
-            raise ValueError("OCI TAR entry limit is invalid")
+        link_value = self.local_pax.get(
+            "linkpath",
+            self.gnu_longlink if self.gnu_longlink is not None else self.global_pax.get("linkpath"),
+        )
+        if typeflag in ("1", "2"):
+            link_target = (
+                _validate_link_target(link_value)
+                if link_value is not None
+                else _header_link_target(header)
+            )
+        else:
+            if link_value is not None:
+                raise ValueError("OCI TAR link metadata conflicts with entry type")
+            link_target = None
         entry = LayaOciTarEntry(
             path=path,
             typeflag=typeflag,
             size_bytes=size,
-            link_target=_link_target(header, typeflag),
+            link_target=link_target,
             _factory_token=_FACTORY_TOKEN,
         )
         self.paths.add(path)
@@ -507,6 +677,34 @@ class _TarParser:
         self.payload_size += size
         self.payload_remaining = size
         self.padding_remaining = (-size) % _BLOCK_BYTES
+        self.local_pax.clear()
+        self.gnu_longname = None
+        self.gnu_longlink = None
+        self.global_metadata_pending = False
+
+    def _accept_extension(self, typeflag: str, size: int, profile: str) -> None:
+        if typeflag in ("g", "x"):
+            if profile != "posix" or self.gnu_longname is not None or self.gnu_longlink is not None:
+                raise ValueError("OCI TAR PAX header profile is invalid")
+            if (
+                size < 1
+                or size > MAX_OCI_TAR_PAX_RECORD_BYTES
+                or size > MAX_OCI_TAR_PAX_BYTES - self.pax_bytes
+            ):
+                raise ValueError("OCI TAR PAX record or aggregate limit is invalid")
+            self.pax_bytes += size
+        else:
+            if profile != "gnu" or self.local_pax or self.global_pax:
+                raise ValueError("OCI TAR GNU header profile is invalid")
+            limit = MAX_OCI_TAR_LINK_BYTES if typeflag == "K" else MAX_OCI_TAR_PATH_BYTES
+            if size < 2 or size > limit + 1:
+                raise ValueError("OCI TAR GNU metadata limit is invalid")
+        self.current_extension = typeflag
+        self.extension_payload.clear()
+        self.payload_remaining = size
+        self.padding_remaining = (-size) % _BLOCK_BYTES
+        if not size:
+            self._complete_payload()
 
     def finish(self) -> tuple[tuple[LayaOciTarEntry, ...], int, int]:
         self._advance()
@@ -516,6 +714,11 @@ class _TarParser:
             or self.padding_remaining
             or not self.terminated
             or self.zero_blocks < 2
+            or self.current_extension is not None
+            or self.local_pax
+            or self.gnu_longname is not None
+            or self.gnu_longlink is not None
+            or self.global_metadata_pending
         ):
             raise ValueError("OCI TAR stream is truncated or lacks termination")
         return tuple(self.entries), self.payload_size, self.total_bytes
