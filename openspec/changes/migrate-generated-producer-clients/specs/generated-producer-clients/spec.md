@@ -33,3 +33,12 @@ identity, error classes/messages or producer-specific base URL selection.
 
 - **WHEN** catalog or readings returns a bodyless 404
 - **THEN** the existing `ProducerV2UnavailableError` behavior SHALL remain unchanged
+
+#### Scenario: Forecast writes remain checked and idempotent
+
+- **WHEN** a review or forecast emission is submitted
+- **THEN** the snake-case review body and empty emission body SHALL satisfy their generated
+  request schemas
+- **AND** emission SHALL bind the existing `Idempotency-Key` to the generated header contract
+- **AND** successful 201 reviews and successful 200 or 201 emissions SHALL preserve their
+  response payload identity

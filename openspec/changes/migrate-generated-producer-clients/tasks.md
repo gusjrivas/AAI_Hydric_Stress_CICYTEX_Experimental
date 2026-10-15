@@ -12,8 +12,11 @@
 
 ## 3. Forecast slice
 
-- [ ] 3.1 RED exact operation/request/response and cursor/idempotency/review contracts.
-- [ ] 3.2 GREEN migrate forecasts as consumer nine with no runtime drift.
+- [x] 3.1 Require forecast to become generated-schema consumer nine and bind all four operations.
+- [x] 3.2 Freeze cursor/query and identifier encoding, 200/201 emission and 201 review responses.
+- [x] 3.3 Require checked snake-case review and empty emission bodies plus generated idempotency header.
+- [x] 3.4 Add mutation evidence for manual DTOs, wrong operation/status and unchecked writes.
+- [ ] 3.5 GREEN migrate forecasts as consumer nine with no runtime drift.
 
 ## 4. Historical slice and closure
 

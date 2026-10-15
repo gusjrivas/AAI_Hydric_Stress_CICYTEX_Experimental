@@ -15,6 +15,7 @@ SENSOR_LAB_API = FRONTEND_SOURCE / "features" / "lab" / "sensorLabApi.ts"
 FORECAST_API = FRONTEND_SOURCE / "features" / "forecast" / "api.ts"
 PRODUCER_CATALOG_API = FRONTEND_SOURCE / "features" / "producer" / "catalogApi.ts"
 PRODUCER_READINGS_API = FRONTEND_SOURCE / "features" / "producer" / "readingsApi.ts"
+PRODUCER_FORECASTS_API = FRONTEND_SOURCE / "features" / "producer" / "forecastsApi.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -156,6 +157,46 @@ def _assert_producer_slice_a_binding(path: Path, source: str) -> None:
         )
 
 
+def _assert_producer_forecasts_binding(source: str) -> None:
+    operation_ids = {
+        "list_forecasts_api_v2_sensors__sensor_id__forecasts_get",
+        "get_forecast_api_v2_sensors__sensor_id__forecasts__forecast_id__get",
+        "create_review_api_v2_sensors__sensor_id__forecasts__forecast_id__reviews_post",
+        "create_forecasts_api_v2_sensors__sensor_id__forecasts_post",
+    }
+    assert _generated_import_names(source) == {"components", "operations"}
+    for operation_id in operation_ids:
+        assert f'operations["{operation_id}"]' in source
+    for public_name in (
+        "EventThreshold",
+        "ModelReference",
+        "LatestReview",
+        "ForecastReview",
+        "EnsembleComponentVote",
+        "EnsembleDetail",
+        "Forecast",
+        "ForecastListResult",
+        "ReviewRequest",
+        "ForecastSlot",
+        "ForecastBatch",
+    ):
+        assert re.search(rf"\bexport\s+type\s+{public_name}\b", source)
+        assert not re.search(rf"\bexport\s+interface\s+{public_name}\b", source)
+    assert re.search(r"}\s+satisfies\s+ReviewCreate\s*;", source)
+    assert re.search(r"}\s+satisfies\s+EmissionRequest\s*;", source)
+    assert "CreateForecastsOperation" in source
+    assert re.search(
+        r'type\s+IdempotencyKey\s*=\s*CreateForecastsOperation\["parameters"\]'
+        r'\["header"\]\["idempotency-key"\]\s*;',
+        source,
+    )
+    assert re.search(r'"Idempotency-Key"\s*:\s*idempotencyKey\b', source)
+    assert re.search(r'CreateReviewOperation\["responses"\]\[201\]', source)
+    assert re.search(
+        r'CreateForecastsOperation\["responses"\]\[(?:200\s*\|\s*201|201\s*\|\s*200)\]', source
+    )
+
+
 def test_only_owned_clients_consume_the_generated_schema():
     assert _generated_schema_consumers() == {
         HISTORICAL_API,
@@ -166,6 +207,7 @@ def test_only_owned_clients_consume_the_generated_schema():
         FORECAST_API,
         PRODUCER_CATALOG_API,
         PRODUCER_READINGS_API,
+        PRODUCER_FORECASTS_API,
     }
 
 
@@ -210,6 +252,83 @@ type Readings = operations["get_readings_api_v2_sensors__sensor_id__readings_get
             _assert_producer_slice_a_binding(path, import_only)
         with pytest.raises(AssertionError):
             _assert_producer_slice_a_binding(path, manual)
+
+
+def test_producer_forecasts_use_four_generated_operations_and_checked_writes():
+    _assert_producer_forecasts_binding(PRODUCER_FORECASTS_API.read_text(encoding="utf-8"))
+
+
+def test_producer_forecasts_binding_rejects_manual_and_unchecked_mutations():
+    source = (
+        'import type { components, operations } from "../../api/generated/schema";\n'
+        + "\n".join(
+            [
+                f'type Op{index} = operations["{operation_id}"];'
+                for index, operation_id in enumerate(
+                    (
+                        "list_forecasts_api_v2_sensors__sensor_id__forecasts_get",
+                        "get_forecast_api_v2_sensors__sensor_id__forecasts__forecast_id__get",
+                        "create_review_api_v2_sensors__sensor_id__forecasts__forecast_id__reviews_post",
+                        "create_forecasts_api_v2_sensors__sensor_id__forecasts_post",
+                    )
+                )
+            ]
+        )
+        + "\n"
+        + "\n".join(
+            f'export type {name} = components["schemas"]["ForecastResponse"];'
+            for name in (
+                "EventThreshold",
+                "ModelReference",
+                "LatestReview",
+                "ForecastReview",
+                "EnsembleComponentVote",
+                "EnsembleDetail",
+                "Forecast",
+                "ForecastListResult",
+                "ReviewRequest",
+                "ForecastSlot",
+                "ForecastBatch",
+            )
+        )
+        + '\ntype ReviewCreate = components["schemas"]["ReviewCreate"];\n'
+        + 'type EmissionRequest = components["schemas"]["EmissionRequest"];\n'
+        + (
+            'type CreateForecastsOperation = operations["create_forecasts_api_v2_'
+            'sensors__sensor_id__forecasts_post"];\n'
+        )
+        + (
+            'type CreateReviewOperation = operations["create_review_api_v2_sensors_'
+            '__sensor_id__forecasts__forecast_id__reviews_post"];\n'
+        )
+        + 'type ReviewResponse = CreateReviewOperation["responses"][201];\n'
+        + 'type EmissionResponse = CreateForecastsOperation["responses"][200 | 201];\n'
+        + 'type IdempotencyKey = CreateForecastsOperation["parameters"]["header"]'
+        + '["idempotency-key"];\n'
+        + 'const review = { request_id: "r" } satisfies ReviewCreate;\n'
+        + "const emission = {} satisfies EmissionRequest;\n"
+        + 'const idempotencyKey: IdempotencyKey = "r";\n'
+        + 'const header = { "Idempotency-Key": idempotencyKey };\n'
+    )
+    _assert_producer_forecasts_binding(source)
+
+    mutations = (
+        source.replace("satisfies ReviewCreate", "as ReviewCreate"),
+        source.replace("satisfies EmissionRequest", "as EmissionRequest"),
+        source.replace('["idempotency-key"]', '["request-id"]'),
+        source.replace('"Idempotency-Key": idempotencyKey', '"Idempotency-Key": "r"'),
+        source.replace(
+            "create_review_api_v2_sensors__sensor_id__forecasts__forecast_id__reviews_post",
+            "wrong_review_operation",
+        ),
+        source.replace(
+            'CreateReviewOperation["responses"][201]', 'CreateReviewOperation["responses"][200]'
+        ),
+        source.replace("export type Forecast =", "export interface Forecast {}\ntype X ="),
+    )
+    for mutation in mutations:
+        with pytest.raises(AssertionError):
+            _assert_producer_forecasts_binding(mutation)
 
 
 def test_replay_clients_use_generated_operation_contracts_without_duplicate_dtos():
