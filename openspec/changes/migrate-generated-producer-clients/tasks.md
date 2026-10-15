@@ -26,4 +26,4 @@
 - [x] 4.4 Add mutation evidence for missing/wrong operations and unchecked review payloads.
 - [x] 4.5 GREEN migrate historical as consumer ten without changing race behavior (`52bacb5`,
   after wire-compatibility RED `138b3cf`).
-- [ ] 4.6 Pass full frontend/backend, lint, OpenSpec and generated-artifact drift gates.
+- [x] 4.6 Pass full frontend/backend, lint, OpenSpec and generated-artifact drift gates.
