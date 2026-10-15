@@ -23,6 +23,7 @@ function row(date: string, soil: number | null, flags: Partial<ReadingRow> = {})
 
 function readings(rows: ReadingRow[], start = "2023-06-04", end = "2023-06-09"): ReadingsResult {
   return {
+    ...{ input_roles: [] },
     sensor_id: "pergamino-ensemble-demo",
     calendar_timezone: "UTC",
     server_today: end,

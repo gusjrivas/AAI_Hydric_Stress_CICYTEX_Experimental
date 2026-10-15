@@ -6,6 +6,7 @@ import * as api from "./readingsApi";
 import { SensorNotFoundError } from "./readingsApi";
 
 const readings: api.ReadingsResult = {
+  ...{ input_roles: [] },
   sensor_id: "sensor-a",
   calendar_timezone: "UTC",
   server_today: "2026-01-05",

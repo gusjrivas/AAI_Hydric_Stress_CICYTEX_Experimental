@@ -33,6 +33,7 @@ function row(date: string, soil: number | null, imputed = false): ReadingRow {
 }
 
 const readings = (end: string): ReadingsResult => ({
+  ...{ input_roles: [] },
   sensor_id: "pergamino-ensemble-demo", calendar_timezone: "UTC", server_today: end, snapshot_id: null,
   window: { start_date: "2023-06-08", end_date: end, expected_days: 6 }, status: "ready",
   rows: [row("2023-06-08", 0.34), row("2023-06-09", 0.33), row("2023-06-10", null), row("2023-06-11", 0.32, true), row("2023-06-12", 0.31), row("2023-06-13", 0.3)],

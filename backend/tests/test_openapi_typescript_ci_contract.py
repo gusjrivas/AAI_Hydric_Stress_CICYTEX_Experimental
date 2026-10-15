@@ -202,6 +202,8 @@ def test_generated_schema_has_only_the_owned_product_consumers():
         "features/historical-replay/api.ts",
         "features/lineage/api.ts",
         "features/lab/sensorLabApi.ts",
+        "features/producer/catalogApi.ts",
+        "features/producer/readingsApi.ts",
         "features/quality/api.ts",
     }
     assert not any("client" in path.name.lower() for path in GENERATED_ROOT.iterdir())

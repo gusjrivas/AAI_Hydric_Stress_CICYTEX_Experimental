@@ -13,6 +13,8 @@ QUALITY_API = FRONTEND_SOURCE / "features" / "quality" / "api.ts"
 LINEAGE_API = FRONTEND_SOURCE / "features" / "lineage" / "api.ts"
 SENSOR_LAB_API = FRONTEND_SOURCE / "features" / "lab" / "sensorLabApi.ts"
 FORECAST_API = FRONTEND_SOURCE / "features" / "forecast" / "api.ts"
+PRODUCER_CATALOG_API = FRONTEND_SOURCE / "features" / "producer" / "catalogApi.ts"
+PRODUCER_READINGS_API = FRONTEND_SOURCE / "features" / "producer" / "readingsApi.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -116,6 +118,44 @@ def _assert_sensor_lab_request_binding(source: str) -> None:
     )
 
 
+def _assert_producer_slice_a_binding(path: Path, source: str) -> None:
+    expected = {
+        PRODUCER_CATALOG_API: {
+            "list_sectors_api_v2_sectors_get",
+            "list_sensors_api_v2_sensors_get",
+        },
+        PRODUCER_READINGS_API: {
+            "get_readings_api_v2_sensors__sensor_id__readings_get",
+        },
+    }[path]
+    component_aliases = {
+        PRODUCER_CATALOG_API: {
+            "Sector": "SectorResponse",
+            "SensorSummary": "SensorResponse",
+            "SectorListResult": "SectorListResponse",
+            "SensorListResult": "SensorListResponse",
+        },
+        PRODUCER_READINGS_API: {
+            "ReadingRow": "ReadingRow",
+            "VariableCoverage": "VariableCoverage",
+            "ReadingsResult": "ReadingsResponse",
+        },
+    }[path]
+
+    assert _generated_import_names(source) == {"components", "operations"}
+    assert not re.search(r"\b(?:export\s+)?interface\s+", source)
+    assert not re.search(r"(?<![\w.])any(?!\w)", source)
+    assert not re.search(r"\bas\s+unknown\s+as\b", source)
+    for operation_id in expected:
+        assert f'operations["{operation_id}"]' in source
+    for public_name, schema_name in component_aliases.items():
+        assert re.search(
+            rf'export\s+type\s+{public_name}\s*=\s*components\["schemas"\]'
+            rf'\["{schema_name}"\]\s*;',
+            source,
+        )
+
+
 def test_only_owned_clients_consume_the_generated_schema():
     assert _generated_schema_consumers() == {
         HISTORICAL_API,
@@ -124,7 +164,52 @@ def test_only_owned_clients_consume_the_generated_schema():
         LINEAGE_API,
         SENSOR_LAB_API,
         FORECAST_API,
+        PRODUCER_CATALOG_API,
+        PRODUCER_READINGS_API,
     }
+
+
+def test_producer_catalog_and_readings_use_generated_operation_contracts():
+    for path in (PRODUCER_CATALOG_API, PRODUCER_READINGS_API):
+        _assert_producer_slice_a_binding(path, path.read_text(encoding="utf-8"))
+
+
+def test_producer_slice_a_binding_rejects_manual_or_import_only_false_greens():
+    valid = {
+        PRODUCER_CATALOG_API: (
+            'import type { components, operations } from "../../api/generated/schema";\n' """
+export type Sector = components["schemas"]["SectorResponse"];
+export type SensorSummary = components["schemas"]["SensorResponse"];
+export type SectorListResult = components["schemas"]["SectorListResponse"];
+export type SensorListResult = components["schemas"]["SensorListResponse"];
+type SectorList = operations["list_sectors_api_v2_sectors_get"];
+type SensorList = operations["list_sensors_api_v2_sensors_get"];
+"""
+        ),
+        PRODUCER_READINGS_API: (
+            'import type { components, operations } from "../../api/generated/schema";\n' """
+export type ReadingRow = components["schemas"]["ReadingRow"];
+export type VariableCoverage = components["schemas"]["VariableCoverage"];
+export type ReadingsResult = components["schemas"]["ReadingsResponse"];
+type Readings = operations["get_readings_api_v2_sensors__sensor_id__readings_get"];
+"""
+        ),
+    }
+    for path, source in valid.items():
+        _assert_producer_slice_a_binding(path, source)
+
+        import_only = re.sub(r"type\s+\w+\s*=\s*operations\[[^;]+;", "", source)
+        manual = re.sub(
+            r'export\s+type\s+(\w+)\s*=\s*components\["schemas"\]\["[^"]+"\];',
+            r"export type \1 = { value: string };",
+            source,
+            count=1,
+        )
+        assert manual != source
+        with pytest.raises(AssertionError):
+            _assert_producer_slice_a_binding(path, import_only)
+        with pytest.raises(AssertionError):
+            _assert_producer_slice_a_binding(path, manual)
 
 
 def test_replay_clients_use_generated_operation_contracts_without_duplicate_dtos():
