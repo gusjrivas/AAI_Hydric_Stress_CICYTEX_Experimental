@@ -688,21 +688,39 @@ class _TarParser:
             raise ValueError("OCI TAR payload limit is invalid")
         if typeflag in ("1", "2", "5") and size != 0:
             raise ValueError("OCI TAR metadata entry size is invalid")
+        header_path = _header_entry_path(header, profile)
         path_value = self.local_pax.get(
             "path",
             self.gnu_longname if self.gnu_longname is not None else self.global_pax.get("path"),
         )
-        path = (
-            _normalize_entry_path(path_value)
-            if path_value is not None
-            else _normalize_entry_path(_header_entry_path(header, profile))
-        )
-        if path in self.paths:
-            raise ValueError("OCI TAR duplicate entry path is invalid")
         link_value = self.local_pax.get(
             "linkpath",
             self.gnu_longlink if self.gnu_longlink is not None else self.global_pax.get("linkpath"),
         )
+        if header_path == "./":
+            if (
+                typeflag != "5"
+                or size != 0
+                or any(header[157:257])
+                or path_value is not None
+                or link_value is not None
+                or self.local_pax
+                or self.global_pax
+                or self.gnu_longname is not None
+                or self.gnu_longlink is not None
+            ):
+                raise ValueError("OCI TAR root directory marker is invalid")
+            self.payload_remaining = 0
+            self.padding_remaining = 0
+            self.global_metadata_pending = False
+            return
+        path = (
+            _normalize_entry_path(path_value)
+            if path_value is not None
+            else _normalize_entry_path(header_path)
+        )
+        if path in self.paths:
+            raise ValueError("OCI TAR duplicate entry path is invalid")
         if typeflag in ("1", "2"):
             link_target = (
                 _validate_link_target(link_value)
