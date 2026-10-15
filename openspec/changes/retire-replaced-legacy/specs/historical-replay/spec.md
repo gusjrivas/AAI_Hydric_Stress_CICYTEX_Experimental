@@ -104,7 +104,10 @@ compatibility aliases or retain unused partition imports.
 ### Requirement: Replay storage cutover is staged offline and fail-closed
 
 The project SHALL provide an offline staging tool that creates a new verified replay database
-without modifying the source database, WAL/SHM companions, legacy JSON or active named volume.
+without deleting, replacing or truncating the source database, WAL/SHM companions, legacy JSON or
+active named volume.  Source database and legacy JSON bytes plus a preexisting WAL SHALL remain
+byte-identical; SHM byte identity is explicitly excluded because SQLite may update ephemeral reader
+marks during online backup, while the SHM remains source-owned and present.
 
 #### Scenario: Captured source and matching feedback stage atomically
 
@@ -137,7 +140,9 @@ without modifying the source database, WAL/SHM companions, legacy JSON or active
   exists, an import is invalid, verification fails or publication raises
 - **THEN** the command SHALL return a stable non-zero private error
 - **AND** no partial output SHALL be visible
-- **AND** every captured source SHALL remain byte-identical
+- **AND** the source database, legacy JSON and preexisting WAL SHALL remain byte-identical
+- **AND** a source SHM SHALL remain present and SHALL NOT be deleted, replaced or truncated, while
+  its ephemeral reader-mark bytes are excluded from the byte-identity guarantee
 
 #### Scenario: A concurrent source sidecar aborts without source mutation
 

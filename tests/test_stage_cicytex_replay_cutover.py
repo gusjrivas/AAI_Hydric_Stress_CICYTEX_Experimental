@@ -149,7 +149,10 @@ def test_stage_uses_backup_and_existing_repositories_without_reimplementing_sche
 
 
 @requires_cutover_tool
-def test_source_database_and_matching_legacy_feedback_stage_atomically(tmp_path: Path):
+def test_source_database_and_matching_legacy_feedback_stage_atomically(
+    tmp_path: Path,
+    monkeypatch,
+):
     source = tmp_path / "captured.sqlite3"
     legacy = tmp_path / "feedback.json"
     output = tmp_path / "staged-cutover"
@@ -157,6 +160,15 @@ def test_source_database_and_matching_legacy_feedback_stage_atomically(tmp_path:
     _write_legacy_feedback(legacy)
     source_before = source.read_bytes()
     legacy_before = legacy.read_bytes()
+    real_backup = CUTOVER._backup_database
+    captured_snapshot: dict[str, int | str] = {}
+
+    def capture_backup_snapshot(database: Path, destination: Path) -> None:
+        real_backup(database, destination)
+        captured_snapshot["sha256"] = _sha256(destination)
+        captured_snapshot["size_bytes"] = destination.stat().st_size
+
+    monkeypatch.setattr(CUTOVER, "_backup_database", capture_backup_snapshot)
 
     evidence = _stage(
         source_database=source,
@@ -178,6 +190,9 @@ def test_source_database_and_matching_legacy_feedback_stage_atomically(tmp_path:
     assert evidence == json.loads((output / EVIDENCE_NAME).read_text(encoding="utf-8"))
     assert evidence["schema_version"] == EVIDENCE_SCHEMA
     assert evidence["source_database_sha256"] == hashlib.sha256(source_before).hexdigest()
+    assert evidence["source_wal_sha256"] is None
+    assert evidence["source_snapshot_sha256"] == captured_snapshot["sha256"]
+    assert evidence["source_snapshot_size_bytes"] == captured_snapshot["size_bytes"]
     assert evidence["legacy_feedback_sha256"] == hashlib.sha256(legacy_before).hexdigest()
     assert evidence["staged_database_sha256"] == _sha256(staged)
     assert evidence["database_user_version"] == 2
@@ -201,10 +216,22 @@ def test_source_database_and_matching_legacy_feedback_stage_atomically(tmp_path:
 
 
 @requires_cutover_tool
-def test_sqlite_backup_captures_committed_wal_without_publishing_companions(tmp_path: Path):
+def test_sqlite_backup_captures_committed_wal_without_publishing_companions(
+    tmp_path: Path,
+    monkeypatch,
+):
     source = tmp_path / "wal-source.sqlite3"
     output = tmp_path / "staged-cutover"
     _create_v1_database(source)
+    real_backup = CUTOVER._backup_database
+    captured_snapshot: dict[str, int | str] = {}
+
+    def capture_backup_snapshot(database: Path, destination: Path) -> None:
+        real_backup(database, destination)
+        captured_snapshot["sha256"] = _sha256(destination)
+        captured_snapshot["size_bytes"] = destination.stat().st_size
+
+    monkeypatch.setattr(CUTOVER, "_backup_database", capture_backup_snapshot)
     with sqlite3.connect(source) as writer:
         assert writer.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
         writer.execute(
@@ -240,6 +267,9 @@ def test_sqlite_backup_captures_committed_wal_without_publishing_companions(tmp_
     assert evidence["source_feedback_count"] == 0
     assert evidence["legacy_feedback_imported_count"] == 0
     assert evidence["session_count"] == evidence["source_session_count"]
+    assert evidence["source_wal_sha256"] == hashlib.sha256(wal_before).hexdigest()
+    assert evidence["source_snapshot_sha256"] == captured_snapshot["sha256"]
+    assert evidence["source_snapshot_size_bytes"] == captured_snapshot["size_bytes"]
     assert sorted(path.name for path in output.iterdir()) == [DATABASE_NAME, EVIDENCE_NAME]
 
 
