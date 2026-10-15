@@ -8,11 +8,12 @@ the existing product behavior remain green.
 
 ## What Changes
 
-- Adopt generated component and operation types in the four producer clients, beginning with
-  catalog and readings.
+- Adopt generated component and operation types in exactly four producer clients and ten
+  operations: catalog (two), readings (one), forecasts (four) and historical replay (three).
 - Preserve existing manual `fetch` transports, producer-specific base URL, cursors,
   idempotency, review errors and stale-response behavior.
-- Expand the exact generated-schema allowlist in bounded slices from six to ten consumers.
+- Expand the exact generated-schema allowlist in bounded slices from six to exactly ten
+  consumers.
 
 ## Impact
 

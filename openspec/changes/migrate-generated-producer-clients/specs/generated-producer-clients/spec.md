@@ -6,6 +6,9 @@ The producer catalog, readings, forecast and historical clients SHALL derive the
 request and response types from the checked-in generated OpenAPI schema while preserving their
 public export names.
 
+The bounded migration SHALL add exactly four clients and ten operation bindings, bringing the
+generated-schema consumer allowlist to exactly ten modules.
+
 #### Scenario: Catalog and readings complete the first migration slice
 
 - **WHEN** the catalog and readings clients are type-checked
@@ -50,3 +53,12 @@ identity, error classes/messages or producer-specific base URL selection.
 - **AND** `revealed_through` SHALL remain a distinct optional query parameter
 - **AND** historical readings SHALL use the reveal date with the existing default day window
 - **AND** neither GET SHALL emit forecasts or attach write request options
+
+#### Scenario: Historical wire remains compatible without normalization
+
+- **WHEN** a generated historical forecast batch is returned
+- **THEN** its exact wire response SHALL remain assignable to the stable `ForecastBatch` UI
+  projection
+- **AND** `ensemble` SHALL preserve generated optional-or-null semantics
+- **AND** ensemble `weights` SHALL remain the generated open string-to-number map
+- **AND** the client SHALL NOT cast, default, adapt or fabricate response fields

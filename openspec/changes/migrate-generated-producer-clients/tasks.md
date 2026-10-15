@@ -7,8 +7,8 @@
 
 ## 2. GREEN catalog and readings
 
-- [ ] 2.1 Replace manual DTOs with generated aliases without changing transport.
-- [ ] 2.2 Add `input_roles` to typed test fixtures and pass focused regressions/build.
+- [x] 2.1 Replace manual DTOs with generated aliases without changing transport (`9fe545c`).
+- [x] 2.2 Add `input_roles` to typed test fixtures and pass focused regressions/build.
 
 ## 3. Forecast slice
 
@@ -16,7 +16,7 @@
 - [x] 3.2 Freeze cursor/query and identifier encoding, 200/201 emission and 201 review responses.
 - [x] 3.3 Require checked snake-case review and empty emission bodies plus generated idempotency header.
 - [x] 3.4 Add mutation evidence for manual DTOs, wrong operation/status and unchecked writes.
-- [ ] 3.5 GREEN migrate forecasts as consumer nine with no runtime drift.
+- [x] 3.5 GREEN migrate forecasts as consumer nine with no runtime drift (`854ec1e`).
 
 ## 4. Historical slice and closure
 
@@ -24,5 +24,6 @@
 - [x] 4.2 Freeze emission versus reveal clocks, default days, encoding and read-only GET behavior.
 - [x] 4.3 Freeze checked review body/status and all existing private error mappings.
 - [x] 4.4 Add mutation evidence for missing/wrong operations and unchecked review payloads.
-- [ ] 4.5 GREEN migrate historical as consumer ten without changing race behavior.
+- [x] 4.5 GREEN migrate historical as consumer ten without changing race behavior (`52bacb5`,
+  after wire-compatibility RED `138b3cf`).
 - [ ] 4.6 Pass full frontend/backend, lint, OpenSpec and generated-artifact drift gates.
