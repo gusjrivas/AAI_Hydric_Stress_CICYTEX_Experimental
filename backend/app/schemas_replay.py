@@ -122,7 +122,7 @@ class ReplayFeedbackRequest(BaseModel):
 
 class ReplayFeedbackEntry(BaseModel):
     timestamp_origen: date
-    estado_validacion: str
+    estado_validacion: Literal["confirmada", "rechazada"]
     etiqueta_corregida: int | None = None
     observacion: str | None = None
     registered_at: datetime

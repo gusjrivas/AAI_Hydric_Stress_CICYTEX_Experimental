@@ -699,6 +699,148 @@ export interface components {
              */
             target_date: string;
         };
+        /** CicytexCatalogResponse */
+        CicytexCatalogResponse: {
+            /** Emission Dates */
+            emission_dates: string[];
+            emission_dates_by_horizon: components["schemas"]["CicytexEmissionDatesByHorizon"];
+            /**
+             * First Legitimate Emission
+             * Format: date
+             */
+            first_legitimate_emission: string;
+            /** Horizons */
+            horizons: number[];
+            /**
+             * Last Observation
+             * Format: date
+             */
+            last_observation: string;
+            /** Sensors */
+            sensors: string[];
+        };
+        /** CicytexEmissionDatesByHorizon */
+        CicytexEmissionDatesByHorizon: {
+            /** 1 */
+            1: string[];
+            /** 2 */
+            2: string[];
+            /** 3 */
+            3: string[];
+        };
+        /** CicytexFeedbackResponse */
+        CicytexFeedbackResponse: {
+            /**
+             * Estado Validacion
+             * @enum {string}
+             */
+            estado_validacion: "confirmada" | "rechazada";
+            /** Etiqueta Corregida */
+            etiqueta_corregida: number | null;
+            /** Observacion */
+            observacion: string | null;
+            /** Registered At */
+            registered_at: string;
+            /** Scope */
+            scope: string;
+            /**
+             * Simulated At
+             * Format: date
+             */
+            simulated_at: string;
+        };
+        /** CicytexMetricResponse */
+        CicytexMetricResponse: {
+            /** Coverage */
+            coverage: number;
+            /** F1 */
+            f1: number | null;
+            /** Fn */
+            fn: number;
+            /** Fp */
+            fp: number;
+            /** Mcc */
+            mcc: number | null;
+            /** N */
+            n: number;
+            /** Precision */
+            precision: number | null;
+            /** Recall */
+            recall: number | null;
+            /** Tn */
+            tn: number;
+            /** Tp */
+            tp: number;
+        };
+        /** CicytexMetricsResponse */
+        CicytexMetricsResponse: {
+            ensemble?: components["schemas"]["CicytexMetricResponse"] | null;
+            hist_gradient_boosting_classifier?: components["schemas"]["CicytexMetricResponse"] | null;
+            logistic_regression?: components["schemas"]["CicytexMetricResponse"] | null;
+            persistence?: components["schemas"]["CicytexMetricResponse"] | null;
+            random_forest?: components["schemas"]["CicytexMetricResponse"] | null;
+        };
+        /** CicytexPredictionResponse */
+        CicytexPredictionResponse: {
+            /** Alert */
+            alert: boolean;
+            /** Method */
+            method: string;
+            /** Observed Label */
+            observed_label: number | null;
+            /** Observed Soil Moisture */
+            observed_soil_moisture: number | null;
+            /** Outcome */
+            outcome: ("VP" | "FP" | "FN" | "VN") | null;
+            /** Score */
+            score: number;
+            /**
+             * Target Date
+             * Format: date
+             */
+            target_date: string;
+        };
+        /** CicytexReadingResponse */
+        CicytexReadingResponse: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Soil Moisture */
+            soil_moisture: number;
+        };
+        /** CicytexSessionResponse */
+        CicytexSessionResponse: {
+            /** Can Advance */
+            can_advance: boolean;
+            /**
+             * Emission Date
+             * Format: date
+             */
+            emission_date: string;
+            feedback: components["schemas"]["CicytexFeedbackResponse"] | null;
+            /** Horizon Days */
+            horizon_days: number;
+            metrics: components["schemas"]["CicytexMetricsResponse"];
+            /** Predictions */
+            predictions: components["schemas"]["CicytexPredictionResponse"][];
+            /** Proxy Notice */
+            proxy_notice: string;
+            /** Readings */
+            readings: components["schemas"]["CicytexReadingResponse"][];
+            /**
+             * Revealed Through
+             * Format: date
+             */
+            revealed_through: string;
+            /** Sensor Id */
+            sensor_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Threshold */
+            threshold: number;
+        };
         /** EmissionRequest */
         EmissionRequest: Record<string, never>;
         /** EnsembleComponentVote */
@@ -1342,8 +1484,11 @@ export interface components {
         };
         /** ReplayFeedbackEntry */
         ReplayFeedbackEntry: {
-            /** Estado Validacion */
-            estado_validacion: string;
+            /**
+             * Estado Validacion
+             * @enum {string}
+             */
+            estado_validacion: "confirmada" | "rechazada";
             /** Etiqueta Corregida */
             etiqueta_corregida?: number | null;
             /** Observacion */
@@ -1755,9 +1900,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CicytexCatalogResponse"];
                 };
             };
         };
@@ -1781,9 +1924,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CicytexSessionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1814,9 +1955,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CicytexSessionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1847,9 +1986,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CicytexSessionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1884,9 +2021,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CicytexFeedbackResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1917,9 +2052,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CicytexSessionResponse"];
                 };
             };
             /** @description Validation Error */
