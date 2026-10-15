@@ -3,6 +3,12 @@ import { describe, expectTypeOf, it } from "vitest";
 import type { components, operations } from "./api/generated/schema";
 import { getQualityReport } from "./features/quality/api";
 import type { QualityReport } from "./features/quality/api";
+import { getLineage } from "./features/lineage/api";
+import type {
+  FeedbackReference,
+  LineageEntry,
+  LineageResponse,
+} from "./features/lineage/api";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -15,12 +21,25 @@ type Assert<Condition extends true> = Condition;
 type QualityOperation = operations["get_quality_report_quality__sensor_id__get"];
 type QualityResponse = QualityOperation["responses"][200]["content"]["application/json"];
 type QualitySensorId = QualityOperation["parameters"]["path"]["sensor_id"];
+type LineageOperation = operations["get_lineage_lineage__sensor_id__get"];
+type GeneratedLineageResponse =
+  LineageOperation["responses"][200]["content"]["application/json"];
+type LineageSensorId = LineageOperation["parameters"]["path"]["sensor_id"];
 
 export type GeneratedQualityFunctionContracts = [
   Assert<Equal<QualityReport, components["schemas"]["QualityReportResponse"]>>,
   Assert<Equal<QualityReport, QualityResponse>>,
   Assert<Equal<Parameters<typeof getQualityReport>[0], QualitySensorId>>,
   Assert<Equal<ReturnType<typeof getQualityReport>, Promise<QualityResponse | null>>>,
+];
+
+export type GeneratedLineageFunctionContracts = [
+  Assert<Equal<FeedbackReference, components["schemas"]["FeedbackReferenceSchema"]>>,
+  Assert<Equal<LineageEntry, components["schemas"]["LineageEntry"]>>,
+  Assert<Equal<LineageResponse, components["schemas"]["LineageResponse"]>>,
+  Assert<Equal<LineageResponse, GeneratedLineageResponse>>,
+  Assert<Equal<Parameters<typeof getLineage>[0], LineageSensorId>>,
+  Assert<Equal<ReturnType<typeof getLineage>, Promise<GeneratedLineageResponse>>>,
 ];
 
 const withoutOptionalPeriods: QualityReport = {
@@ -46,8 +65,29 @@ const withNullablePeriods: QualityReport = {
 void withoutOptionalPeriods;
 void withNullablePeriods;
 
+const withoutOptionalEvidence: LineageEntry = {
+  recalibration_id: "recalibration-1",
+  source_model_id: "model-a",
+  successor_model_id: "model-b",
+  feedback_references: [],
+  recalibrated_at: "2026-09-06T10:00:00",
+  source_trained_through: "2024-10-30",
+  successor_trained_through: "2024-10-31",
+  lineage_version: 1,
+};
+
+const withNullableEvidence: LineageEntry = {
+  ...withoutOptionalEvidence,
+  dataset_sha256: null,
+  mlflow_model_version: null,
+};
+
+void withoutOptionalEvidence;
+void withNullableEvidence;
+
 describe("generated operational quality contracts", () => {
   it("keeps the established quality function callable", () => {
     expectTypeOf(getQualityReport).toBeFunction();
+    expectTypeOf(getLineage).toBeFunction();
   });
 });

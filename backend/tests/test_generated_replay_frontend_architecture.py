@@ -8,6 +8,7 @@ FRONTEND_SOURCE = ROOT / "frontend" / "src"
 HISTORICAL_API = FRONTEND_SOURCE / "features" / "historical-replay" / "api.ts"
 CICYTEX_API = FRONTEND_SOURCE / "features" / "defense" / "cicytexApi.ts"
 QUALITY_API = FRONTEND_SOURCE / "features" / "quality" / "api.ts"
+LINEAGE_API = FRONTEND_SOURCE / "features" / "lineage" / "api.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -98,8 +99,13 @@ def _generated_import_names(source: str) -> set[str]:
     return {name.strip() for name in match.group("names").split(",")}
 
 
-def test_only_owned_replay_and_quality_clients_consume_the_generated_schema():
-    assert _generated_schema_consumers() == {HISTORICAL_API, CICYTEX_API, QUALITY_API}
+def test_only_owned_clients_consume_the_generated_schema():
+    assert _generated_schema_consumers() == {
+        HISTORICAL_API,
+        CICYTEX_API,
+        QUALITY_API,
+        LINEAGE_API,
+    }
 
 
 def test_replay_clients_use_generated_operation_contracts_without_duplicate_dtos():
@@ -142,3 +148,17 @@ def test_quality_client_uses_its_generated_operation_without_a_duplicate_dto():
     assert not re.search(r"\bRecord\s*<\s*string\s*,\s*unknown\s*>", source)
     assert re.search(r"\bexport\s+type\s+QualityReport\b", source)
     assert re.search(r"\bexport\s+(?:function|const)\s+getQualityReport\b", source)
+
+
+def test_lineage_client_uses_its_generated_operation_without_duplicate_dtos():
+    source = LINEAGE_API.read_text(encoding="utf-8")
+
+    assert _generated_import_names(source) == {"components", "operations"}
+    assert 'operations["get_lineage_lineage__sensor_id__get"]' in source
+    assert not re.search(r"\b(?:export\s+)?interface\s+", source)
+    assert not re.search(r"(?<![\w.])any(?!\w)", source)
+    assert not re.search(r"\bas\s+unknown\s+as\b", source)
+    assert not re.search(r"\bRecord\s*<\s*string\s*,\s*unknown\s*>", source)
+    for name in ("FeedbackReference", "LineageEntry", "LineageResponse"):
+        assert re.search(rf"\bexport\s+type\s+{name}\b", source)
+    assert re.search(r"\bexport\s+(?:function|const)\s+getLineage\b", source)
