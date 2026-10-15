@@ -43,6 +43,8 @@ type ListForecasts = operations["list_forecasts_api_v2_sensors__sensor_id__forec
 type GetForecast = operations["get_forecast_api_v2_sensors__sensor_id__forecasts__forecast_id__get"];
 type CreateReview = operations["create_review_api_v2_sensors__sensor_id__forecasts__forecast_id__reviews_post"];
 type CreateForecasts = operations["create_forecasts_api_v2_sensors__sensor_id__forecasts_post"];
+type GetHistoricalForecasts =
+  operations["get_historical_forecasts_api_v2_sensors__sensor_id__historical__as_of_date__forecasts_get"];
 
 type _Sector = Expect<Equal<Sector, components["schemas"]["SectorResponse"]>>;
 type _Sensor = Expect<Equal<SensorSummary, components["schemas"]["SensorResponse"]>>;
@@ -67,13 +69,12 @@ type ExpectedEnsembleVote = Expand<
     model_reference: ExpectedModelReference;
   }
 >;
-type ExpectedEnsemble = Expand<Omit<GeneratedEnsemble, "weights" | "components"> & {
-  weights: Record<components["schemas"]["EnsembleComponentVote"]["family"], number>;
+type ExpectedEnsemble = Expand<Omit<GeneratedEnsemble, "components"> & {
   components: ExpectedEnsembleVote[];
 }>;
 type GeneratedForecast = ResponseAt<GetForecast, 200>;
 type ExpectedForecast = Expand<Omit<GeneratedForecast, "ensemble" | "model_reference"> & {
-  ensemble: ExpectedEnsemble | null;
+  ensemble?: ExpectedEnsemble | null;
   model_reference: ExpectedModelReference;
 }>;
 type GeneratedReviewCreate = components["schemas"]["ReviewCreate"];
@@ -108,6 +109,9 @@ type ExpectedForecastList = Expand<
 type _ForecastList = Expect<Equal<ForecastListResult, ExpectedForecastList>>;
 type _ReviewRequest = Expect<Equal<ReviewRequest, ExpectedReviewRequest>>;
 type _ForecastBatch = Expect<Equal<ForecastBatch, ExpectedBatch>>;
+type _HistoricalForecastBatch = Expect<
+  ResponseAt<GetHistoricalForecasts, 200> extends ForecastBatch ? true : false
+>;
 
 export type GeneratedProducerSliceAContract = [
   _Sector,
@@ -127,4 +131,5 @@ export type GeneratedProducerSliceAContract = [
   _ForecastList,
   _ReviewRequest,
   _ForecastBatch,
+  _HistoricalForecastBatch,
 ];

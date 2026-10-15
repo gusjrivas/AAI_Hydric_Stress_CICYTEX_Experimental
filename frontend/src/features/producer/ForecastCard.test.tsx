@@ -84,6 +84,24 @@ describe("ForecastCard", () => {
     expect(screen.queryByText(/66 %|67 %/)).not.toBeInTheDocument();
   });
 
+  it("treats an omitted ensemble as unavailable historical detail, never as agreement", () => {
+    const { ensemble, ...withoutEnsemble } = baseForecast;
+    expect(ensemble).toBeNull();
+
+    render(
+      <ForecastCard
+        sensorId="sensor-a"
+        forecast={withoutEnsemble}
+        historicalNotice="Corte histórico reproducible"
+      />,
+    );
+
+    expect(
+      screen.getByText("Detalle de los tres modelos no disponible en esta emisión."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/modelos indican alerta/i)).not.toBeInTheDocument();
+  });
+
   it("never shows 0% when display_probability is missing", () => {
     render(<ForecastCard sensorId="sensor-a" forecast={{ ...baseForecast, display_probability: null }} />);
     expect(screen.getByText(/probabilidad no disponible/i)).toBeInTheDocument();
