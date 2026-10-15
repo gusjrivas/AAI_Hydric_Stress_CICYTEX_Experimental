@@ -13,6 +13,10 @@ import pytest
 PLAN_SCHEMA = "laya-oci-tar-semantics-plan-v1"
 MAX_TAR_CHUNK_BYTES = 1024 * 1024
 MAX_TAR_ENTRIES = 65536
+MAX_TAR_PATH_BYTES = 4096
+MAX_TAR_LINK_BYTES = 4096
+MAX_TAR_PAX_RECORD_BYTES = 64 * 1024
+MAX_TAR_PAX_BYTES = 1024 * 1024
 
 
 def _private_error(error: BaseException, *markers: str) -> None:
@@ -73,6 +77,42 @@ def _tar_entry(
 
 def _archive(*entries: bytes, terminal_blocks: int = 2) -> bytes:
     return b"".join(entries) + (b"\0" * 512 * terminal_blocks)
+
+
+def _pax_record(key: str, value: str) -> bytes:
+    body = f" {key}={value}\n".encode()
+    length = len(body) + 1
+    while True:
+        record = str(length).encode("ascii") + body
+        if len(record) == length:
+            return record
+        length = len(record)
+
+
+def _pax_entry(records: tuple[tuple[str, str], ...], *, global_: bool = False) -> bytes:
+    payload = b"".join(_pax_record(key, value) for key, value in records)
+    return _tar_entry(
+        "PaxHeaders/profile",
+        payload,
+        typeflag=b"g" if global_ else b"x",
+    )
+
+
+def _gnu_extension(value: str, *, link: bool = False) -> bytes:
+    return _tar_entry(
+        "././@LongLink",
+        value.encode("utf-8") + b"\0",
+        typeflag=b"K" if link else b"L",
+    )
+
+
+def _tar_entry_with_effective_size(
+    name: str,
+    payload: bytes,
+    *,
+    header_size: int,
+) -> bytes:
+    return _tar_header(name, size=header_size) + payload + (b"\0" * ((-len(payload)) % 512))
 
 
 def _header_with_recomputed_checksum(header: bytes, start: int, value: bytes) -> bytes:
@@ -232,6 +272,21 @@ def _install_bridge(monkeypatch, module, historical_receipt):
     return calls
 
 
+def _verify_archive(monkeypatch, synthetic_pr22, archive: bytes):
+    from human_feedback import runtime_oci_tar as module
+
+    evidence, _ = synthetic_pr22
+    plan = module.prepare_laya_oci_tar_semantics_plan(evidence)
+    historical = evidence.receipts[0]
+    object.__setattr__(historical, "uncompressed_size_bytes", len(archive))
+    _install_bridge(monkeypatch, module, historical)
+    return module.verify_laya_oci_tar_semantics_chunks(
+        plan,
+        historical.layer_blob.digest,
+        _chunks(archive, 173),
+    )
+
+
 def test_manual_tar_fixture_checksum_padding_and_eof_are_independent_of_tarfile():
     archive = _archive(_tar_entry("data/result.txt", b"science"))
     header = archive[:512]
@@ -326,7 +381,9 @@ def test_source_cannot_buffer_payload_or_verify_the_same_stream_twice():
         (
             node.func.id
             if isinstance(node.func, ast.Name)
-            else node.func.attr if isinstance(node.func, ast.Attribute) else ""
+            else node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else ""
         )
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
@@ -561,6 +618,286 @@ def test_symlink_targets_are_opaque_but_entry_paths_are_root_bound(
     assert receipt.entries[0].path == "safe/link"
     assert receipt.entries[0].link_target == linkname
     assert receipt.oci_rootfs_verified is False
+
+
+def test_pax_local_global_and_gnu_precedence_produces_only_effective_entries(
+    monkeypatch,
+    synthetic_pr22,
+):
+    long_global = "global/" + ("g" * 120)
+    long_gnu = "gnu/" + ("n" * 120)
+    long_local = "local/" + ("p" * 120)
+    archive = _archive(
+        _pax_entry((("path", long_global),), global_=True),
+        _gnu_extension(long_gnu),
+        _pax_entry((("path", long_local), ("size", "7"))),
+        _tar_entry_with_effective_size("raw-name", b"science", header_size=1),
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+    assert tuple((entry.path, entry.size_bytes) for entry in receipt.entries) == ((long_local, 7),)
+    assert receipt.payload_size_bytes == 7
+
+
+@pytest.mark.parametrize("typeflag", ["1", "2"], ids=("hardlink", "symlink"))
+@pytest.mark.parametrize("target", ["/opaque/absolute", "../../opaque/parent"])
+def test_pax_and_gnu_long_links_remain_opaque_metadata(
+    monkeypatch,
+    synthetic_pr22,
+    typeflag,
+    target,
+):
+    pax_path = "links/" + ("p" * 120)
+    archive = _archive(
+        _gnu_extension("ignored/" + ("g" * 120), link=True),
+        _pax_entry((("path", pax_path), ("linkpath", target))),
+        _tar_entry("raw-link", typeflag=typeflag.encode("ascii"), linkname="raw-target"),
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+    assert len(receipt.entries) == 1
+    assert receipt.entries[0].path == pax_path
+    assert receipt.entries[0].link_target == target
+    assert receipt.entries[0].size_bytes == 0
+
+
+def test_gnu_longname_and_longlink_apply_once_without_becoming_entries(
+    monkeypatch,
+    synthetic_pr22,
+):
+    long_name = "gnu/" + ("n" * 150)
+    long_link = "../" + ("target/" * 20)
+    archive = _archive(
+        _gnu_extension(long_name),
+        _tar_entry("raw-file", b"x"),
+        _gnu_extension(long_link, link=True),
+        _tar_entry("safe/link", typeflag=b"2", linkname="raw-target"),
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+    assert tuple(entry.path for entry in receipt.entries) == (long_name, "safe/link")
+    assert receipt.entries[1].link_target == long_link
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [
+        pytest.param(_tar_entry("PaxHeaders/dangling", b"bad", typeflag=b"x"), id="length"),
+        pytest.param(
+            _tar_entry("PaxHeaders/utf8", b"12 path=bad\xff\n", typeflag=b"x"),
+            id="utf8",
+        ),
+        pytest.param(
+            _pax_entry((("path", "one"), ("path", "two"))),
+            id="duplicate-path",
+        ),
+        pytest.param(_pax_entry((("size", "1"), ("size", "2"))), id="duplicate-size"),
+        pytest.param(_gnu_extension("private/dangling"), id="dangling-gnu"),
+    ],
+)
+def test_invalid_or_dangling_extended_metadata_fails_privately(
+    monkeypatch,
+    synthetic_pr22,
+    extension,
+):
+    archive = _archive(extension)
+    with pytest.raises(ValueError, match="tar|pax|gnu|metadata|record|valid") as captured:
+        _verify_archive(monkeypatch, synthetic_pr22, archive)
+    _private_error(captured.value, "private/dangling", "bad")
+
+
+@pytest.mark.parametrize(
+    "archive",
+    [
+        pytest.param(
+            _archive(_tar_entry("same/path"), _tar_entry("./same/path")),
+            id="normalized",
+        ),
+        pytest.param(
+            _archive(
+                _tar_entry("same/path"),
+                _pax_entry((("path", "same/path"),)),
+                _tar_entry("other/path"),
+            ),
+            id="pax",
+        ),
+        pytest.param(
+            _archive(
+                _tar_entry("same/path"),
+                _gnu_extension("same/path"),
+                _tar_entry("other/path"),
+            ),
+            id="gnu",
+        ),
+    ],
+)
+def test_effective_paths_are_unique_after_normalization_and_extensions(
+    monkeypatch,
+    synthetic_pr22,
+    archive,
+):
+    with pytest.raises(ValueError, match="tar|entry|path|duplicate|valid"):
+        _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(_tar_entry("private/sparse", typeflag=b"S"), id="gnu-sparse"),
+        pytest.param(
+            _pax_entry((("GNU.sparse.map", "0,1"),)),
+            id="pax-sparse",
+        ),
+        pytest.param(_tar_entry("private/char", typeflag=b"3"), id="char-device"),
+        pytest.param(_tar_entry("private/block", typeflag=b"4"), id="block-device"),
+        pytest.param(_tar_entry("private/fifo", typeflag=b"6"), id="fifo"),
+        pytest.param(_tar_entry("private/unknown", typeflag=b"9"), id="unknown"),
+    ],
+)
+def test_sparse_devices_fifo_and_unknown_types_are_rejected(
+    monkeypatch,
+    synthetic_pr22,
+    entry,
+):
+    with pytest.raises(ValueError, match="tar|pax|sparse|type|valid") as captured:
+        _verify_archive(monkeypatch, synthetic_pr22, _archive(entry))
+    _private_error(captured.value, "private/sparse", "private/char", "private/block")
+
+
+def test_hardlinks_and_oci_whiteout_names_are_valid_but_not_applied(
+    monkeypatch,
+    synthetic_pr22,
+):
+    archive = _archive(
+        _tar_entry("data/source", b"x"),
+        _tar_entry("data/hard", typeflag=b"1", linkname="data/source"),
+        _tar_entry("data/.wh.deleted"),
+        _tar_entry("data/.wh..wh..opq"),
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+    assert tuple((entry.path, entry.typeflag) for entry in receipt.entries) == (
+        ("data/source", "0"),
+        ("data/hard", "1"),
+        ("data/.wh.deleted", "0"),
+        ("data/.wh..wh..opq", "0"),
+    )
+    assert receipt.entries[1].link_target == "data/source"
+    assert receipt.oci_rootfs_verified is False
+
+
+def test_public_extended_metadata_caps_and_oversized_record_fail_fast(
+    monkeypatch,
+    synthetic_pr22,
+):
+    from human_feedback import runtime_oci_tar as module
+
+    assert module.MAX_OCI_TAR_PATH_BYTES == MAX_TAR_PATH_BYTES
+    assert module.MAX_OCI_TAR_LINK_BYTES == MAX_TAR_LINK_BYTES
+    assert module.MAX_OCI_TAR_PAX_RECORD_BYTES == MAX_TAR_PAX_RECORD_BYTES
+    assert module.MAX_OCI_TAR_PAX_BYTES == MAX_TAR_PAX_BYTES
+    evidence, _ = synthetic_pr22
+    plan = module.prepare_laya_oci_tar_semantics_plan(evidence)
+    _install_bridge(monkeypatch, module, evidence.receipts[0])
+    oversized_header = _tar_header(
+        "PaxHeaders/oversized",
+        size=MAX_TAR_PAX_RECORD_BYTES + 1,
+        typeflag=b"x",
+    )
+
+    class HostileChunks:
+        def __init__(self):
+            self.requests = 0
+            self.sentinel_executed = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requests += 1
+            if self.requests == 1:
+                return oversized_header
+            self.sentinel_executed = True
+            raise AssertionError("private-pax-limit-sentinel")
+
+    chunks = HostileChunks()
+    with pytest.raises(ValueError, match="pax|record|limit|valid") as captured:
+        module.verify_laya_oci_tar_semantics_chunks(
+            plan,
+            evidence.receipts[0].layer_blob.digest,
+            chunks,
+        )
+    assert chunks.requests == 1 and chunks.sentinel_executed is False
+    _private_error(captured.value, "private-pax-limit-sentinel")
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("path", "p" * (MAX_TAR_PATH_BYTES + 1)),
+        ("linkpath", "l" * (MAX_TAR_LINK_BYTES + 1)),
+    ],
+)
+def test_pax_effective_path_and_link_caps_are_enforced(
+    monkeypatch,
+    synthetic_pr22,
+    key,
+    value,
+):
+    target = _tar_entry("safe/link", typeflag=b"2", linkname="safe")
+    archive = _archive(_pax_entry(((key, value),)), target)
+    with pytest.raises(ValueError, match="pax|path|link|limit|valid"):
+        _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+
+@pytest.mark.parametrize(
+    "archive",
+    [
+        pytest.param(
+            _archive(
+                _pax_entry((("size", "1"),)),
+                _tar_entry("safe/link", typeflag=b"2", linkname="target"),
+            ),
+            id="size-on-link",
+        ),
+        pytest.param(
+            _archive(
+                _pax_entry((("linkpath", "target"),)),
+                _tar_entry("safe/regular"),
+            ),
+            id="linkpath-on-regular",
+        ),
+    ],
+)
+def test_conflicting_extended_metadata_and_target_type_fail_closed(
+    monkeypatch,
+    synthetic_pr22,
+    archive,
+):
+    with pytest.raises(ValueError, match="tar|pax|metadata|type|size|link|valid"):
+        _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+
+def test_aggregate_pax_payload_cap_is_public_and_enforced(
+    monkeypatch,
+    synthetic_pr22,
+):
+    entries = []
+    for index in range(260):
+        path = f"bulk-{index:03d}/" + ("p" * 4070)
+        entries.extend((_pax_entry((("path", path),)), _tar_entry(f"raw-{index}")))
+    archive = _archive(*entries)
+    assert (
+        sum(len(_pax_record("path", f"bulk-{index:03d}/" + ("p" * 4070))) for index in range(260))
+        > MAX_TAR_PAX_BYTES
+    )
+
+    with pytest.raises(ValueError, match="pax|aggregate|limit|valid"):
+        _verify_archive(monkeypatch, synthetic_pr22, archive)
 
 
 @pytest.mark.parametrize(
