@@ -26,3 +26,9 @@
 - [ ] 5.1 Migrate the historical replay API module without changing its runtime requests.
 - [ ] 5.2 Migrate the CICYTEX defense API module without changing its runtime requests.
 - [ ] 5.3 Pass TypeScript compile-time fixtures and existing transport and UI tests.
+
+## 6. RED observable client equivalence
+
+- [x] 6.1 Freeze both clients' paths, methods, query encoding, headers, request bodies and optional omission.
+- [x] 6.2 Freeze historical error classes/messages and CICYTEX text error behavior.
+- [x] 6.3 Specify generated nullability and late-response isolation across omitted, null, false and true states.

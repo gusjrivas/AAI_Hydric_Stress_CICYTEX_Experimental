@@ -366,6 +366,58 @@ describe("HistoricalReplayPage", () => {
     expect(screen.queryByRole("heading", { name: /Feedback de demostración/i })).not.toBeInTheDocument();
   });
 
+  it("treats an explicit null target_observed as hidden, like an omitted value", async () => {
+    baseMocks();
+    vi.spyOn(api, "getPrediction").mockResolvedValue(
+      predictionAt({
+        target_observed: null,
+        y_true: null,
+        coincide: null,
+        medicion_original: null,
+      }),
+    );
+
+    render(<HistoricalReplayPage />);
+
+    await waitFor(() => screen.getByText(/todavía no revelada/i));
+    expect(screen.queryByText(/Coincidencia con la predicción/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Feedback de demostración/i })).not.toBeInTheDocument();
+  });
+
+  it("ignores prediction, history and feedback responses that resolve after unmount", async () => {
+    baseMocks();
+    let resolvePrediction: (value: api.ReplayPredictionResponse) => void = () => {};
+    let resolveHistory: (value: api.ReplayHistoryResponse) => void = () => {};
+    let resolveFeedback: (value: api.ReplayFeedbackListResponse) => void = () => {};
+    vi.spyOn(api, "getPrediction").mockReturnValue(
+      new Promise((resolve) => {
+        resolvePrediction = resolve;
+      }),
+    );
+    vi.spyOn(api, "getHistory").mockReturnValue(
+      new Promise((resolve) => {
+        resolveHistory = resolve;
+      }),
+    );
+    vi.spyOn(api, "getFeedback").mockReturnValue(
+      new Promise((resolve) => {
+        resolveFeedback = resolve;
+      }),
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const view = render(<HistoricalReplayPage />);
+    await waitFor(() => expect(api.getPrediction).toHaveBeenCalledTimes(1));
+    view.unmount();
+    resolvePrediction(predictionAt());
+    resolveHistory({ simulated_date: "2024-10-19", rows: [] });
+    resolveFeedback({ timestamp_origen: "2024-10-19", feedback: [] });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
   it("distinguishes a history fetch error from an empty history", async () => {
     vi.spyOn(api, "getCandidate").mockResolvedValue(CANDIDATE);
     vi.spyOn(api, "listOrigins").mockResolvedValue({
