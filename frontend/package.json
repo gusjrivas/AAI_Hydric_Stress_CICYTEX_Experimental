@@ -7,6 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "generate:openapi-types": "node scripts/openapi-typescript-toolchain.mjs generate",
+    "check:openapi-types": "node scripts/openapi-typescript-toolchain.mjs check",
+    "api:generate": "node scripts/openapi-typescript-toolchain.mjs generate",
+    "api:check": "node scripts/openapi-typescript-toolchain.mjs check",
+    "test:api-toolchain": "vitest run src/openapiToolchain.integration.test.ts",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -23,8 +28,9 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "jsdom": "^30.0.1",
+    "openapi-typescript": "7.9.1",
     "oxlint": "^1.75.0",
-    "typescript": "~6.0.2",
+    "typescript": "5.9.3",
     "vite": "^8.2.0",
     "vitest": "^4.1.11"
   }
