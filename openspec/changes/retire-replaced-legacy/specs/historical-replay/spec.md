@@ -45,3 +45,18 @@ environment variable.
 - **AND** the existing `feedback.json` SHALL be presented to the explicit CICYTEX compatibility
   importer
 - **AND** no stored session, feedback record, backup or rollback artifact SHALL be deleted
+
+### Requirement: Test-only replay doubles do not remain in production packages
+
+An in-memory `SessionRepository` used only by tests SHALL live under `tests/helpers`; production,
+script, configuration and recovery paths SHALL NOT import or dynamically resolve it.
+
+#### Scenario: In-memory session adapter is retired from production
+
+- **GIVEN** all replay and CICYTEX tests import the synchronized repository from `tests/helpers`
+- **WHEN** the production tree is audited
+- **THEN** `src/historical_replay/adapters/in_memory_sessions.py` SHALL be absent
+- **AND** no module under `src`, `backend/app`, `scripts`, `config` or `recovery` SHALL import or
+  dynamically name `historical_replay.adapters.in_memory_sessions`
+- **AND** duplicate-ID conflicts, atomic updates and `with_session` serialization SHALL remain
+  covered by the migrated tests

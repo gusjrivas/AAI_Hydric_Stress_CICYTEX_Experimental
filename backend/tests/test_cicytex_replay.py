@@ -11,8 +11,8 @@ from app.dependencies import get_cicytex_replay_sessions
 from app.main import app
 from fastapi.testclient import TestClient
 
-from historical_replay.adapters.in_memory_sessions import InMemorySessionRepository
 from historical_replay.sessions import ReplaySessionService
+from tests.helpers.in_memory_sessions import InMemorySessionRepository
 
 
 def _package(root: Path) -> None:

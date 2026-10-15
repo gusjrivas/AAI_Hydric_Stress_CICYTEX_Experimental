@@ -15,3 +15,11 @@
 - [ ] 3.1 Prove zero productive, dynamic, script, configuration and recovery consumers per target.
 - [ ] 3.2 Retain compatibility importers and schema migration until an explicit sunset gate exists.
 - [ ] 3.3 Retire approved test/config residue in independent TDD slices.
+
+## 4. Test-only session repository retirement
+
+- [x] 4.1 Move the synchronized in-memory session repository into `tests/helpers` without changing
+  conflict, update or `with_session` semantics.
+- [x] 4.2 Migrate replay-session tests and CICYTEX dependency fakes to the test-only helper.
+- [ ] 4.3 Remove the production-path in-memory adapter after the absence and zero-consumer gate is
+  RED first and all replay regressions remain green.
