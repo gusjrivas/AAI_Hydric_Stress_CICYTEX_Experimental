@@ -24,7 +24,7 @@ export interface ForecastWorkspace {
   recalibrateError: string | null;
   runForecast: () => Promise<void>;
   confirm: (fecha: string) => Promise<boolean>;
-  reject: (fecha: string, etiquetaCorregida: number, observacion: string) => Promise<boolean>;
+  reject: (fecha: string, etiquetaCorregida: 0 | 1, observacion: string) => Promise<boolean>;
   recalibrate: () => Promise<RecalibrationResponse | null>;
   reloadHistory: () => Promise<void>;
   notify: (message: string) => void;
@@ -231,7 +231,7 @@ export function useForecastWorkspace(sensorId: string): ForecastWorkspace {
   );
 
   const reject = useCallback(
-    async (fecha: string, etiquetaCorregida: number, observacion: string): Promise<boolean> => {
+    async (fecha: string, etiquetaCorregida: 0 | 1, observacion: string): Promise<boolean> => {
       const sensorAtCall = sensorId;
       if (!tryLock(`reject:${fecha}`)) return false;
       setRowErrors((prev) => {

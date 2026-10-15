@@ -187,7 +187,7 @@ def test_contract_test_has_one_node_ready_ci_owner_without_skip_paths():
     assert forbidden_marks == set()
 
 
-def test_generated_schema_has_only_the_two_owned_product_consumers():
+def test_generated_schema_has_only_the_owned_product_consumers():
     assert set(_bytes_by_name(GENERATED_ROOT)) == set(GENERATED_ARTIFACTS)
     consumers = []
     for path in (FRONTEND_ROOT / "src").rglob("*.ts*"):
@@ -198,7 +198,11 @@ def test_generated_schema_has_only_the_two_owned_product_consumers():
             consumers.append(path.relative_to(FRONTEND_ROOT / "src").as_posix())
     assert set(consumers) == {
         "features/defense/cicytexApi.ts",
+        "features/forecast/api.ts",
         "features/historical-replay/api.ts",
+        "features/lineage/api.ts",
+        "features/lab/sensorLabApi.ts",
+        "features/quality/api.ts",
     }
     assert not any("client" in path.name.lower() for path in GENERATED_ROOT.iterdir())
 
