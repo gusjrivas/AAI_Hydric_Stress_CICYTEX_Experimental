@@ -46,7 +46,11 @@ class FeedbackRequest(BaseModel):
     observacion: str | None = Field(default=None, max_length=1000)
 
 
-@router.get("/catalog", response_model=CicytexCatalogResponse)
+@router.get(
+    "/catalog",
+    response_model=CicytexCatalogResponse,
+    response_model_exclude_unset=True,
+)
 def catalog(
     application: CicytexCatalogApplication = Depends(get_cicytex_catalog_application),
 ) -> dict:

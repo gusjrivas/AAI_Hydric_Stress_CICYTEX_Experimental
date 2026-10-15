@@ -722,11 +722,11 @@ export interface components {
         /** CicytexEmissionDatesByHorizon */
         CicytexEmissionDatesByHorizon: {
             /** 1 */
-            1: string[];
+            1?: string[];
             /** 2 */
-            2: string[];
+            2?: string[];
             /** 3 */
-            3: string[];
+            3?: string[];
         };
         /** CicytexFeedbackResponse */
         CicytexFeedbackResponse: {

@@ -13,9 +13,9 @@ class _ClosedResponse(BaseModel):
 
 
 class CicytexEmissionDatesByHorizon(_ClosedResponse):
-    horizon_1: list[date] = Field(alias="1")
-    horizon_2: list[date] = Field(alias="2")
-    horizon_3: list[date] = Field(alias="3")
+    horizon_1: list[date] = Field(default_factory=list, alias="1")
+    horizon_2: list[date] = Field(default_factory=list, alias="2")
+    horizon_3: list[date] = Field(default_factory=list, alias="3")
 
 
 class CicytexCatalogResponse(_ClosedResponse):
