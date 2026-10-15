@@ -14,3 +14,15 @@
 
 - [ ] 3.1 Pass focused CICYTEX, historical replay and OpenAPI contract tests.
 - [ ] 3.2 Regenerate deterministic OpenAPI/TypeScript artifacts in a later bounded slice.
+
+## 4. RED generated replay consumers
+
+- [x] 4.1 Require the first two replay clients to consume generated component and operation types.
+- [x] 4.2 Prohibit duplicated DTO interfaces, unsafe casts and unconstrained record workarounds.
+- [x] 4.3 Freeze public client names, separate transport helpers and required nullable fields.
+
+## 5. GREEN generated replay consumers
+
+- [ ] 5.1 Migrate the historical replay API module without changing its runtime requests.
+- [ ] 5.2 Migrate the CICYTEX defense API module without changing its runtime requests.
+- [ ] 5.3 Pass TypeScript compile-time fixtures and existing transport and UI tests.
