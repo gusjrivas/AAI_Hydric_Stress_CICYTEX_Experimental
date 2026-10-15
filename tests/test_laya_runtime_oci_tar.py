@@ -94,9 +94,7 @@ def _synthetic_pr22_evidence():
         VerifiedLayaOciLayerDiffId,
     )
 
-    identity = SimpleNamespace(
-        schema_version="laya-runtime-identity-ref-v1", identity_sha256="1" * 64
-    )
+    identity = SimpleNamespace(schema_version="laya-runtime-identity-ref-v1", sha256="1" * 64)
     config = SimpleNamespace(runtime_identity=identity)
     layout = SimpleNamespace(runtime_identity=identity)
     layout_plan = SimpleNamespace(runtime_identity=identity)
@@ -192,14 +190,27 @@ def synthetic_pr22(monkeypatch):
     return evidence, calls
 
 
-def _install_bridge(monkeypatch, module, layer_receipt):
+def _install_bridge(monkeypatch, module, historical_receipt):
     calls = []
 
     def bridge(layer_plan, digest, compressed_chunks, consume, **kwargs):
-        calls.append((layer_plan, digest, compressed_chunks, kwargs))
+        uncompressed_size = 0
         for chunk in compressed_chunks:
             consume(chunk)
-        return layer_receipt
+            uncompressed_size += len(chunk)
+        fresh = _forge(
+            type(historical_receipt),
+            **{
+                field.name: (
+                    uncompressed_size
+                    if field.name == "uncompressed_size_bytes"
+                    else getattr(historical_receipt, field.name)
+                )
+                for field in fields(historical_receipt)
+            },
+        )
+        calls.append((layer_plan, digest, compressed_chunks, kwargs, fresh))
+        return fresh
 
     monkeypatch.setattr(
         module.runtime_oci_layers,
@@ -277,6 +288,14 @@ def test_public_surface_matches_openspec_and_has_no_detached_validator():
         "VerifiedLayaOciTarLayer",
     }
     assert not hasattr(module, "validate_laya_oci_tar_chunks")
+    summary_tree = ast.parse(
+        inspect.getsource(module.canonical_laya_runtime_oci_tar_semantics_summary_bytes)
+    )
+    summary_attributes = {
+        node.attr for node in ast.walk(summary_tree) if isinstance(node, ast.Attribute)
+    }
+    assert "sha256" in summary_attributes
+    assert "identity_sha256" not in summary_attributes
 
 
 def test_source_cannot_buffer_payload_or_verify_the_same_stream_twice():
@@ -404,13 +423,19 @@ def test_empty_and_regular_tar_stream_to_identity_bound_receipts(
     evidence, _ = synthetic_pr22
     plan = module.prepare_laya_oci_tar_semantics_plan(evidence)
     layer_receipt = evidence.receipts[0]
+    object.__setattr__(layer_receipt, "uncompressed_size_bytes", len(archive))
     bridge_calls = _install_bridge(monkeypatch, module, layer_receipt)
     receipt = module.verify_laya_oci_tar_semantics_chunks(
         plan, layer_receipt.layer_blob.digest, _chunks(archive, width)
     )
     assert type(receipt) is module.VerifiedLayaOciTarLayer
     assert receipt.plan is plan
-    assert receipt.layer_receipt is layer_receipt
+    assert receipt.layer_receipt is bridge_calls[0][4]
+    assert receipt.layer_receipt is not layer_receipt
+    assert receipt.layer_receipt.layer_position == layer_receipt.layer_position
+    assert receipt.layer_receipt.layer_blob is layer_receipt.layer_blob
+    assert receipt.layer_receipt.computed_diff_id == layer_receipt.computed_diff_id
+    assert receipt.layer_receipt.uncompressed_size_bytes == len(archive)
     assert receipt.layer_position == 0
     assert type(receipt.entries) is tuple
     assert (
@@ -421,6 +446,7 @@ def test_empty_and_regular_tar_stream_to_identity_bound_receipts(
         == expected_entries
     )
     assert receipt.payload_size_bytes == expected_payload
+    assert receipt.tar_size_bytes == receipt.layer_receipt.uncompressed_size_bytes
     assert receipt.tar_semantics_verified is True
     assert receipt.oci_rootfs_verified is False
     assert receipt.rootfs_materialized is False
@@ -445,8 +471,9 @@ def test_symlink_targets_are_opaque_but_entry_paths_are_root_bound(
 
     evidence, _ = synthetic_pr22
     plan = module.prepare_laya_oci_tar_semantics_plan(evidence)
-    _install_bridge(monkeypatch, module, evidence.receipts[0])
     archive = _archive(_tar_entry("safe/link", typeflag=b"2", linkname=linkname))
+    object.__setattr__(evidence.receipts[0], "uncompressed_size_bytes", len(archive))
+    _install_bridge(monkeypatch, module, evidence.receipts[0])
     receipt = module.verify_laya_oci_tar_semantics_chunks(
         plan, evidence.receipts[0].layer_blob.digest, (archive,)
     )
@@ -563,6 +590,76 @@ def test_invalid_plan_or_digest_fails_before_stream_consumption(synthetic_pr22):
                 invalid_plan, invalid_digest, HostileChunks()
             )
         _private_error(captured.value, "private-stream-consumed")
+
+
+def test_entry_and_receipt_deep_seals_reject_forged_paths_duplicates_and_totals(
+    synthetic_pr22,
+):
+    from human_feedback import runtime_oci_tar as module
+
+    evidence, _ = synthetic_pr22
+    plan = module.prepare_laya_oci_tar_semantics_plan(evidence)
+    entry = module.LayaOciTarEntry(
+        path="data/result.txt",
+        typeflag="0",
+        size_bytes=7,
+        link_target=None,
+        _factory_token=module._FACTORY_TOKEN,
+    )
+    historical = evidence.receipts[0]
+    fresh = _forge(
+        type(historical),
+        **{
+            field.name: (
+                2048 if field.name == "uncompressed_size_bytes" else getattr(historical, field.name)
+            )
+            for field in fields(historical)
+        },
+    )
+    receipt = module.VerifiedLayaOciTarLayer(
+        plan=plan,
+        layer_receipt=fresh,
+        layer_position=0,
+        entries=(entry,),
+        payload_size_bytes=7,
+        tar_size_bytes=2048,
+        _factory_token=module._FACTORY_TOKEN,
+    )
+    receipt.__post_init__(module._FACTORY_TOKEN)
+
+    invalid_entries = (
+        _forge(
+            type(entry),
+            path="../private-forged-entry",
+            typeflag="0",
+            size_bytes=7,
+            link_target=None,
+        ),
+        _forge(
+            type(entry),
+            path="data/result.txt",
+            typeflag="0",
+            size_bytes=7,
+            link_target="private-forged-link",
+        ),
+    )
+    for invalid in invalid_entries:
+        with pytest.raises((TypeError, ValueError), match="entry|path|link|valid"):
+            invalid.__post_init__(module._FACTORY_TOKEN)
+
+    receipt_values = {field.name: getattr(receipt, field.name) for field in fields(receipt)}
+    mutations = (
+        {"entries": (entry, entry)},
+        {"payload_size_bytes": 8},
+        {"tar_size_bytes": 1024},
+        {"entries": (invalid_entries[0],)},
+    )
+    for changes in mutations:
+        forged = _forge(type(receipt), **(receipt_values | changes))
+        with pytest.raises(
+            (TypeError, ValueError), match="receipt|entry|duplicate|payload|size|valid"
+        ):
+            forged.__post_init__(module._FACTORY_TOKEN)
 
 
 def test_summary_rejects_unsealed_evidence_and_no_public_finalizer_exists():
