@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../../api/baseUrl";
+import type { components, operations } from "../../api/generated/schema";
 
 export class HttpError extends Error {
   status: number;
@@ -23,35 +24,26 @@ async function readDetail(response: Response, fallback: string): Promise<never> 
   throw new HttpError(response.status, body?.detail ?? fallback);
 }
 
-export interface Verdict {
-  fecha: string;
-  alerta: boolean;
-  probabilidad: number;
-  fecha_objetivo?: string;
-}
+export type Verdict = components["schemas"]["Verdict"];
+export type ForecastRunResponse = components["schemas"]["ForecastRunResponse"];
+export type FeedbackRow = components["schemas"]["FeedbackRow"];
+export type FeedbackListResponse = components["schemas"]["FeedbackListResponse"];
+export type RecalibrationResponse = components["schemas"]["RecalibrationResponse"];
+export type ActivePredictor = components["schemas"]["ActivePredictorResponse"];
 
-export interface ForecastRunResponse {
-  verdicts: Verdict[];
-  train_rows: number;
-  test_rows: number;
-  selection_warning?: string | null;
-}
+type RunForecastOperation = operations["run_forecast_forecast__sensor_id__run_post"];
+type ListFeedbackOperation = operations["list_feedback_feedback__sensor_id__get"];
+type ConfirmFeedbackOperation =
+  operations["confirm_feedback_feedback__sensor_id___fecha__confirm_post"];
+type RejectFeedbackOperation =
+  operations["reject_feedback_feedback__sensor_id___fecha__reject_post"];
+type RecalibrateOperation = operations["recalibrate_recalibrate__sensor_id__post"];
+type ActivePredictorOperation =
+  operations["get_active_predictor_models__sensor_id__active_get"];
 
-export interface FeedbackRow {
-  fecha: string;
-  alerta_generada: number;
-  estado_validacion: string;
-  etiqueta_corregida: number | null;
-  observacion: string | null;
-  y_proba?: number | null;
-  fecha_objetivo?: string | null;
-}
-
-export interface FeedbackListResponse {
-  rows: FeedbackRow[];
-}
-
-export async function runForecast(sensorId: string): Promise<ForecastRunResponse> {
+export async function runForecast(
+  sensorId: RunForecastOperation["parameters"]["path"]["sensor_id"],
+): Promise<RunForecastOperation["responses"][200]["content"]["application/json"]> {
   const response = await fetch(`${API_BASE_URL}/forecast/${encodeURIComponent(sensorId)}/run`, { method: "POST" });
   if (!response.ok) {
     return readDetail(response, `Error al correr el pronóstico: ${response.status}`);
@@ -59,7 +51,9 @@ export async function runForecast(sensorId: string): Promise<ForecastRunResponse
   return response.json();
 }
 
-export async function listFeedback(sensorId: string): Promise<FeedbackListResponse> {
+export async function listFeedback(
+  sensorId: ListFeedbackOperation["parameters"]["path"]["sensor_id"],
+): Promise<ListFeedbackOperation["responses"][200]["content"]["application/json"]> {
   const response = await fetch(`${API_BASE_URL}/feedback/${encodeURIComponent(sensorId)}`);
   if (!response.ok) {
     return readDetail(response, `Error al obtener el feedback: ${response.status}`);
@@ -67,7 +61,10 @@ export async function listFeedback(sensorId: string): Promise<FeedbackListRespon
   return response.json();
 }
 
-export async function confirmAlert(sensorId: string, fecha: string): Promise<FeedbackRow> {
+export async function confirmAlert(
+  sensorId: ConfirmFeedbackOperation["parameters"]["path"]["sensor_id"],
+  fecha: ConfirmFeedbackOperation["parameters"]["path"]["fecha"],
+): Promise<ConfirmFeedbackOperation["responses"][200]["content"]["application/json"]> {
   const response = await fetch(`${API_BASE_URL}/feedback/${encodeURIComponent(sensorId)}/${fecha}/confirm`, { method: "POST" });
   if (!response.ok) {
     return readDetail(response, `Error al confirmar la alerta: ${response.status}`);
@@ -76,15 +73,19 @@ export async function confirmAlert(sensorId: string, fecha: string): Promise<Fee
 }
 
 export async function rejectAlert(
-  sensorId: string,
-  fecha: string,
-  etiquetaCorregida: number,
-  observacion: string,
-): Promise<FeedbackRow> {
+  sensorId: RejectFeedbackOperation["parameters"]["path"]["sensor_id"],
+  fecha: RejectFeedbackOperation["parameters"]["path"]["fecha"],
+  etiquetaCorregida: RejectFeedbackOperation["requestBody"]["content"]["application/json"]["etiqueta_corregida"],
+  observacion: RejectFeedbackOperation["requestBody"]["content"]["application/json"]["observacion"],
+): Promise<RejectFeedbackOperation["responses"][200]["content"]["application/json"]> {
+  const payload = {
+    etiqueta_corregida: etiquetaCorregida,
+    observacion,
+  } satisfies RejectFeedbackOperation["requestBody"]["content"]["application/json"];
   const response = await fetch(`${API_BASE_URL}/feedback/${encodeURIComponent(sensorId)}/${fecha}/reject`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ etiqueta_corregida: etiquetaCorregida, observacion }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     return readDetail(response, `Error al rechazar la alerta: ${response.status}`);
@@ -92,14 +93,9 @@ export async function rejectAlert(
   return response.json();
 }
 
-export interface RecalibrationResponse {
-  version: string;
-  n_correcciones: number;
-  fechas_corregidas: string[];
-  recalibration_id?: string | null;
-}
-
-export async function recalibrate(sensorId: string): Promise<RecalibrationResponse> {
+export async function recalibrate(
+  sensorId: RecalibrateOperation["parameters"]["path"]["sensor_id"],
+): Promise<RecalibrateOperation["responses"][200]["content"]["application/json"]> {
   const response = await fetch(`${API_BASE_URL}/recalibrate/${encodeURIComponent(sensorId)}`, { method: "POST" });
   if (!response.ok) {
     return readDetail(response, `Error al recalibrar el modelo: ${response.status}`);
@@ -107,24 +103,9 @@ export async function recalibrate(sensorId: string): Promise<RecalibrationRespon
   return response.json();
 }
 
-export interface ActivePredictor {
-  sensor_id: string;
-  origin: "recalibrado" | "base_configurado" | null;
-  model_id: string | null;
-  version: string | null;
-  trained_through: string | null;
-  calibration_end: string | null;
-  horizon_days: number;
-  contract_version: number;
-  pipeline_version: string;
-  feature_columns: string[];
-  lags: number[];
-  rolling_windows: number[];
-  applied_feedback_count: number;
-  applied_feedback_dates: string[];
-}
-
-export async function getActivePredictor(sensorId: string): Promise<ActivePredictor> {
+export async function getActivePredictor(
+  sensorId: ActivePredictorOperation["parameters"]["path"]["sensor_id"],
+): Promise<ActivePredictorOperation["responses"][200]["content"]["application/json"]> {
   const response = await fetch(`${API_BASE_URL}/models/${encodeURIComponent(sensorId)}/active`);
   if (!response.ok) {
     return readDetail(response, `Error al obtener el predictor activo: ${response.status}`);
