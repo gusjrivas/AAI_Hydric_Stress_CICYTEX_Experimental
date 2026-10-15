@@ -28,11 +28,14 @@ fabricate sessions from feedback fields, and never mark such a deployment migrat
 The deployment sets
 `CICYTEX_REPLAY_LEGACY_FEEDBACK_DISCOVERY=/workspace/cicytex-feedback/feedback.json` while keeping
 `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON` empty-default.  If the discovery file is absent, a fresh
-volume starts normally.  If it exists, startup presents it to the repository so complete lineage
+volume starts normally.  If it exists as a direct regular file, startup presents it to the
+repository so complete lineage
 is imported or feedback-only/invalid state fails closed with the existing private storage error;
-it must never silently create an empty database.  An explicit override under this deployment
-policy must name exactly the discovery path.  Tests and local tools without a discovery policy may
-still provide another administrator-controlled legacy path.
+it must never silently create an empty database.  A directory or symlink at the discovery path is
+invalid configuration.  An explicit override under this deployment policy must name exactly the
+discovery path; if that explicit target is missing it is still passed to the repository and fails
+closed instead of being treated as a fresh volume.  Tests and local tools without a discovery
+policy may still provide another administrator-controlled legacy path.
 
 ## Existing legacy feedback
 
@@ -81,10 +84,11 @@ read-only; a failed hash, backup, import, comparison, verification or atomic pub
 output.
 
 The tool never deletes or replaces a source `-wal` or `-shm` sidecar.  A WAL that existed before
-capture must remain byte-identical.  A WAL or SHM that appears during capture is a concurrent-write
-signal: staging aborts and leaves it in place.  SQLite's online-backup reader can update ephemeral
-reader marks inside an existing SHM, so SHM byte identity is not evidence; its source ownership and
-continued presence are.  This asymmetry does not weaken the WAL byte check.
+capture must remain byte-identical.  A WAL that appears during capture is a concurrent-write
+signal: staging aborts and leaves it in place.  SQLite's online-backup reader can create or update
+ephemeral SHM reader marks, so SHM presence or byte changes are not concurrency evidence and SHM
+byte identity is not claimed; any SHM remains source-owned and is never deleted or replaced.  This
+asymmetry does not weaken the WAL byte check.
 
 Before deployment, independently recompute the staged digest, repeat `PRAGMA integrity_check`,
 compare both row counts, and inspect the evidence schema.  Preserve the source database, WAL/SHM,

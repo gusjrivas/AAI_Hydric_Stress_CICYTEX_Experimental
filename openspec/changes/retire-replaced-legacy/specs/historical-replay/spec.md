@@ -55,6 +55,10 @@ environment variable.
 - **AND** feedback-only or invalid state SHALL fail closed instead of creating an empty database
 - **BUT WHEN** the discovery file is absent
 - **THEN** a fresh volume SHALL initialize without attempting a legacy import
+- **BUT WHEN** an explicit non-empty override equals that absent discovery path
+- **THEN** the missing path SHALL be passed to the repository and startup SHALL fail closed
+- **AND WHEN** discovery names a directory or symlink
+- **THEN** configuration SHALL fail closed before database creation
 - **AND WHEN** a non-empty explicit override disagrees with deployment discovery
 - **THEN** configuration SHALL fail closed
 - **AND** arbitrary explicit paths MAY remain available only when no deployment discovery policy

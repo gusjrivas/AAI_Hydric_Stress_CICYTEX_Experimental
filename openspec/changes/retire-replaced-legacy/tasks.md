@@ -64,3 +64,7 @@
   database.
 - [x] 8.3 Implement discovery-aware configuration with RED `4d16042` and GREEN `3b77826`; Compose,
   fresh-volume, matching migration, conflict and private-503 regressions pass.
+- [x] 8.4 Specify missing explicit targets, directory/symlink discovery, fresh absence and
+  no-policy compatibility as fail-closed boundary cases.
+- [ ] 8.5 Reject invalid discovery node types and force an explicit missing target through the
+  repository so every deployment-policy failure remains a private 503 with no database creation.

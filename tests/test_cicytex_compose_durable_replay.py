@@ -7,7 +7,10 @@ from pathlib import Path, PurePosixPath
 import pytest
 import yaml
 
-from backend.app.config import get_cicytex_legacy_feedback_json
+from backend.app.config import (
+    CicytexLegacyFeedbackConfigurationError,
+    get_cicytex_legacy_feedback_json,
+)
 from historical_replay.adapters import sqlite_sessions
 from historical_replay.cicytex_feedback import CicytexFeedbackRepositoryError
 
@@ -275,15 +278,73 @@ def test_deployment_discovers_existing_legacy_feedback_when_override_is_empty(
     assert get_cicytex_legacy_feedback_json() == legacy
 
 
+@pytest.mark.parametrize("configured", (None, ""))
 def test_deployment_discovery_absent_keeps_fresh_volume_empty(
     tmp_path: Path,
+    configured: str | None,
     monkeypatch: pytest.MonkeyPatch,
 ):
     discovery = tmp_path / "feedback.json"
     monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(discovery))
-    monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+    if configured is None:
+        monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+    else:
+        monkeypatch.setenv(LEGACY_FEEDBACK_KEY, configured)
 
     assert get_cicytex_legacy_feedback_json() is None
+
+
+def test_matching_explicit_missing_legacy_path_is_returned_for_fail_closed_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    discovery = tmp_path / "missing-feedback.json"
+    monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(discovery))
+    monkeypatch.setenv(LEGACY_FEEDBACK_KEY, str(discovery))
+
+    assert get_cicytex_legacy_feedback_json() == discovery
+
+
+def test_discovery_directory_is_rejected_as_invalid_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    discovery = tmp_path / "feedback.json"
+    discovery.mkdir()
+    monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(discovery))
+    monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+
+    with pytest.raises(CicytexLegacyFeedbackConfigurationError):
+        get_cicytex_legacy_feedback_json()
+
+
+def test_discovery_symlink_is_rejected_as_invalid_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    target = tmp_path / "captured-feedback.json"
+    discovery = tmp_path / "feedback.json"
+    target.write_text("{}", encoding="utf-8")
+    try:
+        discovery.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this host")
+    monkeypatch.setenv(LEGACY_FEEDBACK_DISCOVERY_KEY, str(discovery))
+    monkeypatch.delenv(LEGACY_FEEDBACK_KEY, raising=False)
+
+    with pytest.raises(CicytexLegacyFeedbackConfigurationError):
+        get_cicytex_legacy_feedback_json()
+
+
+def test_explicit_legacy_path_remains_supported_without_discovery_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    configured = tmp_path / "administrator-selected.json"
+    monkeypatch.delenv(LEGACY_FEEDBACK_DISCOVERY_KEY, raising=False)
+    monkeypatch.setenv(LEGACY_FEEDBACK_KEY, str(configured))
+
+    assert get_cicytex_legacy_feedback_json() == configured
 
 
 def test_deployment_rejects_explicit_legacy_path_that_disagrees_with_discovery(
