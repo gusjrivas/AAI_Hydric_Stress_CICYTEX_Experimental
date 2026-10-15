@@ -17,6 +17,7 @@ SESSION_DATABASE = f"{VOLUME_TARGET}/cicytex_replay_sessions.sqlite3"
 LEGACY_FEEDBACK = f"{VOLUME_TARGET}/feedback.json"
 LEGACY_ENVIRONMENT_KEY = "CICYTEX_REPLAY_FEEDBACK_DIR"
 LEGACY_FEEDBACK_KEY = "CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON"
+LEGACY_FEEDBACK_DEFAULT = "${CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON:-}"
 SESSION_DATABASE_KEY = "CICYTEX_REPLAY_SESSION_DB"
 
 
@@ -26,7 +27,11 @@ def _load_compose() -> dict:
     return document
 
 
-def _assert_durable_replay_storage(document: dict) -> None:
+def _assert_durable_replay_storage(
+    document: dict,
+    *,
+    legacy_feedback_override: str = "",
+) -> None:
     violations: list[str] = []
     if type(document) is not dict:
         raise AssertionError("compose document must be a mapping")
@@ -44,8 +49,8 @@ def _assert_durable_replay_storage(document: dict) -> None:
         violations.append(f"legacy {LEGACY_ENVIRONMENT_KEY} must be absent")
     if environment.get(SESSION_DATABASE_KEY) != SESSION_DATABASE:
         violations.append(f"{SESSION_DATABASE_KEY} must equal {SESSION_DATABASE}")
-    if environment.get(LEGACY_FEEDBACK_KEY) != LEGACY_FEEDBACK:
-        violations.append(f"{LEGACY_FEEDBACK_KEY} must equal {LEGACY_FEEDBACK}")
+    if environment.get(LEGACY_FEEDBACK_KEY) != LEGACY_FEEDBACK_DEFAULT:
+        violations.append(f"{LEGACY_FEEDBACK_KEY} must use optional empty-default interpolation")
 
     expected_mount = f"{VOLUME_KEY}:{VOLUME_TARGET}"
     if type(mounts) is not list or mounts.count(expected_mount) != 1:
@@ -68,9 +73,10 @@ def _assert_durable_replay_storage(document: dict) -> None:
         str(PurePosixPath(configured_database).parent) != VOLUME_TARGET
     ):
         violations.append("session database parent must equal the mounted durable target")
-    configured_legacy = environment.get(LEGACY_FEEDBACK_KEY)
-    if type(configured_legacy) is str and (
-        str(PurePosixPath(configured_legacy).parent) != VOLUME_TARGET
+    if legacy_feedback_override and legacy_feedback_override != LEGACY_FEEDBACK:
+        violations.append(f"migration {LEGACY_FEEDBACK_KEY} must equal {LEGACY_FEEDBACK}")
+    if legacy_feedback_override and (
+        str(PurePosixPath(legacy_feedback_override).parent) != VOLUME_TARGET
     ):
         violations.append("legacy feedback parent must equal the mounted durable target")
 
@@ -87,7 +93,7 @@ def _valid_document() -> dict:
             "backend": {
                 "environment": {
                     SESSION_DATABASE_KEY: SESSION_DATABASE,
-                    LEGACY_FEEDBACK_KEY: LEGACY_FEEDBACK,
+                    LEGACY_FEEDBACK_KEY: LEGACY_FEEDBACK_DEFAULT,
                 },
                 "volumes": [f"{VOLUME_KEY}:{VOLUME_TARGET}"],
             }
@@ -186,3 +192,31 @@ def test_durable_replay_storage_contract_rejects_unsafe_mutations(
 
 def test_durable_replay_storage_contract_accepts_only_the_coherent_profile():
     _assert_durable_replay_storage(_valid_document())
+
+
+def test_fresh_volume_accepts_an_empty_optional_legacy_feedback_override():
+    _assert_durable_replay_storage(_valid_document(), legacy_feedback_override="")
+
+
+def test_existing_deployment_accepts_only_the_exact_legacy_migration_path():
+    _assert_durable_replay_storage(
+        _valid_document(),
+        legacy_feedback_override=LEGACY_FEEDBACK,
+    )
+
+
+@pytest.mark.parametrize(
+    "legacy_feedback_override",
+    (
+        f"{VOLUME_TARGET}/other.json",
+        "/workspace/data/feedback.json",
+    ),
+)
+def test_existing_deployment_rejects_an_incoherent_legacy_migration_path(
+    legacy_feedback_override: str,
+):
+    with pytest.raises(AssertionError):
+        _assert_durable_replay_storage(
+            _valid_document(),
+            legacy_feedback_override=legacy_feedback_override,
+        )

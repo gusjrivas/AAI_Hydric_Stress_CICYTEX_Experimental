@@ -12,11 +12,14 @@ imports that file when `CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON` names it explicitly
 
 The deployment SHALL set
 `CICYTEX_REPLAY_SESSION_DB=/workspace/cicytex-feedback/cicytex_replay_sessions.sqlite3`, remove
-`CICYTEX_REPLAY_FEEDBACK_DIR`, set
-`CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON=/workspace/cicytex-feedback/feedback.json`, and preserve both
-the `cicytex-feedback` compose key and external name `aai-cicytex-experiment-feedback`.  The
-database parent, legacy-file parent and mount target are one closed contract, verified by parsing
-Compose rather than matching independent strings.
+`CICYTEX_REPLAY_FEEDBACK_DIR`, and declare
+`CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON=${CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON:-}`.  The empty default
+keeps fresh volumes valid without inventing a legacy file.  An existing deployment that contains
+the historical file MUST opt in with the exact override
+`CICYTEX_REPLAY_LEGACY_FEEDBACK_JSON=/workspace/cicytex-feedback/feedback.json` for its migration
+window.  Both modes preserve the `cicytex-feedback` compose key and external name
+`aai-cicytex-experiment-feedback`.  The database parent, migration-file parent and mount target
+form one closed contract, verified by parsing Compose rather than matching independent strings.
 
 ## Live migration and rollback gate
 
@@ -41,6 +44,8 @@ importers and the v1-to-v2 migration remain until a separate, evidence-backed su
 
 ## Test strategy
 
-A parsed Compose contract validates both environment paths, their common parent, mount
-source/target and external volume identity together.  Mutation cases cover stale/missing/wrong
-variables, paths outside the mount, and removed or renamed mount/volume identities.
+A parsed Compose contract validates the durable database, empty-default legacy interpolation,
+mount source/target and external volume identity together.  A separate migration-mode assertion
+accepts only the exact historical file inside that mount.  Mutation cases cover stale,
+missing or fixed-value variables, migration paths outside the mount, and removed or renamed
+mount/volume identities.

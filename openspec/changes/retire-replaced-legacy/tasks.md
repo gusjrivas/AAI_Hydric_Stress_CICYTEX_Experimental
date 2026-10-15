@@ -1,7 +1,7 @@
 ## 1. RED durable deployment contract
 
-- [x] 1.1 Specify the exact SQLite database and legacy JSON paths under the preserved CICYTEX
-  feedback volume.
+- [x] 1.1 Specify the exact SQLite database, optional empty-default legacy setting, and exact
+  migration-only JSON override under the preserved CICYTEX feedback volume.
 - [x] 1.2 Reject the obsolete environment variable and incoherent path/mount/volume mutations.
 - [x] 1.3 Document quiesced or online-backup migration, integrity, row-count and rollback evidence.
 
