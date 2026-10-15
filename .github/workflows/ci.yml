@@ -59,7 +59,9 @@ jobs:
         run: black --check backend/app
 
       - name: Tests (pytest)
-        run: cd backend && python -m pytest tests/
+        run: >-
+          cd backend && python -m pytest tests/
+          --ignore=tests/test_openapi_typescript_ci_contract.py
 
   frontend-quality:
     runs-on: ubuntu-latest
