@@ -23,6 +23,10 @@ CATALOG_RESPONSE = {
     "first_legitimate_emission": "2023-07-06",
     "last_observation": "2023-07-25",
 }
+PARTIAL_HORIZON_CATALOG_RESPONSE = {
+    **CATALOG_RESPONSE,
+    "emission_dates_by_horizon": {"1": ["2023-07-06"]},
+}
 SESSION_RESPONSE = {
     "session_id": "contract-session",
     "sensor_id": "CP1_S1",
@@ -73,6 +77,11 @@ FEEDBACK_RESPONSE = {
 class _CatalogApplication:
     def catalog(self):
         return deepcopy(CATALOG_RESPONSE)
+
+
+class _PartialHorizonCatalogApplication:
+    def catalog(self):
+        return deepcopy(PARTIAL_HORIZON_CATALOG_RESPONSE)
 
 
 class _ReplayApplication:
@@ -196,6 +205,29 @@ def test_nullable_replay_fields_are_explicit_and_feedback_states_are_one_literal
         and "GET" in getattr(route, "methods", set())
     )
     assert historical_route.response_model_exclude_none is True
+
+
+def test_catalog_horizon_keys_are_closed_but_individually_optional_in_openapi():
+    document = app.openapi()
+    horizon_map = document["components"]["schemas"]["CicytexEmissionDatesByHorizon"]
+
+    assert horizon_map["additionalProperties"] is False
+    assert set(horizon_map["properties"]) == {"1", "2", "3"}
+    assert horizon_map.get("required", []) == []
+
+
+def test_partial_catalog_horizon_map_remains_an_exact_successful_http_response():
+    app.dependency_overrides[get_cicytex_catalog_application] = (
+        lambda: _PartialHorizonCatalogApplication()
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v2/cicytex/replay/catalog")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == PARTIAL_HORIZON_CATALOG_RESPONSE
 
 
 def test_cicytex_http_statuses_payloads_and_explicit_nulls_remain_byte_for_byte_compatible():
