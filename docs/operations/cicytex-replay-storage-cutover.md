@@ -41,6 +41,32 @@ sessions.  Supply its expected SHA-256.  Any foreign, ambiguous, temporally inva
 record aborts the whole stage.  The original JSON remains immutable and authoritative until the
 cutover is independently accepted.
 
+## Command examples
+
+Run the tool only against an offline capture or SQLite online-backup input, never against the
+active volume path.  The output directory must not already exist.
+
+```text
+python scripts/stage_cicytex_replay_cutover.py \
+  --source-database /captured/cicytex_replay_sessions.sqlite3 \
+  --expected-database-sha256 <64-lowercase-hex-database-sha256> \
+  --legacy-feedback-json /captured/feedback.json \
+  --expected-legacy-sha256 <64-lowercase-hex-feedback-sha256> \
+  --output-dir /staging/cicytex-replay-cutover
+```
+
+Omit both legacy arguments when there is no legacy JSON.  A truly new deployment uses the explicit
+empty-source mode:
+
+```text
+python scripts/stage_cicytex_replay_cutover.py \
+  --empty-source \
+  --output-dir /staging/cicytex-replay-empty
+```
+
+A nonzero exit means the stage failed closed.  Do not reuse a partial or preexisting output path;
+inspect no evidence until the atomic output directory has been published successfully.
+
 ## Required evidence
 
 The staging directory contains only `cicytex_replay_sessions.sqlite3` and

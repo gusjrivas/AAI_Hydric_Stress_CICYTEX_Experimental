@@ -12,9 +12,12 @@
 
 ## 3. Bounded retirement audit
 
-- [ ] 3.1 Prove zero productive, dynamic, script, configuration and recovery consumers per target.
-- [ ] 3.2 Retain compatibility importers and schema migration until an explicit sunset gate exists.
-- [ ] 3.3 Retire approved test/config residue in independent TDD slices.
+- [x] 3.1 Prove zero productive, dynamic, script, configuration and recovery consumers per target;
+  absence gates landed in RED `f003d05` and `3c1f287` before removal.
+- [x] 3.2 Retain compatibility importers and schema-v1 migration until an explicit sunset gate exists;
+  cutover and discovery regressions continue to exercise those preserved paths.
+- [x] 3.3 Retire approved residue in independent TDD slices: in-memory adapter
+  `f003d05`→`f32e2a3`, then training aliases `3c1f287`→`912de78`.
 
 ## 4. Test-only session repository retirement
 
@@ -40,8 +43,9 @@
   session lineage.
 - [x] 6.3 Publish the operator runbook while keeping the active volume and all captured inputs
   immutable.
-- [ ] 6.4 Implement `scripts/stage_cicytex_replay_cutover.py` and pass the focused failure,
-  privacy, alias and regression gates before any live cutover.
+- [x] 6.4 Implement `scripts/stage_cicytex_replay_cutover.py`: RED `76df63b`, GREEN
+  `7df60e6`, safety/snapshot hardening `4f52d18`, `bea574f`, `1283f02`; focused failure,
+  privacy, alias and regression gates pass without performing a live cutover.
 
 ## 7. Source snapshot and sidecar safety hardening
 
@@ -49,8 +53,8 @@
   comparison, staged byte size and symlink-ancestor rejection.
 - [x] 7.2 Document WAL byte stability and the narrower SHM ownership guarantee without claiming
   byte identity for ephemeral SQLite reader marks.
-- [ ] 7.3 Reject late sidecars without deleting source files and emit the complete comparison
-  evidence before declaring the staging tool ready.
+- [x] 7.3 Reject late sidecars without deleting source files and bind complete comparison evidence
+  to the immutable backup snapshot (`4f52d18`, `bea574f`, `1283f02`).
 
 ## 8. Preserved legacy-feedback discovery
 
@@ -58,5 +62,5 @@
   validation and explicit-override conflict rejection.
 - [x] 8.2 Document why feedback-only volumes must block instead of silently bootstrapping an empty
   database.
-- [ ] 8.3 Implement discovery-aware configuration and pass Compose, fresh-volume, migration and
-  private-503 regressions.
+- [x] 8.3 Implement discovery-aware configuration with RED `4d16042` and GREEN `3b77826`; Compose,
+  fresh-volume, matching migration, conflict and private-503 regressions pass.
