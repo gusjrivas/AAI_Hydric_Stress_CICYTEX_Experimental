@@ -53,6 +53,13 @@ repository-owned schema offline.  They are therefore recorded as non-blocking
 for this foundation PR and remain dependency-maintenance work; this assessment
 does not downgrade or auto-fix them.
 
+The new real-generator integration test may use an explicit 30-second timeout
+because it starts two cross-platform subprocesses; the timeout changes no
+assertion or success criterion.  Adding generated declarations must not be
+used to remove tests from TypeScript coverage: the application build continues
+to type-check test sources, or an equally mandatory test type-check target runs
+as part of the same build gate.
+
 ## Type safety and rollout boundary
 
 The generated source is checked through a TypeScript AST representation.

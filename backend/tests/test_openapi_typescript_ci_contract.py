@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from pathlib import Path
 
 import yaml
@@ -135,3 +137,14 @@ def test_generated_schema_remains_foundation_only_and_has_no_product_importers()
             offenders.append(path.relative_to(ROOT).as_posix())
     assert offenders == []
     assert not any("client" in path.name.lower() for path in GENERATED_ROOT.iterdir())
+
+
+def test_frontend_build_does_not_drop_test_sources_from_typecheck_coverage():
+    source = (FRONTEND_ROOT / "tsconfig.app.json").read_text(encoding="utf-8")
+    without_block_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    config = json.loads(without_block_comments)
+
+    assert config["include"] == ["src"]
+    excluded = config.get("exclude", [])
+    assert all("test" not in pattern.lower() for pattern in excluded)
+    assert all("spec" not in pattern.lower() for pattern in excluded)

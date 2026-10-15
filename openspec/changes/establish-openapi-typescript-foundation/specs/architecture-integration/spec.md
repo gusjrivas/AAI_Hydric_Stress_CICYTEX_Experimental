@@ -83,3 +83,11 @@ client or be imported by production backend/frontend modules in this change.
 - **THEN** it uses Python 3.11, Node 22 and the exact backend constraints
 - **AND** it runs plain `npm ci`, the focused toolchain tests and `api:check`
 - **AND** generation starts no server and uses no HTTP, URL or `npx` fallback.
+
+#### Scenario: generator integration remains stable and type-checked
+
+- **WHEN** the complete frontend suite runs under concurrent test load
+- **THEN** the real local generator integration retains all byte assertions and
+  has an explicit bounded subprocess timeout
+- **AND** adding generated declarations does not globally exclude test sources
+  from mandatory TypeScript type-check coverage.
