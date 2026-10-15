@@ -60,3 +60,20 @@ script, configuration and recovery paths SHALL NOT import or dynamically resolve
   dynamically name `historical_replay.adapters.in_memory_sessions`
 - **AND** duplicate-ID conflicts, atomic updates and `with_session` serialization SHALL remain
   covered by the migrated tests
+
+### Requirement: CICYTEX training contracts have one canonical module
+
+Feature construction, temporal split types and split functions SHALL be imported from
+`experiment_runner.cicytex.training_protocol`; the experiment runner SHALL NOT republish private
+compatibility aliases or retain unused partition imports.
+
+#### Scenario: Legacy experiment training aliases are retired
+
+- **GIVEN** tests and provenance consumers use the canonical training protocol
+- **WHEN** `experiment.py` is inspected structurally
+- **THEN** it SHALL NOT import or bind `TemporalSplit`, `build_features`, `temporal_split`, `_part`
+  or the unused `select_partition`
+- **AND** `FEATURES`, `FAMILY_PARAMS` and `prepare_horizon` SHALL remain the runner's canonical
+  dependencies
+- **AND** feature boundaries, temporal partitions, experiment outputs and provenance equivalence
+  SHALL remain unchanged

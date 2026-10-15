@@ -23,3 +23,11 @@
 - [x] 4.2 Migrate replay-session tests and CICYTEX dependency fakes to the test-only helper.
 - [ ] 4.3 Remove the production-path in-memory adapter after the absence and zero-consumer gate is
   RED first and all replay regressions remain green.
+
+## 5. Canonical CICYTEX training seam
+
+- [x] 5.1 Migrate experiment and provenance tests to import feature/split contracts directly from
+  `training_protocol`.
+- [x] 5.2 Specify AST mutation evidence against legacy aliases and the unused partition import.
+- [ ] 5.3 Remove the aliases and unused import from `experiment.py` while preserving the complete
+  experiment, protocol and provenance regression suites.

@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from experiment_runner.cicytex.dataset_contract import CICYTEX_NORMALIZED_V1
-from experiment_runner.cicytex.experiment import FEATURES
+from experiment_runner.cicytex.training_protocol import FEATURES
 
 
 def _write_dataset(root: Path) -> None:
