@@ -1,55 +1,43 @@
 import { PRODUCER_API_BASE_URL } from "../../api/baseUrl";
+import type { components, operations } from "../../api/generated/schema";
 import { ProducerV2UnavailableError } from "./catalogApi";
 
-export type ReviewStatus = "pending" | "confirmed" | "rejected";
-export type ReviewAction = "confirm" | "reject";
+type ListForecastsOperation =
+  operations["list_forecasts_api_v2_sensors__sensor_id__forecasts_get"];
+type GetForecastOperation =
+  operations["get_forecast_api_v2_sensors__sensor_id__forecasts__forecast_id__get"];
+type CreateReviewOperation =
+  operations["create_review_api_v2_sensors__sensor_id__forecasts__forecast_id__reviews_post"];
+type CreateForecastsOperation =
+  operations["create_forecasts_api_v2_sensors__sensor_id__forecasts_post"];
 
-export interface EventThreshold {
-  variable: string;
-  value: number;
-  unit: string;
-  comparison: "lt";
-}
+type ReviewCreate = components["schemas"]["ReviewCreate"];
+type EmissionRequest = components["schemas"]["EmissionRequest"];
+type IdempotencyKey =
+  CreateForecastsOperation["parameters"]["header"]["idempotency-key"];
+type Expand<Type> = { [Key in keyof Type]: Type[Key] };
 
-export interface ModelReference {
-  model_version: string | null;
-  horizon_days: 1 | 2 | 3;
-  contract_version: string;
-  trained_through: string | null;
-  calibration_version: string | null;
-  assessment_reference: string | null;
-}
-
-export interface LatestReview {
-  review_id: string;
-  request_id: string;
-  revision: number;
-  forecast_id: string;
-  action: ReviewAction;
-  observed_label: boolean;
-  comment: string | null;
-  reviewed_at: string;
-}
-
-export type TrainingEligibility =
-  | "no_review"
-  | "waiting_target_maturity"
-  | "requires_mature_revalidation"
-  | "compatible_correction"
-  | "confirmation_only"
-  | "incompatible_source_model"
-  | "incompatible_contract"
-  | "insufficient_data"
-  | "applied";
+export type EventThreshold = components["schemas"]["EventThreshold"];
+export type ModelReference = Pick<
+  components["schemas"]["ModelReference"],
+  | "model_version"
+  | "horizon_days"
+  | "contract_version"
+  | "trained_through"
+  | "calibration_version"
+  | "assessment_reference"
+>;
+export type LatestReview = components["schemas"]["LatestReview"];
+export type ForecastReview =
+  CreateReviewOperation["responses"][201]["content"]["application/json"];
+export type ReviewStatus = ForecastReview["status"];
+export type ReviewAction = ReviewCreate["action"];
+export type TrainingEligibility = ForecastReview["training_eligibility"];
 
 /** Motivos por los que una revisión no está habilitada. Los tres `target_*`
  * solo los informa el recorrido histórico (observación de la variable
  * objetivo imputada, ausente o de procedencia no verificada). */
-export type ReviewBlockedReason =
-  | "review_not_open"
-  | "target_observation_imputed"
-  | "target_observation_missing"
-  | "target_observation_unverified";
+export type ReviewBlockedReason = NonNullable<ForecastReview["blocked_reason"]>;
 
 export const TARGET_OBSERVATION_MESSAGES: Partial<Record<ReviewBlockedReason, string>> = {
   target_observation_imputed:
@@ -64,68 +52,30 @@ export function isTargetObservationReason(value: unknown): value is ReviewBlocke
   return typeof value === "string" && value in TARGET_OBSERVATION_MESSAGES;
 }
 
-export interface ForecastReview {
-  status: ReviewStatus;
-  revision: number;
-  review_open_at: string;
-  reviewable: boolean;
-  blocked_reason: ReviewBlockedReason | null;
-  latest_review: LatestReview | null;
-  training_eligibility: TrainingEligibility;
-  applied_review_references: string[];
-}
+type GeneratedEnsembleVote = components["schemas"]["EnsembleComponentVote"];
+type GeneratedEnsemble = components["schemas"]["EnsembleDetail"];
+type GeneratedForecast =
+  GetForecastOperation["responses"][200]["content"]["application/json"];
 
-export type EnsembleFamily = "logistic_regression" | "random_forest" | "hist_gradient_boosting_classifier";
-
-export type AgreementCategory =
-  | "alerta_por_unanimidad"
-  | "posible_alerta_acuerdo_parcial"
-  | "sin_alerta_por_mayoria_con_discrepancia"
-  | "sin_alerta_por_unanimidad";
-
-export interface EnsembleComponentVote {
-  family: EnsembleFamily;
-  model_reference: ModelReference;
-  calibrated_through: string;
-  score: number;
-  decision_threshold: number;
-  alert: boolean;
-}
-
-export interface EnsembleDetail {
-  policy_version: string;
-  ensemble_identity_sha256: string;
-  weights: Record<EnsembleFamily, number>;
-  components: EnsembleComponentVote[];
-  combined_probability: number;
-  combined_alert: boolean;
-  positive_votes: number;
-  agreement_category: AgreementCategory;
-  calibrated_through: string;
-}
-
-export interface Forecast {
-  forecast_id: string;
-  sensor_id: string;
-  batch_id: string;
-  as_of_date: string;
-  horizon_days: 1 | 2 | 3;
-  target_date: string;
-  contract_version: string;
-  issued_at: string;
-  snapshot_id: string;
-  alert: boolean;
-  score: number;
-  score_kind: "raw_model_score" | "calibrated_probability" | "ensemble_mean_of_calibrated_components";
-  display_probability: number | null;
-  probability_status: "development_assessed" | "not_qualified";
-  probability_reason_code: string | null;
-  decision_threshold: number;
-  event_threshold: EventThreshold;
-  model_reference: ModelReference;
-  review: ForecastReview;
-  ensemble: EnsembleDetail | null;
-}
+export type EnsembleFamily = GeneratedEnsembleVote["family"];
+export type AgreementCategory = GeneratedEnsemble["agreement_category"];
+export type EnsembleComponentVote = Expand<
+  Omit<GeneratedEnsembleVote, "model_reference"> & {
+    model_reference: ModelReference;
+  }
+>;
+export type EnsembleDetail = Expand<
+  Omit<GeneratedEnsemble, "weights" | "components"> & {
+    weights: Record<EnsembleFamily, number>;
+    components: EnsembleComponentVote[];
+  }
+>;
+export type Forecast = Expand<
+  Omit<GeneratedForecast, "ensemble" | "model_reference"> & {
+    ensemble: EnsembleDetail | null;
+    model_reference: ModelReference;
+  }
+>;
 
 const FAMILY_LABELS: Record<EnsembleFamily, string> = {
   logistic_regression: "Regresión logística",
@@ -155,21 +105,21 @@ export function agreementVotesLabel(ensemble: EnsembleDetail): string {
   return `${ensemble.positive_votes} de ${ensemble.components.length} modelos indican alerta`;
 }
 
-export interface ForecastListFilters {
-  targetFrom?: string;
-  targetTo?: string;
-  horizonDays?: 1 | 2 | 3;
-  reviewStatus?: ReviewStatus;
-  limit?: number;
-  cursor?: string;
-}
+type ForecastListQuery = NonNullable<ListForecastsOperation["parameters"]["query"]>;
+type GeneratedForecastList =
+  ListForecastsOperation["responses"][200]["content"]["application/json"];
 
-export interface ForecastListResult {
-  items: Forecast[];
-  next_cursor: string | null;
-  pending_total: number;
-  reviewable_pending_total: number;
-}
+export type ForecastListFilters = {
+  targetFrom?: NonNullable<ForecastListQuery["target_from"]>;
+  targetTo?: NonNullable<ForecastListQuery["target_to"]>;
+  horizonDays?: NonNullable<ForecastListQuery["horizon_days"]> & Forecast["horizon_days"];
+  reviewStatus?: NonNullable<ForecastListQuery["review_status"]> & ReviewStatus;
+  limit?: NonNullable<ForecastListQuery["limit"]>;
+  cursor?: NonNullable<ForecastListQuery["cursor"]>;
+};
+export type ForecastListResult = Expand<
+  Omit<GeneratedForecastList, "items"> & { items: Forecast[] }
+>;
 
 /** Emisión o revisión inexistente para este sensor (404 con cuerpo v2). */
 export class ForecastNotFoundError extends Error {
@@ -250,12 +200,14 @@ export class ForecastCursorExpiredError extends Error {
   constructor() { super("La lista cambió. Volvé a cargarla para seguir viendo resultados."); this.name = "ForecastCursorExpiredError"; }
 }
 
-function forecastsPath(sensorId: string): string {
+function forecastsPath(
+  sensorId: ListForecastsOperation["parameters"]["path"]["sensor_id"],
+): string {
   return `${PRODUCER_API_BASE_URL}/api/v2/sensors/${encodeURIComponent(sensorId)}/forecasts`;
 }
 
 export async function listForecasts(
-  sensorId: string,
+  sensorId: ListForecastsOperation["parameters"]["path"]["sensor_id"],
   filters: ForecastListFilters = {},
 ): Promise<ForecastListResult> {
   const query = new URLSearchParams();
@@ -276,7 +228,10 @@ export async function listForecasts(
   throw new Error("No se pudieron consultar los pronósticos. Intentá nuevamente.");
 }
 
-export async function getForecast(sensorId: string, forecastId: string): Promise<Forecast> {
+export async function getForecast(
+  sensorId: GetForecastOperation["parameters"]["path"]["sensor_id"],
+  forecastId: GetForecastOperation["parameters"]["path"]["forecast_id"],
+): Promise<Forecast> {
   const response = await fetch(`${forecastsPath(sensorId)}/${encodeURIComponent(forecastId)}`);
   if (response.ok) return response.json();
 
@@ -288,27 +243,28 @@ export async function getForecast(sensorId: string, forecastId: string): Promise
   throw new Error(error?.message ?? "No se pudo consultar este pronóstico. Intentá nuevamente.");
 }
 
-export interface ReviewRequest {
-  requestId: string;
-  expectedRevision: number;
-  action: ReviewAction;
-  comment: string | null;
-}
+export type ReviewRequest = {
+  requestId: ReviewCreate["request_id"];
+  expectedRevision: ReviewCreate["expected_revision"];
+  action: ReviewCreate["action"];
+  comment: Exclude<ReviewCreate["comment"], undefined>;
+};
 
 export async function submitReview(
-  sensorId: string,
-  forecastId: string,
+  sensorId: CreateReviewOperation["parameters"]["path"]["sensor_id"],
+  forecastId: CreateReviewOperation["parameters"]["path"]["forecast_id"],
   request: ReviewRequest,
 ): Promise<ForecastReview> {
+  const payload = {
+    request_id: request.requestId,
+    expected_revision: request.expectedRevision,
+    action: request.action,
+    comment: request.comment,
+  } satisfies ReviewCreate;
   const response = await fetch(`${forecastsPath(sensorId)}/${encodeURIComponent(forecastId)}/reviews`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      request_id: request.requestId,
-      expected_revision: request.expectedRevision,
-      action: request.action,
-      comment: request.comment,
-    }),
+    body: JSON.stringify(payload),
   });
   if (response.ok) return response.json();
 
@@ -376,16 +332,39 @@ export function displayProbability(forecast: Forecast): string {
   return `${Math.round(forecast.display_probability * 100)} %`;
 }
 
-export type ForecastSlot = (Forecast & { status: "available" }) | { horizon_days: 1 | 2 | 3; target_date: string | null; status: "unavailable"; reason_code: string };
-export interface ForecastBatch {
-  batch_id: string | null; revision: number; as_of_date: string | null;
-  data_age_days: number | null; server_today: string; slots: ForecastSlot[];
-  provenance: "real" | "synthetic" | "external_reanalysis" | "mixed" | "unknown";
-  calendar_timezone: "UTC";
-}
-export async function emitForecasts(sensorId: string, requestId: string): Promise<ForecastBatch> {
+type GeneratedAvailableSlot = components["schemas"]["AvailableForecastSlot"];
+type GeneratedUnavailableSlot = components["schemas"]["UnavailableForecastSlot"];
+type GeneratedForecastBatch =
+  CreateForecastsOperation["responses"][200 | 201]["content"]["application/json"];
+
+export type ForecastSlot =
+  | (Forecast & Pick<GeneratedAvailableSlot, "status">)
+  | Pick<
+      GeneratedUnavailableSlot,
+      "horizon_days" | "target_date" | "status" | "reason_code"
+    >;
+export type ForecastBatch = Expand<
+  Pick<
+    GeneratedForecastBatch,
+    | "batch_id"
+    | "revision"
+    | "as_of_date"
+    | "data_age_days"
+    | "server_today"
+    | "provenance"
+    | "calendar_timezone"
+  > & { slots: ForecastSlot[] }
+>;
+export async function emitForecasts(
+  sensorId: CreateForecastsOperation["parameters"]["path"]["sensor_id"],
+  requestId: IdempotencyKey,
+): Promise<ForecastBatch> {
+  const emissionRequest = {} satisfies EmissionRequest;
+  const idempotencyKey: IdempotencyKey = requestId;
   const response = await fetch(forecastsPath(sensorId), {
-    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": requestId }, body: "{}",
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(emissionRequest),
   });
   if (response.ok) return response.json();
   const error = await readErrorEnvelope(response);
