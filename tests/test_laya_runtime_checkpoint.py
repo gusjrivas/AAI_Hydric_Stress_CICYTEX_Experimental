@@ -1,8 +1,10 @@
 import ast
+import gc
 import inspect
 import json
 import os
 import sys
+import weakref
 from dataclasses import FrozenInstanceError, dataclass, fields, is_dataclass, replace
 from itertools import chain, repeat
 from pathlib import Path
@@ -586,13 +588,23 @@ def test_issued_checkpoint_topology_retains_original_manifest_authority(monkeypa
     evidence = _legitimate_checkpoint_evidence(monkeypatch)
     deployment = evidence.deployment_evidence
     original = deployment.checkpoint_manifest
-    references_while_attached = sys.getrefcount(original)
     cloned = _clone_all_slots(original)
+    try:
+        retained = weakref.ref(original)
+    except TypeError:
+        retained = None
     object.__setattr__(deployment, "checkpoint_manifest", cloned)
 
     # The issuance seal must retain the exact original node while evidence is alive.
     # Otherwise its id can be recycled and identity-only topology checks become unsafe.
-    assert sys.getrefcount(original) >= references_while_attached
+    if retained is not None:
+        del original
+        gc.collect()
+        assert retained() is not None
+    else:
+        # local + getrefcount temporary + at least one seal-owned strong reference;
+        # an id-only implementation has only the first two after replacement.
+        assert sys.getrefcount(original) >= 3
     with pytest.raises(ValueError):
         checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
 
