@@ -638,6 +638,26 @@ def test_official_apache_license_object_is_accepted_but_near_miss_is_rejected(
         provenance.verify_laya_runtime_provenance_objects(plan, corrupted_packets)
 
 
+def test_source_license_parser_accepts_only_canonical_newline_variants():
+    provenance = _provenance()
+    official = bz2.decompress(base64.b85decode(APACHE_2_LICENSE_B85))
+    inherited_short = b"Apache License\nVersion 2.0, January 2004\n"
+
+    provenance._source_license(official)
+    provenance._source_license(official.replace(b"\n", b"\r\n"))
+    provenance._source_license(inherited_short)
+
+    invalid = (
+        official.replace(b"\n", b"\r"),
+        official.replace(b"\n", b"\r\n", 1),
+        b"prefix\n" + official,
+        official + b"suffix\n",
+    )
+    for payload in invalid:
+        with pytest.raises(ValueError):
+            provenance._source_license(payload)
+
+
 def test_object_verifier_rejects_wrong_type_size_sha1_sha256_and_stream_shape():
     provenance = _provenance()
     bad_plan = SimpleNamespace()
