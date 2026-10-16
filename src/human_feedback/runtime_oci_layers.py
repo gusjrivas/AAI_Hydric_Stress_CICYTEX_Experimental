@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import weakref
 import zlib
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass, field, fields, is_dataclass
 
 import human_feedback.runtime_oci_layout as runtime_oci_layout
 from human_feedback.runtime_oci_config import (
@@ -22,6 +23,199 @@ MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES = 3 * 1_024 * 1_024 * 1_024
 
 _FACTORY_TOKEN = object()
 _LAYER_ROLES = tuple(f"layer-{index:02d}" for index in range(10))
+_MAX_SEMANTIC_NODES = 8_192
+_MAX_SEMANTIC_ITEMS = 8_192
+_MAX_SEMANTIC_DEPTH = 64
+
+
+class _FactorySealed:
+    __slots__ = ("_factory_capability", "_semantic_capability")
+
+
+class _IssuedRecord:
+    __slots__ = ("reference", "semantics")
+
+    def __init__(
+        self,
+        reference: weakref.ReferenceType[object],
+        semantics: tuple[object, ...],
+    ) -> None:
+        self.reference = reference
+        self.semantics = semantics
+
+
+class _IdentitySeal:
+    __slots__ = ("value",)
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def copy(self) -> _IdentitySeal:
+        return _IdentitySeal(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return type(other) is _IdentitySeal and self.value is other.value
+
+    def __repr__(self) -> str:
+        return "<sealed identity>"
+
+
+_ISSUED_PLANS: dict[int, _IssuedRecord] = {}
+_ISSUED_RECEIPTS: dict[int, _IssuedRecord] = {}
+_ISSUED_AUTHORITIES: dict[int, _IssuedRecord] = {}
+_ISSUED_EVIDENCE: dict[int, _IssuedRecord] = {}
+
+
+def _caller_semantic_mirror(value: object) -> object:
+    """Copy capability metadata without sharing the authoritative record."""
+
+    if type(value) is _IdentitySeal:
+        return value.copy()
+    if type(value) is tuple:
+        return tuple(_caller_semantic_mirror(item) for item in value)
+    return value
+
+
+def _register_issued(
+    value: object,
+    registry: dict[int, _IssuedRecord],
+    semantics: tuple[object, ...],
+) -> None:
+    object.__setattr__(value, "_semantic_capability", _caller_semantic_mirror(semantics))
+    object.__setattr__(value, "_factory_capability", _FACTORY_TOKEN)
+    identity = id(value)
+    record: _IssuedRecord | None = None
+
+    def cleanup(expired: weakref.ReferenceType[object]) -> None:
+        if record is not None:
+            # A retained stale record must not keep the issued nested graph alive.
+            record.semantics = ()
+        current = registry.get(identity)
+        if current is record and current.reference is expired:
+            registry.pop(identity, None)
+
+    reference = weakref.ref(value, cleanup)
+    record = _IssuedRecord(reference, semantics)
+    registry[identity] = record
+
+
+def _require_issued(
+    value: object,
+    expected_type: type,
+    registry: dict[int, _IssuedRecord],
+    semantics: tuple[object, ...],
+    message: str,
+) -> None:
+    record = registry.get(id(value))
+    if (
+        type(value) is not expected_type
+        or getattr(value, "_factory_capability", None) is not _FACTORY_TOKEN
+        or record is None
+        or record.reference() is not value
+        or record.semantics != semantics
+    ):
+        raise ValueError(message)
+
+
+def _deep_semantic_snapshot(
+    value: object,
+    *,
+    _active: set[int] | None = None,
+    _budget: list[int] | None = None,
+    _depth: int = 0,
+) -> tuple[object, ...]:
+    """Create a bounded immutable snapshot while retaining nested identities."""
+
+    if not 0 <= _depth <= _MAX_SEMANTIC_DEPTH:
+        raise ValueError("OCI layer semantic graph exceeds depth limit")
+    active = set() if _active is None else _active
+    budget = [_MAX_SEMANTIC_NODES] if _budget is None else _budget
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise ValueError("OCI layer semantic graph exceeds node limit")
+    if value is None:
+        return ("none",)
+    if type(value) is bool:
+        return ("bool", value)
+    if type(value) is int:
+        return ("int", value)
+    if type(value) is float:
+        return ("float", value.hex())
+    if type(value) is str:
+        return ("str", value)
+    if type(value) is bytes:
+        return ("bytes", _IdentitySeal(value), len(value), hashlib.sha256(value).hexdigest())
+
+    identity = id(value)
+    if identity in active:
+        raise ValueError("OCI layer semantic graph contains a cycle")
+    active.add(identity)
+    try:
+        if type(value) in {tuple, list}:
+            if len(value) > _MAX_SEMANTIC_ITEMS:
+                raise ValueError("OCI layer semantic sequence exceeds item limit")
+            return (
+                type(value).__name__,
+                _IdentitySeal(value),
+                tuple(
+                    _deep_semantic_snapshot(
+                        item,
+                        _active=active,
+                        _budget=budget,
+                        _depth=_depth + 1,
+                    )
+                    for item in value
+                ),
+            )
+        if type(value) is dict:
+            if len(value) > _MAX_SEMANTIC_ITEMS or any(type(key) is not str for key in value):
+                raise ValueError("OCI layer semantic mapping is invalid")
+            return (
+                "dict",
+                _IdentitySeal(value),
+                tuple(
+                    (
+                        key,
+                        _deep_semantic_snapshot(
+                            value[key],
+                            _active=active,
+                            _budget=budget,
+                            _depth=_depth + 1,
+                        ),
+                    )
+                    for key in sorted(value)
+                ),
+            )
+        if is_dataclass(value) and not isinstance(value, type):
+            attributes = tuple((item.name, getattr(value, item.name)) for item in fields(value))
+        elif hasattr(value, "__dict__") and type(vars(value)) is dict:
+            attributes = tuple(sorted(vars(value).items()))
+        else:
+            raise ValueError("OCI layer semantic graph contains unsupported value")
+        if len(attributes) > _MAX_SEMANTIC_ITEMS or any(
+            type(name) is not str for name, _item in attributes
+        ):
+            raise ValueError("OCI layer semantic object is invalid")
+        return (
+            "object",
+            _IdentitySeal(value),
+            type(value).__module__,
+            type(value).__qualname__,
+            tuple(
+                (
+                    name,
+                    _deep_semantic_snapshot(
+                        item,
+                        _active=active,
+                        _budget=budget,
+                        _depth=_depth + 1,
+                    ),
+                )
+                for name, item in attributes
+            ),
+        )
+    finally:
+        active.remove(identity)
 
 
 class _LayerExpansionError(ValueError):
@@ -38,8 +232,8 @@ def _raise_private(error_type: type[Exception], message: str) -> None:
     raise error
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class LayaOciLayerDiffIdPlan:
+@dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
+class LayaOciLayerDiffIdPlan(_FactorySealed):
     schema_version: str
     config_evidence: LayaRuntimeOciConfigEvidence = field(repr=False)
     layout_evidence: object = field(repr=False)
@@ -56,45 +250,84 @@ class LayaOciLayerDiffIdPlan:
     def __post_init__(self, _factory_token: object) -> None:
         if _factory_token is not _FACTORY_TOKEN:
             raise ValueError("OCI layer DiffID plan requires the factory seal token")
-        if self.schema_version != OCI_LAYER_DIFF_ID_PLAN_SCHEMA:
-            raise ValueError("OCI layer DiffID plan schema is invalid")
-        if type(self.config_evidence) is not LayaRuntimeOciConfigEvidence:
-            raise ValueError("OCI layer DiffID config evidence is invalid")
-        if (
-            self.layout_evidence is not self.config_evidence.layout_evidence
-            or self.layout_plan is not self.layout_evidence.plan
-            or self.runtime_identity is not self.config_evidence.runtime_identity
-            or self.runtime_identity is not self.layout_evidence.runtime_identity
-            or type(self.layer_blobs) is not tuple
-            or type(self.layer_receipts) is not tuple
-            or len(self.layer_blobs) != 10
-            or len(self.layer_receipts) != 10
-            or tuple(blob.role for blob in self.layer_blobs) != _LAYER_ROLES
-            or any(
-                blob is not self.layout_plan.blobs[position + 2]
-                for position, blob in enumerate(self.layer_blobs)
-            )
-            or any(
-                receipt is not self.layout_evidence.receipts[position + 2]
-                or receipt.plan is not self.layout_plan
-                or receipt.blob is not self.layer_blobs[position]
-                or receipt.blob_bytes_verified is not True
-                for position, receipt in enumerate(self.layer_receipts)
-            )
-            or type(self.declared_diff_ids) is not tuple
-            or self.declared_diff_ids is not self.config_evidence.config.declared_diff_ids
-            or len(self.declared_diff_ids) != 10
-            or self.oci_layer_diff_ids_verified is not False
-            or self.oci_rootfs_verified is not False
-            or self.origin_verified is not False
-        ):
-            raise ValueError("OCI layer DiffID plan binding is invalid")
+        _validate_plan_shape(self)
 
     __repr__ = _private_repr
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class VerifiedLayaOciLayerDiffId:
+def _validate_plan_shape(value: object) -> LayaOciLayerDiffIdPlan:
+    if type(value) is not LayaOciLayerDiffIdPlan:
+        raise TypeError("OCI layer DiffID plan must be an exact sealed value")
+    if type(value.config_evidence) is not LayaRuntimeOciConfigEvidence:
+        raise ValueError("OCI layer DiffID config evidence is invalid")
+    canonical_laya_runtime_oci_config_summary_bytes(value.config_evidence)
+    if (
+        value.schema_version != OCI_LAYER_DIFF_ID_PLAN_SCHEMA
+        or value.layout_evidence is not value.config_evidence.layout_evidence
+        or value.layout_plan is not value.layout_evidence.plan
+        or value.runtime_identity is not value.config_evidence.runtime_identity
+        or value.runtime_identity is not value.layout_evidence.runtime_identity
+        or type(value.layer_blobs) is not tuple
+        or type(value.layer_receipts) is not tuple
+        or len(value.layer_blobs) != 10
+        or len(value.layer_receipts) != 10
+        or tuple(blob.role for blob in value.layer_blobs) != _LAYER_ROLES
+        or any(
+            blob is not value.layout_plan.blobs[position + 2]
+            for position, blob in enumerate(value.layer_blobs)
+        )
+        or any(
+            receipt is not value.layout_evidence.receipts[position + 2]
+            or receipt.plan is not value.layout_plan
+            or receipt.blob is not value.layer_blobs[position]
+            or receipt.blob_bytes_verified is not True
+            for position, receipt in enumerate(value.layer_receipts)
+        )
+        or type(value.declared_diff_ids) is not tuple
+        or value.declared_diff_ids is not value.config_evidence.config.declared_diff_ids
+        or len(value.declared_diff_ids) != 10
+        or value.oci_layer_diff_ids_verified is not False
+        or value.oci_rootfs_verified is not False
+        or value.origin_verified is not False
+    ):
+        raise ValueError("OCI layer DiffID plan binding is invalid")
+    return value
+
+
+def _plan_semantics(plan: LayaOciLayerDiffIdPlan) -> tuple[object, ...]:
+    return (
+        plan.schema_version,
+        _IdentitySeal(plan.config_evidence),
+        _IdentitySeal(plan.layout_evidence),
+        _IdentitySeal(plan.layout_plan),
+        _IdentitySeal(plan.runtime_identity),
+        _IdentitySeal(plan.layer_blobs),
+        tuple(_IdentitySeal(blob) for blob in plan.layer_blobs),
+        _IdentitySeal(plan.layer_receipts),
+        tuple(_IdentitySeal(receipt) for receipt in plan.layer_receipts),
+        _IdentitySeal(plan.declared_diff_ids),
+        plan.declared_diff_ids,
+        plan.oci_layer_diff_ids_verified,
+        plan.oci_rootfs_verified,
+        plan.origin_verified,
+        _deep_semantic_snapshot(plan.config_evidence),
+    )
+
+
+def _require_issued_plan(value: object) -> LayaOciLayerDiffIdPlan:
+    value = _validate_plan_shape(value)
+    _require_issued(
+        value,
+        LayaOciLayerDiffIdPlan,
+        _ISSUED_PLANS,
+        _plan_semantics(value),
+        "OCI layer DiffID plan lacks issued authority",
+    )
+    return value
+
+
+@dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
+class VerifiedLayaOciLayerDiffId(_FactorySealed):
     plan: LayaOciLayerDiffIdPlan = field(repr=False)
     layer_blob: object = field(repr=False)
     compressed_receipt: object = field(repr=False)
@@ -112,28 +345,66 @@ class VerifiedLayaOciLayerDiffId:
     def __post_init__(self, _factory_token: object) -> None:
         if _factory_token is not _FACTORY_TOKEN:
             raise ValueError("OCI layer DiffID receipt requires the factory seal token")
-        if type(self.plan) is not LayaOciLayerDiffIdPlan:
-            raise ValueError("OCI layer DiffID receipt plan is invalid")
-        if (
-            type(self.layer_position) is not int
-            or not 0 <= self.layer_position < len(self.plan.layer_blobs)
-            or self.layer_blob is not self.plan.layer_blobs[self.layer_position]
-            or self.compressed_receipt is not self.plan.layer_receipts[self.layer_position]
-            or self.declared_diff_id is not self.plan.declared_diff_ids[self.layer_position]
-            or type(self.computed_diff_id) is not str
-            or self.computed_diff_id != self.declared_diff_id
-            or type(self.uncompressed_size_bytes) is not int
-            or self.uncompressed_size_bytes < 0
-            or self.uncompressed_size_bytes > MAX_OCI_LAYER_UNCOMPRESSED_BYTES
-            or self.compressed_blob_bytes_verified is not True
-            or self.layer_diff_id_verified is not True
-            or self.tar_semantics_verified is not False
-            or self.rootfs_verified is not False
-            or self.origin_verified is not False
-        ):
-            raise ValueError("OCI layer DiffID receipt binding is invalid")
+        _validate_receipt_shape(self)
 
     __repr__ = _private_repr
+
+
+def _validate_receipt_shape(value: object) -> VerifiedLayaOciLayerDiffId:
+    if type(value) is not VerifiedLayaOciLayerDiffId:
+        raise TypeError("OCI layer DiffID receipt type is invalid")
+    if type(value.plan) is not LayaOciLayerDiffIdPlan:
+        raise ValueError("OCI layer DiffID receipt plan is invalid")
+    plan = value.plan
+    if (
+        type(value.layer_position) is not int
+        or not 0 <= value.layer_position < len(plan.layer_blobs)
+        or value.layer_blob is not plan.layer_blobs[value.layer_position]
+        or value.compressed_receipt is not plan.layer_receipts[value.layer_position]
+        or value.declared_diff_id is not plan.declared_diff_ids[value.layer_position]
+        or type(value.computed_diff_id) is not str
+        or value.computed_diff_id != value.declared_diff_id
+        or type(value.uncompressed_size_bytes) is not int
+        or value.uncompressed_size_bytes < 0
+        or value.uncompressed_size_bytes > MAX_OCI_LAYER_UNCOMPRESSED_BYTES
+        or value.compressed_blob_bytes_verified is not True
+        or value.layer_diff_id_verified is not True
+        or value.tar_semantics_verified is not False
+        or value.rootfs_verified is not False
+        or value.origin_verified is not False
+    ):
+        raise ValueError("OCI layer DiffID receipt binding is invalid")
+    return value
+
+
+def _receipt_semantics(receipt: VerifiedLayaOciLayerDiffId) -> tuple[object, ...]:
+    return (
+        _IdentitySeal(receipt.plan),
+        _IdentitySeal(receipt.layer_blob),
+        _IdentitySeal(receipt.compressed_receipt),
+        receipt.layer_position,
+        receipt.declared_diff_id,
+        receipt.computed_diff_id,
+        receipt.uncompressed_size_bytes,
+        receipt.compressed_blob_bytes_verified,
+        receipt.layer_diff_id_verified,
+        receipt.tar_semantics_verified,
+        receipt.rootfs_verified,
+        receipt.origin_verified,
+    )
+
+
+def _require_issued_receipt(value: object) -> VerifiedLayaOciLayerDiffId:
+    value = _validate_receipt_shape(value)
+    _require_issued_plan(value.plan)
+    _require_issued(
+        value,
+        VerifiedLayaOciLayerDiffId,
+        _ISSUED_RECEIPTS,
+        _receipt_semantics(value),
+        "OCI layer DiffID receipt lacks verifier authority",
+    )
+    return value
 
 
 def _validate_verified_receipts(
@@ -144,9 +415,7 @@ def _validate_verified_receipts(
         raise ValueError("OCI layer DiffID receipt coverage is invalid")
     total_size = 0
     for position, receipt in enumerate(receipts):
-        if type(receipt) is not VerifiedLayaOciLayerDiffId:
-            raise ValueError("OCI layer DiffID receipt type is invalid")
-        receipt.__post_init__(_FACTORY_TOKEN)
+        receipt = _require_issued_receipt(receipt)
         if (
             receipt.plan is not plan
             or receipt.layer_blob is not plan.layer_blobs[position]
@@ -161,8 +430,8 @@ def _validate_verified_receipts(
     return receipts
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class _LayaOciLayerDiffIdsCaptureAuthority:
+@dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
+class _LayaOciLayerDiffIdsCaptureAuthority(_FactorySealed):
     plan: LayaOciLayerDiffIdPlan = field(repr=False)
     receipts: tuple[VerifiedLayaOciLayerDiffId, ...] = field(repr=False)
     layers_captured_from_same_root: bool
@@ -174,23 +443,53 @@ class _LayaOciLayerDiffIdsCaptureAuthority:
     def __post_init__(self, _factory_token: object) -> None:
         if _factory_token is not _FACTORY_TOKEN:
             raise ValueError("OCI layer DiffID authority requires the factory seal token")
-        if type(self.plan) is not LayaOciLayerDiffIdPlan:
-            raise ValueError("OCI layer DiffID authority plan is invalid")
-        canonical_laya_runtime_oci_config_summary_bytes(self.plan.config_evidence)
-        self.plan.__post_init__(_FACTORY_TOKEN)
-        _validate_verified_receipts(self.plan, self.receipts)
-        if any(
-            flag is not True
-            for flag in (
-                self.layers_captured_from_same_root,
-                self.inventory_captured_from_same_root,
-                self.final_fd_sweep_verified,
-                self.descriptors_closed_before_seal,
-            )
-        ):
-            raise ValueError("OCI layer DiffID authority closure is invalid")
+        _validate_authority_shape(self)
 
     __repr__ = _private_repr
+
+
+def _validate_authority_shape(value: object) -> _LayaOciLayerDiffIdsCaptureAuthority:
+    if type(value) is not _LayaOciLayerDiffIdsCaptureAuthority:
+        raise TypeError("OCI layer DiffID authority type is invalid")
+    _require_issued_plan(value.plan)
+    _validate_verified_receipts(value.plan, value.receipts)
+    if any(
+        flag is not True
+        for flag in (
+            value.layers_captured_from_same_root,
+            value.inventory_captured_from_same_root,
+            value.final_fd_sweep_verified,
+            value.descriptors_closed_before_seal,
+        )
+    ):
+        raise ValueError("OCI layer DiffID authority closure is invalid")
+    return value
+
+
+def _authority_semantics(
+    authority: _LayaOciLayerDiffIdsCaptureAuthority,
+) -> tuple[object, ...]:
+    return (
+        _IdentitySeal(authority.plan),
+        _IdentitySeal(authority.receipts),
+        tuple(_IdentitySeal(receipt) for receipt in authority.receipts),
+        authority.layers_captured_from_same_root,
+        authority.inventory_captured_from_same_root,
+        authority.final_fd_sweep_verified,
+        authority.descriptors_closed_before_seal,
+    )
+
+
+def _require_issued_authority(value: object) -> _LayaOciLayerDiffIdsCaptureAuthority:
+    value = _validate_authority_shape(value)
+    _require_issued(
+        value,
+        _LayaOciLayerDiffIdsCaptureAuthority,
+        _ISSUED_AUTHORITIES,
+        _authority_semantics(value),
+        "OCI layer DiffID authority lacks capture authority",
+    )
+    return value
 
 
 _EVIDENCE_TRUE_FLAGS = (
@@ -225,8 +524,8 @@ _EVIDENCE_FALSE_FLAGS = (
 )
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class LayaRuntimeOciLayerDiffIdsEvidence:
+@dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
+class LayaRuntimeOciLayerDiffIdsEvidence(_FactorySealed):
     schema_version: str
     plan: LayaOciLayerDiffIdPlan = field(repr=False)
     config_evidence: LayaRuntimeOciConfigEvidence = field(repr=False)
@@ -265,7 +564,7 @@ class LayaRuntimeOciLayerDiffIdsEvidence:
     def __post_init__(self, _factory_token: object) -> None:
         if _factory_token is not _FACTORY_TOKEN:
             raise ValueError("OCI layer DiffID evidence requires the factory seal token")
-        _revalidate_layer_evidence(self)
+        _validate_evidence_shape(self)
 
     __repr__ = _private_repr
 
@@ -288,7 +587,7 @@ def _prepare_laya_oci_layer_diff_id_plan(
         or tuple(blob.role for blob in layer_blobs) != _LAYER_ROLES
     ):
         raise ValueError("OCI layer DiffID layout binding is invalid")
-    return LayaOciLayerDiffIdPlan(
+    result = LayaOciLayerDiffIdPlan(
         schema_version=OCI_LAYER_DIFF_ID_PLAN_SCHEMA,
         config_evidence=config_evidence,
         layout_evidence=layout_evidence,
@@ -299,6 +598,8 @@ def _prepare_laya_oci_layer_diff_id_plan(
         declared_diff_ids=config_evidence.config.declared_diff_ids,
         _factory_token=_FACTORY_TOKEN,
     )
+    _register_issued(result, _ISSUED_PLANS, _plan_semantics(result))
+    return result
 
 
 def prepare_laya_oci_layer_diff_id_plan(
@@ -320,10 +621,7 @@ def _authorize_layer(
     plan: object,
     digest: object,
 ) -> tuple[LayaOciLayerDiffIdPlan, int]:
-    if type(plan) is not LayaOciLayerDiffIdPlan:
-        raise TypeError("OCI layer plan must be an exact sealed value")
-    canonical_laya_runtime_oci_config_summary_bytes(plan.config_evidence)
-    plan.__post_init__(_FACTORY_TOKEN)
+    plan = _require_issued_plan(plan)
     if (
         type(digest) is not str
         or len(digest) != 71
@@ -455,7 +753,7 @@ def _verify_laya_oci_layer_diff_id_chunks_core(
     declared_diff_id = authorized_plan.declared_diff_ids[position]
     if computed_diff_id != declared_diff_id:
         raise ValueError("OCI layer computed DiffID does not match the declared digest")
-    return VerifiedLayaOciLayerDiffId(
+    receipt = VerifiedLayaOciLayerDiffId(
         plan=authorized_plan,
         layer_blob=authorized_plan.layer_blobs[position],
         compressed_receipt=authorized_plan.layer_receipts[position],
@@ -465,6 +763,8 @@ def _verify_laya_oci_layer_diff_id_chunks_core(
         uncompressed_size_bytes=uncompressed_size,
         _factory_token=_FACTORY_TOKEN,
     )
+    _register_issued(receipt, _ISSUED_RECEIPTS, _receipt_semantics(receipt))
+    return receipt
 
 
 def _verify_laya_oci_layer_diff_id_chunks(
@@ -551,7 +851,9 @@ def _seal_laya_oci_layer_diff_ids_capture_authority(
 ) -> _LayaOciLayerDiffIdsCaptureAuthority:
     failed = False
     try:
-        return _LayaOciLayerDiffIdsCaptureAuthority(
+        _require_issued_plan(plan)
+        _validate_verified_receipts(plan, receipts)
+        authority = _LayaOciLayerDiffIdsCaptureAuthority(
             plan=plan,
             receipts=receipts,
             layers_captured_from_same_root=layers_captured_from_same_root,
@@ -560,6 +862,12 @@ def _seal_laya_oci_layer_diff_ids_capture_authority(
             descriptors_closed_before_seal=descriptors_closed_before_seal,
             _factory_token=_FACTORY_TOKEN,
         )
+        _register_issued(
+            authority,
+            _ISSUED_AUTHORITIES,
+            _authority_semantics(authority),
+        )
+        return authority
     except Exception:
         failed = True
     if failed:
@@ -567,15 +875,14 @@ def _seal_laya_oci_layer_diff_ids_capture_authority(
     raise AssertionError("unreachable")
 
 
-def _revalidate_layer_evidence(evidence: object) -> LayaRuntimeOciLayerDiffIdsEvidence:
+def _validate_evidence_shape(evidence: object) -> LayaRuntimeOciLayerDiffIdsEvidence:
     if type(evidence) is not LayaRuntimeOciLayerDiffIdsEvidence:
         raise ValueError("OCI layer DiffID evidence must be an exact sealed value")
     if evidence.schema_version != OCI_LAYER_DIFF_IDS_EVIDENCE_SCHEMA:
         raise ValueError("OCI layer DiffID evidence schema is invalid")
     if type(evidence.plan) is not LayaOciLayerDiffIdPlan:
         raise ValueError("OCI layer DiffID evidence plan is invalid")
-    canonical_laya_runtime_oci_config_summary_bytes(evidence.config_evidence)
-    evidence.plan.__post_init__(_FACTORY_TOKEN)
+    _require_issued_plan(evidence.plan)
     if (
         evidence.config_evidence is not evidence.plan.config_evidence
         or evidence.layout_evidence is not evidence.config_evidence.layout_evidence
@@ -594,16 +901,42 @@ def _revalidate_layer_evidence(evidence: object) -> LayaRuntimeOciLayerDiffIdsEv
     return evidence
 
 
+def _evidence_semantics(
+    evidence: LayaRuntimeOciLayerDiffIdsEvidence,
+) -> tuple[object, ...]:
+    return (
+        evidence.schema_version,
+        _IdentitySeal(evidence.plan),
+        _IdentitySeal(evidence.config_evidence),
+        _IdentitySeal(evidence.layout_evidence),
+        _IdentitySeal(evidence.layout_plan),
+        _IdentitySeal(evidence.runtime_identity),
+        _IdentitySeal(evidence.receipts),
+        tuple(_IdentitySeal(receipt) for receipt in evidence.receipts),
+        tuple(getattr(evidence, flag) for flag in _EVIDENCE_TRUE_FLAGS + _EVIDENCE_FALSE_FLAGS),
+    )
+
+
+def _require_issued_evidence(value: object) -> LayaRuntimeOciLayerDiffIdsEvidence:
+    value = _validate_evidence_shape(value)
+    _require_issued(
+        value,
+        LayaRuntimeOciLayerDiffIdsEvidence,
+        _ISSUED_EVIDENCE,
+        _evidence_semantics(value),
+        "OCI layer DiffID evidence lacks issued authority",
+    )
+    return value
+
+
 def _seal_laya_runtime_oci_layer_diff_ids_evidence(
     authority: object,
 ) -> LayaRuntimeOciLayerDiffIdsEvidence:
-    if type(authority) is not _LayaOciLayerDiffIdsCaptureAuthority:
-        _raise_private(ValueError, "OCI layer DiffID evidence authority is invalid")
     failed = False
     try:
-        authority.__post_init__(_FACTORY_TOKEN)
+        authority = _require_issued_authority(authority)
         plan = authority.plan
-        return LayaRuntimeOciLayerDiffIdsEvidence(
+        result = LayaRuntimeOciLayerDiffIdsEvidence(
             schema_version=OCI_LAYER_DIFF_IDS_EVIDENCE_SCHEMA,
             plan=plan,
             config_evidence=plan.config_evidence,
@@ -613,6 +946,8 @@ def _seal_laya_runtime_oci_layer_diff_ids_evidence(
             receipts=authority.receipts,
             _factory_token=_FACTORY_TOKEN,
         )
+        _register_issued(result, _ISSUED_EVIDENCE, _evidence_semantics(result))
+        return result
     except Exception:
         failed = True
     if failed:
@@ -627,7 +962,7 @@ def canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(
 
     failed = False
     try:
-        validated = _revalidate_layer_evidence(evidence)
+        validated = _require_issued_evidence(evidence)
     except Exception:
         failed = True
     if failed:
