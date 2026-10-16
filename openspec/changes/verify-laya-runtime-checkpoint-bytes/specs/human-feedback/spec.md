@@ -41,15 +41,18 @@ checkpoint root SHALL denote the exact contents of the checkpoint manifest's
 `multilingual` subfolder: the five declared files and their declared intermediate
 directories are immediate descendants of that root, not descendants of an
 additional `multilingual/` directory.  The adapter SHALL require that exact closed
-regular-file inventory and inspect only the bounded declared adjacency/depth.  Root
-preflight SHALL coerce a path-like value exactly once, normalize every coercion
-failure to a private capture error, and reject more than 128 absolute path
-components before opening any descriptor.
+regular-file inventory and inspect only the bounded declared adjacency/depth.
 
 #### Scenario: Root scope is unsafe or ambiguous
 
 - **WHEN** root is `/`, points above the manifest `multilingual` contents, contains an unexpected adjacent directory, or exceeds the declared inventory depth/count
 - **THEN** capture fails before opening `/` as a capture root or recursively descending into the unexpected subtree
+
+### Requirement: Root preflight SHALL be private and bounded
+
+Root preflight SHALL coerce a path-like value exactly once, normalize every
+coercion failure to a private capture error, and reject more than 128 absolute
+path components before opening any descriptor.
 
 #### Scenario: Root coercion is hostile or over the component cap
 
