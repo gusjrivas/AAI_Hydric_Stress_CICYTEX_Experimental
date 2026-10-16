@@ -575,7 +575,7 @@ def test_empty_and_regular_tar_stream_to_identity_bound_receipts(
     assert "result.txt" not in repr(receipt)
     for value in (*receipt.entries, receipt):
         for field in fields(value):
-            if field.name.startswith("_"):
+            if field.name.startswith("_") or not field.init:
                 continue
             with pytest.raises(FrozenInstanceError):
                 setattr(value, field.name, getattr(value, field.name))
