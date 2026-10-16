@@ -1166,6 +1166,34 @@ def test_factory_sealed_types_are_frozen_slotted_private_and_retain_no_payload()
         assert token is not None and token.default is inspect.Parameter.empty
 
 
+def test_caller_visible_provenance_capabilities_cannot_retarget_object_authority(
+    monkeypatch,
+):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    evidence = provenance.verify_laya_runtime_provenance_objects(plan, packets)
+    receipt = evidence.receipts[0]
+    envelope = receipt.envelope
+    cloned_spec = _forge_exact(receipt.spec)
+    object.__setattr__(plan, "objects", (cloned_spec, *plan.objects[1:]))
+    object.__setattr__(envelope, "spec", cloned_spec)
+    object.__setattr__(receipt, "spec", cloned_spec)
+    object.__setattr__(plan, "_semantic_capability", provenance._plan_semantics(plan))
+    object.__setattr__(
+        envelope,
+        "_semantic_capability",
+        provenance._envelope_semantics(envelope),
+    )
+    object.__setattr__(
+        receipt,
+        "_semantic_capability",
+        (id(plan), id(cloned_spec), id(envelope), True),
+    )
+
+    with pytest.raises(ValueError):
+        provenance.canonical_laya_runtime_provenance_summary_bytes(evidence)
+
+
 def test_evidence_claims_and_summary_remain_conservative_private_and_deep():
     provenance = _provenance()
     evidence_fields = {

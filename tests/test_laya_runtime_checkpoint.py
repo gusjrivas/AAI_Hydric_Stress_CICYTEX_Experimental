@@ -609,6 +609,55 @@ def test_issued_checkpoint_topology_retains_original_manifest_authority(monkeypa
         checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
 
 
+def _retarget_identity_seals(checkpoint, value, original, replacement):
+    if type(value) is checkpoint._IdentitySeal:
+        if value.value is original:
+            object.__setattr__(value, "value", replacement)
+            return 1
+        return 0
+    if type(value) in {tuple, list}:
+        return sum(
+            _retarget_identity_seals(checkpoint, item, original, replacement) for item in value
+        )
+    if type(value) is dict:
+        return sum(
+            _retarget_identity_seals(checkpoint, item, original, replacement)
+            for item in value.values()
+        )
+    return 0
+
+
+@pytest.mark.parametrize("consumer", ("checkpoint_summary", "provenance_prepare"))
+def test_caller_visible_semantic_capability_cannot_retarget_nested_authority(monkeypatch, consumer):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    deployment = evidence.deployment_evidence
+    original = deployment.checkpoint_manifest
+    cloned = _clone_all_slots(original)
+    retargeted = sum(
+        _retarget_identity_seals(
+            checkpoint,
+            sealed._semantic_capability,
+            original,
+            cloned,
+        )
+        for sealed in (evidence.plan, evidence)
+    )
+    assert retargeted >= 2
+    object.__setattr__(deployment, "checkpoint_manifest", cloned)
+
+    if consumer == "checkpoint_summary":
+        publish = checkpoint.canonical_laya_runtime_checkpoint_summary_bytes
+    else:
+        from human_feedback.runtime_provenance import (
+            prepare_laya_runtime_provenance_plan,
+        )
+
+        publish = prepare_laya_runtime_provenance_plan
+    with pytest.raises(ValueError):
+        publish(evidence)
+
+
 def test_deep_snapshot_rejects_oversized_artifact_before_hashing(monkeypatch):
     checkpoint = _core()
     from human_feedback import runtime_deployment_metadata
@@ -716,6 +765,89 @@ def test_deep_snapshot_rejects_oversized_utf8_mapping_key_before_sort(monkeypatc
                 _byte_limit=maximum,
             )
     assert sort_attempts == 0
+
+
+def _deep_snapshot_branch(predicate: str):
+    checkpoint = _core()
+    tree = ast.parse(inspect.getsource(checkpoint._deep_semantic_snapshot))
+    function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
+    return next(
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.If) and ast.unparse(node.test) == predicate
+    )
+
+
+def _is_utf8_encode_call(node) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "encode"
+        and any(isinstance(arg, ast.Constant) and arg.value == "utf-8" for arg in node.args)
+    )
+
+
+def _contains_utf8_encode(node) -> bool:
+    return any(_is_utf8_encode_call(item) for item in ast.walk(node))
+
+
+def test_deep_snapshot_prechecks_text_length_before_utf8_encoding():
+    branch = _deep_snapshot_branch("type(value) is str")
+    encode_line = min(node.lineno for node in ast.walk(branch) if _is_utf8_encode_call(node))
+    prechecks = [
+        node
+        for node in branch.body
+        if isinstance(node, ast.If)
+        and node.lineno < encode_line
+        and "len(value)" in ast.unparse(node.test)
+        and "byte_budget" in ast.unparse(node.test)
+    ]
+    assert prechecks, "text length must be rejected before UTF-8 encoding"
+
+
+def test_deep_snapshot_processes_mapping_keys_sequentially_with_prechecks():
+    branch = _deep_snapshot_branch("type(value) is dict")
+    assert not any(
+        isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp))
+        and _contains_utf8_encode(node)
+        for node in ast.walk(branch)
+    )
+    key_loop = next(
+        (
+            node
+            for node in branch.body
+            if isinstance(node, ast.For)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "key"
+        ),
+        None,
+    )
+    assert key_loop is not None, "mapping keys must be budgeted one at a time"
+    encode_lines = [node.lineno for node in ast.walk(key_loop) if _is_utf8_encode_call(node)]
+    assert encode_lines
+    encode_line = min(encode_lines)
+    assert any(
+        isinstance(node, ast.If)
+        and node.lineno < encode_line
+        and "len(key)" in ast.unparse(node.test)
+        for node in key_loop.body
+    )
+    consume_lines = [
+        node.lineno
+        for node in ast.walk(key_loop)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_consume_semantic_bytes"
+    ]
+    assert consume_lines and min(consume_lines) > encode_line
+    sorted_lines = [
+        node.lineno
+        for node in ast.walk(branch)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "sorted"
+    ]
+    assert sorted_lines and min(sorted_lines) > key_loop.end_lineno
 
 
 def test_deep_snapshot_rejects_abnormal_mapping_without_iterating(monkeypatch):
