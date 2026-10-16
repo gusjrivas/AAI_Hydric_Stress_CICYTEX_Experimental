@@ -563,7 +563,7 @@ def test_object_verifier_rejects_wrong_type_size_sha1_sha256_and_stream_shape():
     for value in (None, bad_plan, object()):
         with pytest.raises((TypeError, ValueError)):
             provenance.verify_laya_runtime_provenance_object_chunks(value, "1" * 40, iter((b"x",)))
-    assert provenance.MAX_PROVENANCE_CHUNK_BYTES == 1024 * 1024
+    assert provenance.MAX_PROVENANCE_CHUNK_BYTES == provenance.MAX_PROVENANCE_OBJECT_BYTES
     assert provenance.MAX_PROVENANCE_CHUNKS == 64
 
 
