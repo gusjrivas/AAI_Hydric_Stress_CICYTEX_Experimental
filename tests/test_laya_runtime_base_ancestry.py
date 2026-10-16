@@ -107,6 +107,8 @@ PR36_ONLY_FALSE_CLAIMS = (
     "build_process_attested",
     "reproducible_build_verified",
 )
+UTF8_KEY_AT_CAP = "é" * 2048
+UTF8_KEY_OVER_CAP = UTF8_KEY_AT_CAP + "x"
 
 
 def _private_error(error: BaseException, *markers: str) -> None:
@@ -337,6 +339,7 @@ def test_private_bounded_json_accepts_every_exact_cap():
     accepted = (
         depth_16,
         "x" * 4096,
+        {UTF8_KEY_AT_CAP: 0},
         list(range(32)),
         {f"k{index}": index for index in range(64)},
         nodes_512,
@@ -350,6 +353,7 @@ def test_private_bounded_json_accepts_every_exact_cap():
     [
         (lambda: _nested_json(16), "depth"),
         (lambda: "x" * 4097, "string"),
+        (lambda: {UTF8_KEY_OVER_CAP: 0}, "key"),
         (lambda: list(range(33)), "array"),
         (lambda: {f"k{index}": index for index in range(65)}, "key"),
         (
@@ -361,6 +365,8 @@ def test_private_bounded_json_accepts_every_exact_cap():
 def test_private_bounded_json_rejects_each_cap_plus_one(value, marker):
     from human_feedback import runtime_base_ancestry as module
 
+    assert len(UTF8_KEY_AT_CAP.encode("utf-8")) == 4096
+    assert len(UTF8_KEY_OVER_CAP.encode("utf-8")) == 4097
     with pytest.raises((TypeError, ValueError), match=f"JSON|{marker}|limit|valid"):
         _bounded_json(module, value())
 
@@ -388,11 +394,18 @@ def test_module_has_three_operation_pure_public_surface():
         "verify_laya_runtime_base_ancestry_objects",
         "canonical_laya_runtime_base_ancestry_summary_bytes",
     }
-    assert module.__all__ == (
+    expected_public_callables = {
+        "LayaRuntimeBaseAncestryPlan",
+        "LayaRuntimeBaseAncestryEvidence",
         "prepare_laya_runtime_base_ancestry_plan",
         "verify_laya_runtime_base_ancestry_objects",
         "canonical_laya_runtime_base_ancestry_summary_bytes",
-    )
+    }
+    assert {
+        name for name, value in vars(module).items() if not name.startswith("_") and callable(value)
+    } == expected_public_callables
+    assert set(module.__all__) == expected_public_callables
+    assert len(module.__all__) == len(expected_public_callables)
     assert {
         node.name
         for node in tree.body
@@ -570,24 +583,20 @@ def test_summary_is_canonical_minimal_and_does_not_expand_authority(monkeypatch)
         assert payload[claim] is False
     for claim in TRUE_PR22_CLAIMS:
         assert payload[claim] is True
-    forbidden = (
-        "docker.io",
-        "python:3.11",
-        "linux-amd64",
-        "manifest",
-        "config",
-        "layer",
-        "diff_id",
-        "recipe",
-        "https://",
-        "authorization",
+    private_values = (
+        "debian:bookworm-slim",
+        "3.11.10-slim-bookworm",
+        "https://hub.docker.com/_/python",
+        "https://github.com/docker-library/python.git",
+        "A035C8C19219BA821ECEA86B64E628F8D684696D",
+        "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         ROOT_DIGEST,
         MANIFEST_DIGEST,
         CONFIG_DIGEST,
         *BASE_DIFF_IDS,
     )
     rendered = summary.decode("ascii").lower()
-    assert all(value.lower() not in rendered for value in forbidden)
+    assert all(value.lower() not in rendered for value in private_values)
     assert summary == json.dumps(
         payload,
         allow_nan=False,
@@ -620,6 +629,59 @@ def test_repr_and_public_errors_do_not_leak_payloads_urls_or_internal_commitment
     with pytest.raises((TypeError, ValueError), match="evidence|identity|issued|valid") as captured:
         module.canonical_laya_runtime_base_ancestry_summary_bytes(forged)
     _private_error(captured.value, *private_markers, "private-runtime-identity-commitment")
+
+
+def test_planner_verifier_and_private_parsers_emit_only_suppressed_generic_errors(
+    monkeypatch,
+):
+    from human_feedback import runtime_base_ancestry as module
+
+    private_markers = (
+        "https://private.invalid/registry?token=secret",
+        "Bearer private-auth-token",
+        "C:\\private\\runtime\\base.json",
+        "private-ancestry-marker",
+    )
+    hostile_value = SimpleNamespace(
+        url=private_markers[0],
+        authorization=private_markers[1],
+        path=private_markers[2],
+        marker=private_markers[3],
+    )
+    parser_payload = json.dumps(
+        {
+            "url": private_markers[0],
+            "authorization": private_markers[1],
+            "path": private_markers[2],
+            "marker": private_markers[3],
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("ascii")
+    hostile_stream = _hostile_never_iterated("private-error-stream-consumed")
+    operations = (
+        lambda: module.prepare_laya_runtime_base_ancestry_plan(hostile_value),
+        lambda: module.verify_laya_runtime_base_ancestry_objects(
+            hostile_value,
+            (hostile_stream, hostile_stream, hostile_stream),
+        ),
+        lambda: module._parse_laya_base_index(parser_payload),
+        lambda: module._parse_laya_base_manifest(parser_payload),
+        lambda: module._parse_laya_base_config(parser_payload),
+    )
+    for operation in operations:
+        with pytest.raises(
+            (TypeError, ValueError),
+            match="plan|PR22|object|index|manifest|config|validation|failed|valid",
+        ) as captured:
+            operation()
+        _private_error(
+            captured.value,
+            *private_markers,
+            "private-error-stream-consumed",
+        )
+    assert hostile_stream.touched is False
 
 
 @pytest.mark.parametrize("position", range(3))
@@ -1279,31 +1341,88 @@ def test_cross_plan_evidence_binding_is_rejected(monkeypatch):
         module.canonical_laya_runtime_base_ancestry_summary_bytes(mixed)
 
 
-def test_issuance_registries_do_not_retain_plan_or_evidence_after_gc(monkeypatch):
-    module, predecessor, calls, plan, evidence = _verified(monkeypatch)
-    plan_type = type(plan)
-    plan_identity = id(plan)
-    plan_ref = weakref.ref(plan)
-    evidence_ref = weakref.ref(evidence)
-    del evidence, plan, predecessor, calls
-    gc.collect()
-    assert evidence_ref() is None
-    assert plan_ref() is None
+def test_issuance_registries_cleanup_and_deterministically_reject_stale_id_records(
+    monkeypatch,
+):
+    from human_feedback import runtime_base_ancestry as module
 
-    reused = None
-    for _ in range(10000):
-        candidate = object.__new__(plan_type)
-        if id(candidate) == plan_identity:
-            reused = candidate
-            break
-    if reused is not None:
-        hostile = _hostile_never_iterated("private-reused-id-stream-consumed")
+    registry_names = ("_ISSUED_PLANS", "_ISSUED_EVIDENCE")
+    registries = {name: getattr(module, name) for name in registry_names}
+    assert all(type(registry) is dict for registry in registries.values())
+    gc.collect()
+    baseline = {name: len(registry) for name, registry in registries.items()}
+
+    _module, first_predecessor, first_calls, first_plan, first_evidence = _verified(monkeypatch)
+    first_values = {
+        "_ISSUED_PLANS": first_plan,
+        "_ISSUED_EVIDENCE": first_evidence,
+    }
+    for name, value in first_values.items():
+        registry = registries[name]
+        assert len(registry) == baseline[name] + 1
+        record = registry[id(value)]
+        assert type(record.reference) is weakref.ReferenceType
+        assert record.reference() is value
+    del name, value, registry, record
+
+    _module, second_predecessor, second_calls, second_plan, second_evidence = _verified(monkeypatch)
+    evidence_registry = registries["_ISSUED_EVIDENCE"]
+    first_identity = id(first_evidence)
+    first_reference = weakref.ref(first_evidence)
+    expired_record = evidence_registry[first_identity]
+    replacement_record = evidence_registry[id(second_evidence)]
+
+    # Deterministically simulate reuse of the expired numeric identity.  The
+    # stale weakref callback may remove only its own exact record.
+    evidence_registry[first_identity] = replacement_record
+    del first_values, first_evidence, first_plan, first_predecessor, first_calls
+    gc.collect()
+    assert first_reference() is None
+    assert expired_record.reference() is None
+    assert evidence_registry[first_identity] is replacement_record
+    evidence_registry.pop(first_identity)
+    del expired_record
+
+    # A dict key match cannot authorize an alien exact-class value when the
+    # record's weakref resolves to a different issued object.
+    alien_evidence = _clone_dataclass(second_evidence)
+    alien_identity = id(alien_evidence)
+    evidence_registry[alien_identity] = replacement_record
+    try:
+        with pytest.raises((TypeError, ValueError), match="evidence|issued|seal|valid"):
+            module.canonical_laya_runtime_base_ancestry_summary_bytes(alien_evidence)
+    finally:
+        if evidence_registry.get(alien_identity) is replacement_record:
+            evidence_registry.pop(alien_identity)
+
+    plan_registry = registries["_ISSUED_PLANS"]
+    _module, pending_predecessor, pending_calls, pending_plan = _prepared(monkeypatch)
+    pending_record = plan_registry[id(pending_plan)]
+    alien_plan = _clone_dataclass(pending_plan)
+    alien_plan_identity = id(alien_plan)
+    plan_registry[alien_plan_identity] = pending_record
+    hostile = _hostile_never_iterated("private-alien-record-stream-consumed")
+    try:
         with pytest.raises((TypeError, ValueError), match="plan|issued|session|valid"):
             module.verify_laya_runtime_base_ancestry_objects(
-                reused,
+                alien_plan,
                 (hostile, hostile, hostile),
             )
         assert hostile.touched is False
+    finally:
+        if plan_registry.get(alien_plan_identity) is pending_record:
+            plan_registry.pop(alien_plan_identity)
+
+    live_references = tuple(
+        weakref.ref(value) for value in (second_plan, second_evidence, pending_plan)
+    )
+    del alien_evidence, alien_plan
+    del second_plan, second_evidence, second_predecessor, second_calls
+    del pending_plan, pending_predecessor, pending_calls
+    del replacement_record, pending_record
+    gc.collect()
+    assert all(reference() is None for reference in live_references)
+    assert {name: len(registry) for name, registry in registries.items()} == baseline
 
 
 def test_module_has_no_product_callers_or_lateral_pr35_dependency():
