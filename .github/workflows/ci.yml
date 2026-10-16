@@ -51,6 +51,25 @@ jobs:
           tests/test_laya_runtime_oci_layers.py
           tests/test_laya_runtime_oci_layout_filesystem.py
 
+  laya-runtime-base-ancestry-contract:
+    needs: laya-oci-tar-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Test runtime base ancestry contract
+        run: python -m pytest tests/test_laya_runtime_base_ancestry.py
+
   laya-checkpoint-bytes-contract:
     runs-on: ${{ matrix.os }}
     strategy:
