@@ -753,9 +753,7 @@ def test_same_layer_non_directory_parent_for_whiteout_fails_in_both_tar_orders(m
     ):
         for entries in ((ancestor, marker), (marker, ancestor)):
             lower_entries = (
-                (_entry(runtime_oci_tar, "target", "5"),)
-                if ancestor.typeflag == "2"
-                else ()
+                (_entry(runtime_oci_tar, "target", "5"),) if ancestor.typeflag == "2" else ()
             )
             tar_evidence = _tar_evidence(
                 monkeypatch,
@@ -1527,7 +1525,6 @@ def test_rootfs_nodes_and_summary_enforce_tar_string_and_exact_type_limits(monke
         {"link_target": "l" * (runtime_oci_tar.MAX_OCI_TAR_LINK_BYTES + 1)},
         {"link_target": "private\x01target"},
         {"link_target": ""},
-        {"size_bytes": runtime_oci_tar.MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES + 1},
         {"size_bytes": True},
         {"source_layer_position": True},
     )
@@ -1565,6 +1562,45 @@ def test_rootfs_nodes_and_summary_enforce_tar_string_and_exact_type_limits(monke
 
     assert accepted_direct == []
     assert accepted_summary == []
+
+
+def test_rootfs_summary_rejects_regular_node_over_tar_payload_cap(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {
+            0: (
+                _entry(runtime_oci_tar, "data", "5"),
+                _entry(runtime_oci_tar, "data/file"),
+            )
+        },
+    )
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+    node_index = next(
+        index for index, node in enumerate(evidence.nodes) if node.path == "data/file"
+    )
+    oversized = _forge_with(
+        evidence.nodes[node_index],
+        typeflag="0",
+        size_bytes=runtime_oci_tar.MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES + 1,
+    )
+    nodes = list(evidence.nodes)
+    nodes[node_index] = oversized
+    forged_nodes = tuple(nodes)
+    forged_evidence = _forge_with(
+        evidence,
+        nodes=forged_nodes,
+        rootfs_manifest_sha256=runtime_oci_rootfs._manifest_sha256(
+            forged_nodes,
+            evidence.root_directory,
+        ),
+    )
+
+    with pytest.raises((TypeError, ValueError), match="size|payload|node|rootfs|valid"):
+        runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(forged_evidence)
 
 
 def test_rootfs_summary_revalidates_aggregate_node_and_metadata_budgets(monkeypatch):
