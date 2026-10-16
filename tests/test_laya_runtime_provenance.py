@@ -1,4 +1,6 @@
 import ast
+import base64
+import bz2
 import hashlib
 import inspect
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
@@ -20,6 +22,52 @@ CHECKPOINT_README_FRONTMATTER = (
     b"pipeline_tag: text-classification\n"
     b"tags: [laya, system-one, calibrated-decisions, rlcd, classification, routing, "
     b"scoring, guardrails, moderation, reinforcement-learning, commercial-use]\n---\n"
+)
+APACHE_2_LICENSE_B85 = b"".join(
+    (
+        b"LRx4!F+o`-Q(3O-E0h2MvwwgQ5Cno!XaD#=|KFfL|Nrn{5FdAL3@A`RF1w!f!AUMN*IQ(PN(dCF*lEdzz`zEY2o&_uG-#ttru85)",
+        b"VjicdfQ<n405s4L5;Txy00w{n0000QX%Rg}fQ$f|V1pAw0hDQg69P>nh{|ZxXwsT`2=yMI000001B{t6VlglRWWh23Xu>cAFbNR?",
+        b"0yHLw(^PtC4^YT@o}kcV4@faA0t0L?Jzv2`=x8{|M>qAg^?bjt+c>AY6j!98Lyqms5P4AX>gg;h8XL{|-Yj!oS8OmeN`d$tz%^Lo",
+        b"yIdW=>)iWgRJOH1ThmnAB$a8*Y%+<tlkCsk;zWAE0uvGtG>rJqT=nTn9Oj*)A9eF4@Gj5sz`u7^H{<UV-Y+Y*7h?qkH0=;AcFu{k",
+        b"AfBASjp4!*%-i*Z#Os&@p(Kt$R~Yd<v{7~n$5WoC3Bx*8^h(?ZO}J5#q<nl%)j*n(KnTmcE3g{A9G#Ol;AzW3OkTskhEt?24`5aY",
+        b"ImMoe8z_fY7pp@GU@FSSjogn$d-bSw5P~cSWn9e2afvkePG;?Pv}#ptN099n!;K{|!0Aa*mbX{6gpExd&PI`HZ7eAV`^@KHXa*pH",
+        b"PgYbG>yy`{8%F@M4c^n6NdcA_a5D-;>Kg`#?<h0UV@w;F$PGj;GtO5%2^U)(i`}4w0~o9HT?|(iTuS6+yV+1iF>0e#UaI_Eo!N=Z",
+        b"gV+|yq?S)CK1M@{zM7a`9mE!ZXD@Sz3qeI5fpdP;fyHK?Ohgr0hrEXjQLl-!j<bwMYOd6PPep1QpW_Y~*?R=YLEE&+L#0!#t?rQx",
+        b"JkG$jj;xI2sFc0OE7P1MQ70-maoI56+tcA)oUl_tOqp%a<=lG?;tp7#<w1)mq#OAv(ViS(k$0sL=Xe=~aBWMd!pl@GlxVT-9h<@*",
+        b"c<NO2#Ig;b*A>Asu2)JYj(nk-QgJ~=U0fIg7pUOD7_@P`2TG1>H=#!Ovk3BZ!l5Z@>(>_E3C)J=^%2_q%nrK5CPiwx!>E9Vj`78_",
+        b"Tq6|Yjvp-&tTf9?)wOeI4}j=rsU0&F%D^d%ELs(Tz-HbTClPQ9g}Xzo8zH6uz^n;Pm<7mJw*sQ;iHFI+gkxqN4K%2H3ve|XfwvWz",
+        b"8?LoD6HP0uwQR~xcNDedZFG+>DT`2NnX<0*i(js~`68C3aId?MH|gdGK>(B5R1yI|Du%f4<<mI+i0xYV{zleB^p@MyJaK)Uybws_",
+        b"(2FVhWy`bZ@QdEFOA&5zjw<;yrg}|N%SU8eT3Nl7@tpS6#1I&WC)~4)EVNODt(lbqCzDc7L3T&*Tkkf`JYKlQMaNC^dD&Adty!Rh",
+        b"2hHaC^o~BSU2Pukwa2!ZdyL0iwioEq^mSvqFFk%=FhWPPps?EN11^-+jdt_nhxy^Ch_<3fVsc`nW0;}>RE#JIPD(x`AaWD-37_CU",
+        b"ckjsY8D0RmD5VJ&g_?jj_x~?MS6}7bs(-F_M{07F(TTAgnoWc=-t{^z>X&4)i3v`TDAu%!9o@*Ow>|I^!R$rW`EjA5?)%FO@nJgh",
+        b"4&`%Q1!^7afN)Z1D0&IEj<AwPEuMPu&OOxs51K`Sg2Tm<9lYr#nKXbT06z$_quiu6OFe!V9*8&yR_GUomp)L2kOKapmTll_8Qnkb",
+        b"bIdOx_)2)t;PD^l8m=Xh-{a(rYCzf(ytrSy=!su#I<_7Vp%*ieE{sj4>d_4;GdWGpz#sN*#4n2ouY5kPsQxa2<r|`D^s()9cv|SV",
+        b"*TYzbW#3{`u!0)x!PCQeB&Up%A2%^c)~-EQ#|)x~D#qp8%t1Q`6(C!gtbw%rvZ@yUA-2_~ec$D;5!o7HlR`>6LsCFz(n;tgK+ax+",
+        b"Fi0~0LouMM)&d+k&WRwOLzqe~)2pyF!AQ)g&w*7KwRF!DQn!qIGBA;&V@$as-N;AbNk&bFeB_=U1%il_-LpFf8+7ZwL5QpGDMg7C",
+        b"j3WCisDlNF+F+XwA~`ZMxSHXMJzQ&gOq4{kYlT(~YXYUDi#%2^BFHB<3W^It3k`TiNT{+=4QU19aVEL(G4zMJo~%Az)a!Mf*&sW@",
+        b"0pSb`Tg#6Jv4K@V+ax|OP7uwR8Xud0?FyAuEV2VB15DRjN|i*gglBXVtVCT?x>lnu1@AglMmQAgHwqnpJq`l{0;NR)fl3*^fwrK$",
+        b";ImxmN&A}y(+m9<JoxJQ=;8hxQkjpN%4U3Amcc68ovDhWu=MKzrcswoPuJ_8%|Uq$hTf^@?gH>&O#@(fdWu&9QlWI=rv+fatQTgD",
+        b"J$KH9_DKe=Cnz*)ej&Ga4<@I^hcu!*FdXby9f?ah*7lsHB)sc9F1xWlI@ff*uD?v@kes0tUjYV^N@+5$Bk#<Ub0IU9Ov|iG^lfo5",
+        b"1%s9n<joPgg(rBF-m?US7*!6Vk&FRT+-uR7<oGx0{c@O|+2iey{9crD!ZD)>j0K&JT|87&x=`!Yppa`uklGd^F<nMVF^w2d5;5*G",
+        b"6#`|HhTPn8k7Nm2jEGt@V0YK2e{~^M0aX?24=E*!I&kd>BP7I-KJpS#fO~Z)REa*_1EdnnO0`y$ERsI`4*sr-+B@Lt$2$<(NH`>S",
+        b"Yq-6bu1smBHYCO(0P`zF=bibD8njy09tXf`1zD@9P}oaLa^!cF$(pdAXdL4vxX~T?lv%(rqqFgt8yLzA8=>i?{VE)qa^Vq30{h-q",
+        b"PObHE5D@r-ZeKlYS_@I~@Y;Tt<9{Yd`<%J0_&Ri0IAF#m(|fT)KnnyxK=X%hLim&BolFRfVEi@cbVJv~#8BWdtf6zJj9CGzNZO`L",
+        b"a|lhEy%s@RtF$!l5H`zDK_U*?no^YrI{?v!5_zv{I<f~Qh^WRvk@_1dwJoFb)6WRUB_=X73=Oi3ia_DI;L1sgO4E}y6_<uHBw4?%",
+        b"WNDlfMr;@u5IdSn7^qICQim`Lu;;y-nCV<vu}fP%F%S^c8Mqrz^fW`ssbn#gl2Oggttk{~*eDm`wlRmvr(rOOMhgZ_7<9%Vj_84x",
+        b"EUX(FCh2MvLhXgFT4sAH&0NhUnMC*?X$3P^1(P6!K?t%f5>Yoe&s(<if!V@EAu*;AqI7`G6zPUunZz_Bwn#xkcFWRps>=Rcb`6dI",
+        b"@@Fh71LxQ_Vv-!lMJZ!QULsJKBFR`%;PG{#pO|7Hv?NTDp%+9fns3E11R1X*y+gX@BeGf2=sC1D2WCUmz)-}BV5!GI_tbC7Wrvq)",
+        b"f!lvs)#lYomPj4M(gyG~@>J?zY7tY^G#|MLX?blMVhXevRAKnq7R_otL*ehf`G{9-Hg0V$3aXPfu-0oY%;ulbHmQ?BCU-qL{3)Hz",
+        b"XQ$;tX^F8mfw2tCOS?EKv8eoHm+FA>?&31|w2ikK2LdPl0DSE$Z8C$g`j9`Hb*7#3LB9V~77;`7Bd^2Vj|Fh^kd2vCOwW&n#IMh;",
+        b"ZWg1`s#r`bDhLwG1uk599Pef^>Vd`+*@Vr4Y8|XACALF`1rjKU1+=hYMS`@Y6(xvNEu#=Ytc{?~4^&zA+4~QS?!-6UIvra=Fylnl",
+        b"si(qGHUo91Pn>6#ZYm>rLt%*^a|Ip9GqQH`*(4oAVyfB?KcG2~HYA!sKp2u16_c4bhe%pH_V?ru1EIm*9Kp`!S*XT>S$VQt?{42j",
+        b"5=4dfrNhD?^1RBV_|Oo_WyDh}C@P|siD@uinM5IJQBa|&QDtPns*uf8!9`LjL!ovPJ|=4GZ9`)UwA(uBis`CZbFPyQ2Bqd@%xr6m",
+        b"jfJUXJ7<S%oeyQ-(>a{NVMqnhGI5E|M`$J(+}eah%ev5@h%|9y0h<Qx1}G6Q=B$Ssae(#rF=F+UDR8v-#55gP8~E}fLoV!j)0}Ym",
+        b"aFryzsCO$h#Y5IYbg5d2n0TN=ysA?sHpf1e<0~bQR9+oM;z0(m%p}t(bK+4<Hz<o@P7V&rs}8ishHrArm^}+*)>}F0PcH^cXHXb>",
+        b"SVe?V2buzqP(}+Nq&se#SwjIPNZ4v1Zw6{FO`tYw#JqRU4fov2s}?Gz?4fflXqhlE(3RCFE~zb7U4(|D2RM=(i4Bd&YcGx5Lw9gA",
+        b">RCz%ggTd|J?%|X8C4d5*pt<~CC!<Xg$(2{hqZuS^|@bZzXU+4F#|?G5vSl})T-$m2HOkRpIobA1bWylcSU+(HesrTtB^lAY-zKj",
+        b"Qu3UUC<3vv5HXO>p_$ftR0vOtE0g7(K_@R6P|<}$F-;gYsxexkASlK##y$FI0fT|<8}_F43I=K-(O8lRq>)CZM<lk!ri+-#3plLW",
+        b"&T7el-GtiJQCBRgv>@EB#N;EfssF{?kxmpOE4s?%00",
+    )
 )
 EXPECTED_OBJECTS = (
     (
@@ -207,7 +255,7 @@ def _spec(provenance, role, repository, kind, payload):
     return value
 
 
-def _synthetic_profile(monkeypatch, provenance):
+def _synthetic_profile(monkeypatch, provenance, *, source_license=None):
     checkpoint = _checkpoint_evidence(monkeypatch)
     small = {
         "encoder_config": b'{"model_type":"synthetic-laya"}\n',
@@ -230,7 +278,8 @@ def _synthetic_profile(monkeypatch, provenance):
             + b"size 19\n"
         ),
     }
-    source_license = b"Apache License\nVersion 2.0, January 2004\n"
+    if source_license is None:
+        source_license = b"Apache License\nVersion 2.0, January 2004\n"
     source_pyproject = (
         b'[project]\nname = "laya"\nversion = "0.4.2"\n' b'license = { text = "Apache-2.0" }\n'
     )
@@ -546,6 +595,47 @@ def test_license_and_package_declarations_are_exact_and_checkpoint_repo_is_not_a
     for validator, payload in invalid:
         with pytest.raises(ValueError):
             validator(payload)
+
+
+def test_official_apache_license_object_is_accepted_but_near_miss_is_rejected(
+    monkeypatch,
+):
+    provenance = _provenance()
+    payload = bz2.decompress(base64.b85decode(APACHE_2_LICENSE_B85))
+    assert len(payload) == 10173
+    assert hashlib.sha256(payload).hexdigest() == (
+        "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
+    )
+
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance, source_license=payload)
+    license_spec = next(item for item in plan.objects if item.role == "source_license")
+    assert license_spec.size_bytes == 10173
+    assert license_spec.sha256 == hashlib.sha256(payload).hexdigest()
+    receipt = provenance._verify_laya_runtime_provenance_object_chunks(
+        plan, license_spec.sha1, iter((payload,))
+    )
+    assert receipt.spec is license_spec
+    assert receipt.provenance_object_verified is True
+    assert provenance.verify_laya_runtime_provenance_objects(plan, packets).receipts
+
+    near_miss = payload.replace(
+        b"TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
+        b"TERMS AND CONDITIONS FOR USE, REPRODUCTION, OR DISTRIBUTION",
+        1,
+    )
+    with pytest.raises(ValueError):
+        provenance._validate_source_license_bytes(near_miss)
+    corrupted_packets = tuple(
+        (
+            repository,
+            kind,
+            sha1,
+            (near_miss,) if sha1 == license_spec.sha1 else chunks,
+        )
+        for repository, kind, sha1, chunks in packets
+    )
+    with pytest.raises(ValueError):
+        provenance.verify_laya_runtime_provenance_objects(plan, corrupted_packets)
 
 
 def test_object_verifier_rejects_wrong_type_size_sha1_sha256_and_stream_shape():
