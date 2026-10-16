@@ -24,7 +24,9 @@ remain private.
 ## Filesystem capture
 
 The Linux adapter validates evidence and a canonical absolute root before I/O,
-and rejects `/` before opening it.  Root is the manifest checkpoint subfolder
+coerces path-like input once, maps all coercion failures to a private error,
+rejects `/`, and applies the OCI-aligned 128-component maximum before opening.
+Root is the manifest checkpoint subfolder
 itself (`.../multilingual`): its exact contents are `encoder/`,
 `model.safetensors`, `rl_agent_config.json` and `tokenizer/`; callers do not pass
 the parent and the adapter does not append another `multilingual/` component.

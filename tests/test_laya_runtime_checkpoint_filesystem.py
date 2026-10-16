@@ -141,6 +141,61 @@ def test_windows_fails_closed_before_root_coercion_or_open(monkeypatch):
 
 
 @pytest.mark.skipif(not IS_LINUX, reason="secure descriptor capture is Linux-only")
+def test_hostile_pathlike_failure_is_private_and_happens_before_open(monkeypatch):
+    adapter = _adapter()
+    marker = "private-hostile-fspath-marker"
+    opened: list[object] = []
+    monkeypatch.setattr(adapter, "_secure_capture_available", lambda: True)
+
+    class HostileRoot:
+        def __fspath__(self):
+            raise RuntimeError(marker)
+
+    def forbidden_open(*args, **kwargs):
+        opened.append(args[0] if args else None)
+        raise AssertionError("hostile PathLike must fail before open")
+
+    monkeypatch.setattr(adapter.os, "open", forbidden_open)
+
+    with pytest.raises(adapter.CheckpointCaptureError) as caught:
+        adapter.capture_and_verify_laya_runtime_checkpoint(_validate(), HostileRoot())
+
+    _private_error(caught.value, marker)
+    assert opened == []
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="secure descriptor capture is Linux-only")
+def test_absolute_root_component_cap_fails_after_one_coercion_and_before_open(monkeypatch):
+    adapter = _adapter()
+    expected_limit = 128
+    deep_root = "/" + "/".join(f"segment-{index:03d}" for index in range(expected_limit + 1))
+    opened: list[object] = []
+    monkeypatch.setattr(adapter, "_secure_capture_available", lambda: True)
+
+    class DeepRoot:
+        calls = 0
+
+        def __fspath__(self):
+            self.calls += 1
+            return deep_root
+
+    root = DeepRoot()
+
+    def forbidden_open(*args, **kwargs):
+        opened.append(args[0] if args else None)
+        raise AssertionError("over-cap root must fail before open")
+
+    monkeypatch.setattr(adapter.os, "open", forbidden_open)
+
+    with pytest.raises(adapter.CheckpointCaptureError):
+        adapter.capture_and_verify_laya_runtime_checkpoint(_validate(), root)
+
+    assert opened == []
+    assert root.calls == 1
+    assert adapter._MAX_CHECKPOINT_ROOT_COMPONENTS == expected_limit
+
+
+@pytest.mark.skipif(not IS_LINUX, reason="secure descriptor capture is Linux-only")
 @pytest.mark.parametrize("suffix", ["/", "//child", "/./child", "/../child"])
 def test_noncanonical_root_fails_before_open(monkeypatch, tmp_path, suffix):
     adapter = _adapter()
