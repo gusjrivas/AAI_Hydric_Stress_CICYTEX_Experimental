@@ -39,11 +39,11 @@
 
 ## 4. Gates
 
-- [ ] 4.1 Run focal provenance and inherited PR15–PR34 regressions.
-- [ ] 4.2 Run Melchor Romero, Pergamino, CICYTEX and mocked-sensor regressions.
-- [ ] 4.3 Run Ruff, Black, OpenSpec strict and diff checks.
-- [ ] 4.4 Run the opt-in real gate over pre-captured objects and exact PR34 evidence.
-- [ ] 4.5 Obtain independent architecture and merge-gate review.
+- [x] 4.1 Run focal provenance and inherited PR15–PR34 regressions; all passed.
+- [x] 4.2 Run Melchor Romero, Pergamino, CICYTEX and mocked-sensor regressions; all four scenarios passed.
+- [x] 4.3 Run Ruff, Black, OpenSpec strict and diff checks; quality and contract checks passed.
+- [x] 4.4 Run the opt-in real gate: 5/5 passed on Linux against read-only exact bytes with network disabled.
+- [x] 4.5 Obtain independent architecture and merge-gate review; final verdict GO.
 
 ## 5. Deferred
 
