@@ -129,6 +129,57 @@ def test_prepare_deeply_revalidates_inherited_deployment_claims(bad_value):
         _core().prepare_laya_runtime_checkpoint_plan(corrupt)
 
 
+def _nested_deployment_mutations():
+    deployment = _validate()
+    snapshot = deployment.snapshot
+    config = deployment.runtime_config
+    checkpoint = deployment.checkpoint_manifest
+    identity = deployment.runtime_identity
+    alternate_identity = _forge_exact(identity, sha256="f" * 64)
+    alternate_snapshot = _forge_exact(snapshot, runtime_identity=alternate_identity)
+    return (
+        _forge_exact(
+            deployment,
+            snapshot=_forge_exact(snapshot, schema_version="private-snapshot-schema"),
+        ),
+        _forge_exact(
+            deployment,
+            snapshot=_forge_exact(snapshot, artifacts=tuple(reversed(snapshot.artifacts))),
+        ),
+        _forge_exact(
+            deployment,
+            runtime_config=_forge_exact(config, model_name="private-model-name"),
+        ),
+        _forge_exact(
+            deployment,
+            runtime_config=_forge_exact(config, checkpoint_manifest_sha256="e" * 64),
+        ),
+        _forge_exact(
+            deployment,
+            checkpoint_manifest=_forge_exact(
+                checkpoint, repository="private-checkpoint-repository"
+            ),
+        ),
+        _forge_exact(
+            deployment,
+            snapshot=alternate_snapshot,
+            runtime_identity=alternate_identity,
+        ),
+    )
+
+
+@pytest.mark.parametrize("corrupt", _nested_deployment_mutations())
+def test_prepare_rejects_exact_type_forged_nested_deployment_graph(corrupt):
+    with pytest.raises((TypeError, ValueError)) as caught:
+        _core().prepare_laya_runtime_checkpoint_plan(corrupt)
+    _private_error(
+        caught.value,
+        "private-snapshot-schema",
+        "private-model-name",
+        "private-checkpoint-repository",
+    )
+
+
 def test_stream_authorization_rejects_unknown_or_malformed_digest_before_consuming():
     checkpoint = _core()
     plan = _plan()
@@ -230,6 +281,38 @@ def test_chunk_count_cap_and_exact_size_digest_mismatch_are_independent():
             digest_descriptor.sha256,
             iter((b"x" * digest_descriptor.size_bytes,)),
         )
+
+
+def test_explicit_none_chunk_is_not_silently_treated_as_iterator_eof(monkeypatch):
+    checkpoint = _core()
+    plan = _plan()
+    descriptor = plan.files[-1]
+    requested = 0
+    trailing_marker = b"private-trailing-data-after-none"
+
+    class MatchingDigest:
+        def update(self, payload):
+            assert type(payload) is bytes
+
+        def hexdigest(self):
+            return descriptor.sha256
+
+    monkeypatch.setattr(checkpoint.hashlib, "sha256", MatchingDigest)
+
+    def chunks():
+        nonlocal requested
+        requested += 1
+        yield b"x" * descriptor.size_bytes
+        requested += 1
+        yield None
+        requested += 1
+        yield trailing_marker
+        raise AssertionError("private-eof-sentinel")
+
+    with pytest.raises(ValueError) as caught:
+        checkpoint.verify_laya_checkpoint_file_chunks(plan, descriptor.sha256, chunks())
+    assert requested == 2
+    _private_error(caught.value, trailing_marker.decode("ascii"), "private-eof-sentinel")
 
 
 def test_stream_errors_are_private_and_do_not_retain_payload_or_iterator_context():
