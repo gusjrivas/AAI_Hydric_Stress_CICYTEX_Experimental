@@ -495,13 +495,19 @@ def test_git_commit_parser_is_strict_closed_and_private():
     assert parsed.tree_sha1 == "1" * 40
     assert parsed.parent_sha1s == ("2" * 40,)
     assert not hasattr(parsed, "raw_bytes")
+    without_final_lf = provenance._parse_git_commit_bytes(_commit()[:-1])
+    assert without_final_lf.tree_sha1 == parsed.tree_sha1
+    assert without_final_lf.parent_sha1s == parsed.parent_sha1s
+    header, _ = _commit().split(b"\n\n", 1)
     invalid = (
         _commit().replace(b"tree ", b"Tree ", 1),
         _commit().replace(b"tree " + b"1" * 40 + b"\n", b"", 1),
         _commit().replace(b"author ", b"author \xff", 1),
         _commit() + b"\0private-trailing",
-        _commit()[:-1],
         _commit().replace(b"\n\n", b"\ntree " + b"3" * 40 + b"\n\n", 1),
+        _commit().replace(b"committer Example <example@example.com> 1700000000 +0000\n", b"", 1),
+        header,
+        header + b"\n\n",
     )
     for payload in invalid:
         with pytest.raises(ValueError) as caught:
