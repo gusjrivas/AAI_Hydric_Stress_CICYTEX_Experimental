@@ -901,6 +901,181 @@ def test_synthetic_profile_caps_fail_closed_before_evidence(monkeypatch, cap, va
         provenance.verify_laya_runtime_provenance_objects(plan, packets)
 
 
+def _receipts_with_envelope_mutation(evidence, role, **changes):
+    receipts = list(evidence.receipts)
+    position = next(index for index, receipt in enumerate(receipts) if receipt.spec.role == role)
+    envelope = _forge_exact(receipts[position].envelope, **changes)
+    receipts[position] = _forge_exact(receipts[position], envelope=envelope)
+    return tuple(receipts)
+
+
+def test_exact_class_clones_cannot_self_assert_provenance_without_verified_bytes(
+    monkeypatch,
+):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    evidence = provenance.verify_laya_runtime_provenance_objects(plan, packets)
+    cloned_receipts = tuple(
+        _forge_exact(receipt, envelope=_forge_exact(receipt.envelope))
+        for receipt in evidence.receipts
+    )
+    forged_evidence = _forge_exact(evidence, receipts=cloned_receipts)
+
+    with pytest.raises(ValueError) as sealed:
+        provenance._seal_laya_runtime_provenance_evidence(plan, cloned_receipts)
+    _private_error(sealed.value)
+    with pytest.raises(ValueError) as summarized:
+        provenance.canonical_laya_runtime_provenance_summary_bytes(forged_evidence)
+    _private_error(summarized.value)
+
+
+@pytest.mark.parametrize(
+    ("role", "changes"),
+    (
+        ("source_tag", {"target_kind": "tree"}),
+        ("source_tag", {"tag_name": "private-tag-marker"}),
+        ("source_tag", {"tree_sha1": "f" * 40}),
+        ("source_commit", {"tree_sha1": None}),
+        ("source_commit", {"parent_sha1s": ("f" * 40,)}),
+        ("source_commit", {"target_kind": "commit"}),
+        ("source_tree", {"tree_entries": ()}),
+        ("source_tree", {"lfs_sha256": "f" * 64, "lfs_size_bytes": 1}),
+        ("encoder_config", {"tree_sha1": "f" * 40}),
+        ("weights_lfs", {"lfs_sha256": None}),
+        ("weights_lfs", {"source_license_declared": True}),
+        ("source_license", {"source_license_declared": False}),
+        ("source_pyproject", {"source_license_declared": False}),
+        ("checkpoint_readme", {"checkpoint_license_declared": False}),
+        ("laya_config", {"checkpoint_license_declared": True}),
+    ),
+)
+def test_envelope_derived_fields_are_closed_by_role(monkeypatch, role, changes):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    evidence = provenance.verify_laya_runtime_provenance_objects(plan, packets)
+    receipts = _receipts_with_envelope_mutation(evidence, role, **changes)
+    forged = _forge_exact(evidence, receipts=receipts)
+
+    with pytest.raises(ValueError) as sealed:
+        provenance._seal_laya_runtime_provenance_evidence(plan, receipts)
+    _private_error(sealed.value, "private-tag-marker")
+    with pytest.raises(ValueError) as summarized:
+        provenance.canonical_laya_runtime_provenance_summary_bytes(forged)
+    _private_error(summarized.value, "private-tag-marker")
+
+
+def test_unit_verifier_revalidates_exact_pr34_ancestry_before_issuing_receipt(
+    monkeypatch,
+):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    original_checkpoint = plan.checkpoint_evidence
+    hostile_identity = SimpleNamespace(
+        schema_version=plan.runtime_identity.schema_version,
+        sha256="f" * 64,
+    )
+    adulterated_checkpoint = object.__new__(type(original_checkpoint))
+    object.__setattr__(adulterated_checkpoint, "plan", original_checkpoint.plan)
+    object.__setattr__(adulterated_checkpoint, "runtime_identity", hostile_identity)
+    adulterated_plan = _forge_exact(
+        plan,
+        checkpoint_evidence=adulterated_checkpoint,
+        runtime_identity=hostile_identity,
+    )
+
+    def validate(value):
+        if value is not original_checkpoint:
+            raise ValueError("private-ancestor-marker")
+        return value
+
+    monkeypatch.setattr(provenance, "_deep_validate_checkpoint_evidence", validate)
+    with pytest.raises(ValueError) as caught:
+        provenance.verify_laya_runtime_provenance_object_chunks(
+            adulterated_plan, adulterated_plan.objects[0].sha1, packets[0][3]
+        )
+    _private_error(caught.value, "private-ancestor-marker")
+
+
+def test_aggregate_preflights_all_closed_chunk_containers_before_consuming_any(
+    monkeypatch,
+):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    requests = 0
+
+    def counted(chunks):
+        nonlocal requests
+        for chunk in chunks:
+            requests += 1
+            yield chunk
+
+    hostile = tuple(
+        (*packet[:3], counted(packet[3])) if index < 15 else (*packet[:3], None)
+        for index, packet in enumerate(packets)
+    )
+    with pytest.raises(ValueError):
+        provenance.verify_laya_runtime_provenance_objects(plan, hostile)
+    assert requests == 0
+
+    for invalid in (
+        [*packets],
+        (*packets[:1], (*packets[1][:3], [*packets[1][3]]), *packets[2:]),
+        (
+            *packets[:1],
+            (*packets[1][:3], (b"x",) * (provenance.MAX_PROVENANCE_CHUNKS + 1)),
+            *packets[2:],
+        ),
+        (*packets[:1], (*packets[1][:3], (b"",)), *packets[2:]),
+    ):
+        with pytest.raises(ValueError):
+            provenance.verify_laya_runtime_provenance_objects(plan, invalid)
+
+
+def test_public_surface_is_closed():
+    provenance = _provenance()
+    expected = {
+        "PROVENANCE_PLAN_SCHEMA",
+        "PROVENANCE_EVIDENCE_SCHEMA",
+        "SOURCE_REPOSITORY",
+        "CHECKPOINT_REPOSITORY",
+        "SOURCE_COMMIT",
+        "CHECKPOINT_COMMIT",
+        "MAX_PROVENANCE_OBJECTS",
+        "MAX_PROVENANCE_OBJECT_BYTES",
+        "MAX_PROVENANCE_TOTAL_BYTES",
+        "MAX_PROVENANCE_CHUNK_BYTES",
+        "MAX_PROVENANCE_CHUNKS",
+        "MAX_PROVENANCE_TREE_ENTRIES",
+        "MAX_PROVENANCE_PATH_COMPONENTS",
+        "MAX_PROVENANCE_DAG_VISITS",
+        "PROVENANCE_OBJECTS",
+        "LayaGitObjectSpec",
+        "LayaRuntimeProvenancePlan",
+        "LayaGitObjectEnvelope",
+        "VerifiedLayaProvenanceObject",
+        "LayaRuntimeProvenanceEvidence",
+        "prepare_laya_runtime_provenance_plan",
+        "verify_laya_runtime_provenance_object_chunks",
+        "verify_laya_runtime_provenance_objects",
+        "canonical_laya_runtime_provenance_summary_bytes",
+    }
+    assert type(provenance.__all__) is tuple
+    assert set(provenance.__all__) == expected
+    assert len(provenance.__all__) == len(expected)
+
+
+def test_live_chunk_cap_never_exceeds_object_cap(monkeypatch):
+    provenance = _provenance()
+    assert 0 < provenance.MAX_PROVENANCE_CHUNK_BYTES <= provenance.MAX_PROVENANCE_OBJECT_BYTES
+
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    monkeypatch.setattr(provenance, "MAX_PROVENANCE_CHUNK_BYTES", 1)
+    with pytest.raises(ValueError):
+        provenance.verify_laya_runtime_provenance_object_chunks(
+            plan, plan.objects[0].sha1, packets[0][3]
+        )
+
+
 def test_factory_sealed_types_are_frozen_slotted_private_and_retain_no_payload():
     provenance = _provenance()
     classes = (
