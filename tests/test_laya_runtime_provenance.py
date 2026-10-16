@@ -69,6 +69,23 @@ APACHE_2_LICENSE_B85 = b"".join(
         b"&T7el-GtiJQCBRgv>@EB#N;EfssF{?kxmpOE4s?%00",
     )
 )
+CHECKPOINT_COMMIT_B85 = b"".join(
+    (
+        b"LRx4!F+o`-Q(22*kKh0T4&Q)a5I_(A_kaKY@W226@IV6m?rp~#Zq>IDRPtn=DY9mQFiDa63T;i3C#5|xGen-CG!az&O;1f3kp@ph",
+        b"XwOu|JepxlOvn>45Ys^wP2y?~CZ<h1Q__t+GA7h|nV``$+fzs}7(mrcp`g_^m}*Z+r;|-a)ND+rk*S(#7-^}aO$!A8M10AN__+1T",
+        b"#CoSmrk!jcM?xP6Y=mw^bhMYcA$yVnMyelaLB}j>r?UurmANjul&h?j(EOlYgeo$hAngY;_>m?XEfzrs5Cou*LNry+)^c>@&A5#`",
+        b"rRn@g0u?*u7~kzdR+LlOA_RCg7ZS<>q%WAI-a<vv1$<t-vB89M)%=slt*XQPr5-n5bmMB^+iUFpKD^Go^2xNAMUbgJSe~?-3(TxC",
+        b"P8#AS92aAOetI!ymqIG3?86rZX*QPHDQwW~pVK3BVP^^W_4L`;cpB3UdO_DSRlq(tpQ^AhqL?^mwO+wjw2)lj7q6Cf`RvYoZvI=-",
+        b"eQ--4U}eVM?d4P)(v5i6FN{L(BG*G!$&it-rE^l=vtrv)Fa{X5!vn*kZBMI%1ZUTdleSO;1x;ECw&<-(tGq&#ao>7ID`zWUQE;Xw",
+        b"(CpE=PoHuSadQ&6P6~Ptn{NtRL5ZPh6g8D|2~uqzdGlYvP|QAFDtoBnkhJpDxwQ&YBBOvhEzSf$c)|}br=2%w8<E$Mc^B){<w6yu",
+        b"U_-g<iJivW*k9(|iQRraRTdyo0f{A;Et#LF9aR7`XzI6_H*##)cbK27cD@=*0=!KlbnGOhY-hQ@V(+r9N)XVp0-<IcwKgHpi7}cN",
+        b">JvzCWPxTC3@D}Vlg;RupPP4!r|^y;((#k-OS8~n%0$6&D<O74wg1;*>!?>xTe1-=9^CoSOQ_b_%maOsI+venWD-Ciq+r|f`&$G|",
+        b"O*CXP&K+D?m~KZVtoq^)T(#I)nssoDE+(S7VCS61aJjQl$|*H=!m?HwR!e;26!*m}@5kQ~@8~B9*&d5?#_);4O&VR8>KxJ(NBrhk",
+        b"Ss?>jX&`Zzx*77z<i&c8D`>kqbC+Boh9xda8w)5v+sDB5K%LO5cH!W##=7BQSun9=>wr6yHH(eL%1{?ZDtR|Cu^1{S5cjo^NxZ}D",
+        b"qO~yZhrrwNPrITf3q)r63f+T#X8_aB8y(Bo)F+1b4xr0eafB$joyifVajVgOKI;!TB(<-k@F&UQmmqX8!+!~)M{S_kHyDziZL+g8",
+        b"P%6%JQs9iIBe3>t9GqTJn^0ZZ#fk-QZK?I)g*Mk;{9VZu;X*<!ia&q",
+    )
+)
 EXPECTED_OBJECTS = (
     (
         "source_tag",
@@ -255,7 +272,7 @@ def _spec(provenance, role, repository, kind, payload):
     return value
 
 
-def _synthetic_profile(monkeypatch, provenance, *, source_license=None):
+def _synthetic_profile(monkeypatch, provenance, *, source_license=None, checkpoint_commit=None):
     checkpoint = _checkpoint_evidence(monkeypatch)
     small = {
         "encoder_config": b'{"model_type":"synthetic-laya"}\n',
@@ -331,7 +348,9 @@ def _synthetic_profile(monkeypatch, provenance, *, source_license=None):
     )
     payloads["source_commit"] = _commit(_git_sha1("tree", payloads["source_tree"]))
     payloads["source_tag"] = _tag(_git_sha1("commit", payloads["source_commit"]))
-    payloads["checkpoint_commit"] = _commit(_git_sha1("tree", payloads["checkpoint_tree"]))
+    if checkpoint_commit is None:
+        checkpoint_commit = _commit(_git_sha1("tree", payloads["checkpoint_tree"]))
+    payloads["checkpoint_commit"] = checkpoint_commit
     monkeypatch.setattr(provenance, "SOURCE_COMMIT", _git_sha1("commit", payloads["source_commit"]))
     monkeypatch.setattr(
         provenance,
@@ -487,6 +506,67 @@ def test_git_commit_parser_is_strict_closed_and_private():
     for payload in invalid:
         with pytest.raises(ValueError) as caught:
             provenance._parse_git_commit_bytes(payload)
+        _private_error(caught.value, "private-trailing")
+
+
+def test_real_checkpoint_commit_without_final_lf_verifies_end_to_end(monkeypatch):
+    provenance = _provenance()
+    payload = bz2.decompress(base64.b85decode(CHECKPOINT_COMMIT_B85))
+    assert len(payload) == 1149
+    assert _git_sha1("commit", payload) == CHECKPOINT_COMMIT
+    assert hashlib.sha256(payload).hexdigest() == (
+        "4e00a98879150b4c17b83ec48688c81e0b14a2b62ebf35b2c831ab67eb95fb75"
+    )
+    assert payload.endswith(b"README: recommend max_len=8192, laya 0.3.20 notes")
+    assert not payload.endswith(b"\n")
+
+    parsed = provenance._parse_git_commit_bytes(payload)
+    assert parsed.tree_sha1 == "61ea5230f8c24a7b55f9b37e74518c6ef17e62b3"
+    assert parsed.parent_sha1s == ("d51a65072f7c8eab3c4186b6e062de63d0bd5303",)
+
+    _, _, baseline_payloads = _synthetic_profile(monkeypatch, provenance)
+    exact_plan, _, _ = _synthetic_profile(monkeypatch, provenance, checkpoint_commit=payload)
+    exact_spec = next(item for item in exact_plan.objects if item.role == "checkpoint_commit")
+    receipt = provenance._verify_laya_runtime_provenance_object_chunks(
+        exact_plan, CHECKPOINT_COMMIT, iter((payload,))
+    )
+    assert receipt.spec is exact_spec
+    assert receipt.provenance_object_verified is True
+
+    synthetic_tree = _git_sha1("tree", baseline_payloads["checkpoint_tree"])
+    aggregate_payload = payload.replace(
+        b"tree 61ea5230f8c24a7b55f9b37e74518c6ef17e62b3",
+        f"tree {synthetic_tree}".encode("ascii"),
+        1,
+    )
+    aggregate_plan, aggregate_packets, _ = _synthetic_profile(
+        monkeypatch, provenance, checkpoint_commit=aggregate_payload
+    )
+    assert not aggregate_payload.endswith(b"\n")
+    assert provenance.verify_laya_runtime_provenance_objects(
+        aggregate_plan, aggregate_packets
+    ).receipts
+
+
+def test_real_checkpoint_commit_still_rejects_ambiguous_or_truncated_bytes():
+    provenance = _provenance()
+    payload = bz2.decompress(base64.b85decode(CHECKPOINT_COMMIT_B85))
+    header, _ = payload.split(b"\n\n", 1)
+    invalid = (
+        payload + b"\0private-trailing",
+        payload.replace(b"\n", b"\r", 1),
+        payload.replace(b"tree ", b"Tree ", 1),
+        payload.replace(
+            b"\n\n",
+            b"\ntree 0000000000000000000000000000000000000000\n\n",
+            1,
+        ),
+        header,
+        header + b"\n\n",
+    )
+    for corrupt in invalid:
+        with pytest.raises(ValueError) as caught:
+            provenance._parse_git_commit_bytes(corrupt)
         _private_error(caught.value, "private-trailing")
 
 
