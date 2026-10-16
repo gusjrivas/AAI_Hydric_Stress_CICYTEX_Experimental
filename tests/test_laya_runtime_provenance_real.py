@@ -26,10 +26,25 @@ def _gate_enabled() -> bool:
 
 
 def _git_object(repository: Path, kind: str, sha1: str) -> bytes:
+    environment = os.environ.copy()
+    environment.update(
+        GIT_NO_LAZY_FETCH="1",
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_TERMINAL_PROMPT="0",
+    )
+    subprocess.run(
+        ("git", "-C", str(repository), "cat-file", "-e", sha1),
+        check=True,
+        capture_output=True,
+        env=environment,
+        timeout=10,
+    )
     completed = subprocess.run(
         ("git", "-C", str(repository), "cat-file", kind, sha1),
         check=True,
         capture_output=True,
+        env=environment,
+        timeout=10,
     )
     return completed.stdout
 
@@ -40,7 +55,6 @@ def _git_object(repository: Path, kind: str, sha1: str) -> bytes:
 )
 def test_opt_in_real_git_objects_bind_to_checkpoint_evidence_without_payload_retention():
     import human_feedback.runtime_provenance as provenance
-
     from human_feedback.adapters.filesystem_checkpoint import (
         capture_and_verify_laya_runtime_checkpoint,
     )
@@ -59,15 +73,15 @@ def test_opt_in_real_git_objects_bind_to_checkpoint_evidence_without_payload_ret
         assert len(payload) == item.size_bytes
         assert _git_sha1(item.kind, payload) == item.sha1
         assert hashlib.sha256(payload).hexdigest() == item.sha256
-        streams.append((item.sha1, (payload,)))
+        streams.append((item.repository, item.kind, item.sha1, (payload,)))
 
-    evidence = provenance.verify_laya_runtime_provenance(checkpoint, tuple(streams))
+    evidence = provenance.verify_laya_runtime_provenance_objects(plan, tuple(streams))
 
     assert type(evidence) is provenance.LayaRuntimeProvenanceEvidence
     assert evidence.checkpoint_evidence is checkpoint
     assert evidence.plan.checkpoint_evidence is checkpoint
-    assert tuple(receipt.object_spec for receipt in evidence.receipts) == plan.objects
-    assert all(receipt.object_bytes_verified is True for receipt in evidence.receipts)
+    assert tuple(receipt.spec for receipt in evidence.receipts) == plan.objects
+    assert all(receipt.provenance_object_verified is True for receipt in evidence.receipts)
     assert evidence.provenance_objects_verified is True
     assert evidence.origin_verified is False
     assert evidence.license_verified is False
@@ -86,7 +100,6 @@ def test_opt_in_real_git_objects_bind_to_checkpoint_evidence_without_payload_ret
 @pytest.mark.parametrize("mutation", ("missing", "extra", "reordered", "duplicate"))
 def test_opt_in_real_provenance_is_exact_ordered_and_all_or_nothing(mutation):
     import human_feedback.runtime_provenance as provenance
-
     from human_feedback.adapters.filesystem_checkpoint import (
         capture_and_verify_laya_runtime_checkpoint,
     )
@@ -101,6 +114,8 @@ def test_opt_in_real_provenance_is_exact_ordered_and_all_or_nothing(mutation):
     }
     streams = tuple(
         (
+            item.repository,
+            item.kind,
             item.sha1,
             (_git_object(repositories[item.repository], item.kind, item.sha1),),
         )
@@ -114,4 +129,4 @@ def test_opt_in_real_provenance_is_exact_ordered_and_all_or_nothing(mutation):
     }[mutation]
 
     with pytest.raises(ValueError):
-        provenance.verify_laya_runtime_provenance(checkpoint, invalid)
+        provenance.verify_laya_runtime_provenance_objects(plan, invalid)

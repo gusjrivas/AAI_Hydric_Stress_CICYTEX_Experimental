@@ -1,11 +1,13 @@
 import ast
 import hashlib
 import inspect
-from dataclasses import fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from tests.test_laya_runtime_deployment_metadata import CHECKPOINT_FILES, _validate
 
 PLAN_SCHEMA = "laya-runtime-provenance-plan-v1"
 EVIDENCE_SCHEMA = "laya-runtime-provenance-evidence-v1"
@@ -13,6 +15,12 @@ SOURCE_REPOSITORY = "https://github.com/NandhaKishorM/laya"
 CHECKPOINT_REPOSITORY = "https://huggingface.co/convaiinnovations/laya"
 SOURCE_COMMIT = "68804629e8ccd9d616d48a40e87de9fabbeae069"
 CHECKPOINT_COMMIT = "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851"
+CHECKPOINT_README_FRONTMATTER = (
+    b"---\nlicense: apache-2.0\nlibrary_name: transformers\n"
+    b"pipeline_tag: text-classification\n"
+    b"tags: [laya, system-one, calibrated-decisions, rlcd, classification, routing, "
+    b"scoring, guardrails, moderation, reinforcement-learning, commercial-use]\n---\n"
+)
 EXPECTED_OBJECTS = (
     (
         "source_tag",
@@ -173,6 +181,192 @@ def _private_error(exc: BaseException, *markers: str) -> None:
     assert all(marker not in rendered for marker in markers)
 
 
+def _forge_exact(instance, **changes):
+    forged = object.__new__(type(instance))
+    for field in fields(instance):
+        object.__setattr__(
+            forged, field.name, changes.get(field.name, getattr(instance, field.name))
+        )
+    return forged
+
+
+def _checkpoint_evidence():
+    from human_feedback import runtime_checkpoint
+
+    plan = runtime_checkpoint.prepare_laya_runtime_checkpoint_plan(_validate())
+    receipts = []
+    for descriptor in plan.files:
+        receipt = object.__new__(runtime_checkpoint.VerifiedLayaCheckpointFile)
+        object.__setattr__(receipt, "plan", plan)
+        object.__setattr__(receipt, "file", descriptor)
+        object.__setattr__(receipt, "checkpoint_file_bytes_verified", True)
+        receipts.append(receipt)
+    authority = runtime_checkpoint._seal_laya_checkpoint_capture_authority(plan, tuple(receipts))
+    return runtime_checkpoint._seal_laya_runtime_checkpoint_evidence(authority)
+
+
+def _spec(provenance, role, repository, kind, payload):
+    value = object.__new__(provenance.LayaGitObjectSpec)
+    object.__setattr__(value, "role", role)
+    object.__setattr__(value, "repository", repository)
+    object.__setattr__(value, "kind", kind)
+    object.__setattr__(value, "sha1", _git_sha1(kind, payload))
+    object.__setattr__(value, "sha256", hashlib.sha256(payload).hexdigest())
+    object.__setattr__(value, "size_bytes", len(payload))
+    return value
+
+
+def _synthetic_profile(monkeypatch, provenance):
+    checkpoint = _checkpoint_evidence()
+    small = {
+        "encoder_config": b'{"model_type":"synthetic-laya"}\n',
+        "laya_config": b'{"profile":"synthetic-laya"}\n',
+        "tokenizer_config": b'{"tokenizer":"synthetic-laya"}\n',
+    }
+    payload_authority = {
+        "weights": (hashlib.sha256(b"synthetic weights").hexdigest(), 17),
+        "tokenizer": (hashlib.sha256(b"synthetic tokenizer").hexdigest(), 19),
+    }
+    lfs = {
+        "weights_lfs": (
+            b"version https://git-lfs.github.com/spec/v1\n"
+            + f"oid sha256:{payload_authority['weights'][0]}\n".encode()
+            + b"size 17\n"
+        ),
+        "tokenizer_lfs": (
+            b"version https://git-lfs.github.com/spec/v1\n"
+            + f"oid sha256:{payload_authority['tokenizer'][0]}\n".encode()
+            + b"size 19\n"
+        ),
+    }
+    source_license = b"Apache License\nVersion 2.0, January 2004\n"
+    source_pyproject = (
+        b'[project]\nname = "laya"\nversion = "0.4.2"\n' b'license = { text = "Apache-2.0" }\n'
+    )
+    checkpoint_readme = CHECKPOINT_README_FRONTMATTER
+    payloads = {
+        "source_license": source_license,
+        "source_pyproject": source_pyproject,
+        "checkpoint_readme": checkpoint_readme,
+        **small,
+        **lfs,
+    }
+
+    def add_tree(role, entries):
+        payloads[role] = b"".join(
+            _tree_entry(mode, path, _git_sha1(kind, payloads[target]))
+            for mode, path, kind, target in entries
+        )
+
+    add_tree("encoder_tree", (("100644", "config.json", "blob", "encoder_config"),))
+    add_tree(
+        "tokenizer_tree",
+        (
+            ("100644", "tokenizer.json", "blob", "tokenizer_lfs"),
+            ("100644", "tokenizer_config.json", "blob", "tokenizer_config"),
+        ),
+    )
+    add_tree(
+        "multilingual_tree",
+        (
+            ("040000", "encoder", "tree", "encoder_tree"),
+            ("100644", "model.safetensors", "blob", "weights_lfs"),
+            ("100644", "rl_agent_config.json", "blob", "laya_config"),
+            ("040000", "tokenizer", "tree", "tokenizer_tree"),
+        ),
+    )
+    add_tree(
+        "checkpoint_tree",
+        (
+            ("100644", "README.md", "blob", "checkpoint_readme"),
+            ("040000", "multilingual", "tree", "multilingual_tree"),
+        ),
+    )
+    add_tree(
+        "source_tree",
+        (
+            ("100644", "LICENSE", "blob", "source_license"),
+            ("100644", "pyproject.toml", "blob", "source_pyproject"),
+        ),
+    )
+    payloads["source_commit"] = _commit(_git_sha1("tree", payloads["source_tree"]))
+    payloads["source_tag"] = _tag(_git_sha1("commit", payloads["source_commit"]))
+    payloads["checkpoint_commit"] = _commit(_git_sha1("tree", payloads["checkpoint_tree"]))
+    monkeypatch.setattr(provenance, "SOURCE_COMMIT", _git_sha1("commit", payloads["source_commit"]))
+    monkeypatch.setattr(
+        provenance,
+        "CHECKPOINT_COMMIT",
+        _git_sha1("commit", payloads["checkpoint_commit"]),
+    )
+    role_kind = {role: "tree" if role.endswith("_tree") else "blob" for role in payloads}
+    role_kind.update(source_tag="tag", source_commit="commit", checkpoint_commit="commit")
+    order = tuple(item[0] for item in EXPECTED_OBJECTS)
+    objects = tuple(
+        _spec(
+            provenance,
+            role,
+            SOURCE_REPOSITORY if role.startswith("source_") else CHECKPOINT_REPOSITORY,
+            role_kind[role],
+            payloads[role],
+        )
+        for role in order
+    )
+    file_values = {
+        "encoder_config": (
+            hashlib.sha256(small["encoder_config"]).hexdigest(),
+            len(small["encoder_config"]),
+        ),
+        "weights": payload_authority["weights"],
+        "laya_config": (
+            hashlib.sha256(small["laya_config"]).hexdigest(),
+            len(small["laya_config"]),
+        ),
+        "tokenizer": payload_authority["tokenizer"],
+        "tokenizer_config": (
+            hashlib.sha256(small["tokenizer_config"]).hexdigest(),
+            len(small["tokenizer_config"]),
+        ),
+    }
+    fake_files = tuple(
+        SimpleNamespace(
+            role=item["role"],
+            path=item["path"],
+            sha256=file_values[item["role"]][0],
+            size_bytes=file_values[item["role"]][1],
+        )
+        for item in CHECKPOINT_FILES
+    )
+    synthetic_checkpoint = object.__new__(type(checkpoint))
+    object.__setattr__(synthetic_checkpoint, "plan", SimpleNamespace(files=fake_files))
+    object.__setattr__(synthetic_checkpoint, "runtime_identity", checkpoint.runtime_identity)
+    monkeypatch.setattr(provenance, "PROVENANCE_OBJECTS", objects)
+    monkeypatch.setattr(provenance, "_deep_validate_checkpoint_evidence", lambda value: value)
+    plan = provenance.prepare_laya_runtime_provenance_plan(synthetic_checkpoint)
+    packets = tuple(
+        (item.repository, item.kind, item.sha1, (payloads[item.role],)) for item in plan.objects
+    )
+    return plan, packets, payloads
+
+
+def _rebind_synthetic_profile(monkeypatch, provenance, plan, payloads):
+    rebound = tuple(
+        _spec(
+            provenance,
+            item.role,
+            item.repository,
+            item.kind,
+            payloads[item.role],
+        )
+        for item in plan.objects
+    )
+    monkeypatch.setattr(provenance, "PROVENANCE_OBJECTS", rebound)
+    rebound_plan = _forge_exact(plan, objects=rebound)
+    packets = tuple(
+        (item.repository, item.kind, item.sha1, (payloads[item.role],)) for item in rebound
+    )
+    return rebound_plan, packets
+
+
 def test_public_profile_constants_are_exact_closed_and_dual_digest_pinned():
     provenance = _provenance()
     assert provenance.PROVENANCE_PLAN_SCHEMA == PLAN_SCHEMA
@@ -183,12 +377,30 @@ def test_public_profile_constants_are_exact_closed_and_dual_digest_pinned():
     assert provenance.CHECKPOINT_COMMIT == CHECKPOINT_COMMIT
     assert provenance.MAX_PROVENANCE_OBJECTS == 16
     assert provenance.MAX_PROVENANCE_OBJECT_BYTES == 64 * 1024
-    assert (
-        tuple(
-            (item.role, item.kind, item.sha1, item.sha256, item.size_bytes)
-            for item in provenance.PROVENANCE_OBJECTS
+    assert provenance.MAX_PROVENANCE_TOTAL_BYTES == 16 * 64 * 1024
+    assert provenance.MAX_PROVENANCE_TREE_ENTRIES == 256
+    assert provenance.MAX_PROVENANCE_PATH_COMPONENTS == 8
+    assert provenance.MAX_PROVENANCE_DAG_VISITS == 64
+    assert tuple(
+        (
+            item.role,
+            item.repository,
+            item.kind,
+            item.sha1,
+            item.sha256,
+            item.size_bytes,
         )
-        == EXPECTED_OBJECTS
+        for item in provenance.PROVENANCE_OBJECTS
+    ) == tuple(
+        (
+            role,
+            SOURCE_REPOSITORY if role.startswith("source_") else CHECKPOINT_REPOSITORY,
+            kind,
+            sha1,
+            sha256,
+            size,
+        )
+        for role, kind, sha1, sha256, size in EXPECTED_OBJECTS
     )
     assert all(
         len(item.sha1) == 40
@@ -321,13 +533,12 @@ def test_large_checkpoint_blobs_are_exact_three_line_lfs_pointers(
 
 def test_license_and_package_declarations_are_exact_and_checkpoint_repo_is_not_alias():
     provenance = _provenance()
+    assert CHECKPOINT_REPOSITORY != "https://huggingface.co/convaiinnovations/laya-multilingual"
     provenance._validate_source_license_bytes(b"Apache License\nVersion 2.0, January 2004\n")
     provenance._validate_source_pyproject_bytes(
         b'[project]\nname = "laya"\nversion = "0.4.2"\n' b'license = { text = "Apache-2.0" }\n'
     )
-    provenance._validate_checkpoint_readme_bytes(
-        b"---\nlicense: apache-2.0\n---\nrepo: convaiinnovations/laya\nsubfolder: multilingual\n"
-    )
+    provenance._validate_checkpoint_readme_bytes(CHECKPOINT_README_FRONTMATTER)
     invalid = (
         (provenance._validate_source_license_bytes, b"MIT License"),
         (
@@ -336,7 +547,9 @@ def test_license_and_package_declarations_are_exact_and_checkpoint_repo_is_not_a
         ),
         (
             provenance._validate_checkpoint_readme_bytes,
-            b"---\nlicense: apache-2.0\n---\n" b"repo: convaiinnovations/laya-multilingual\n",
+            b"---\nlicense: apache-2.0\nlibrary_name: transformers\n"
+            b"pipeline_tag: text-classification\n"
+            b"tags: [laya-multilingual]\n---\n",
         ),
     )
     for validator, payload in invalid:
@@ -352,6 +565,340 @@ def test_object_verifier_rejects_wrong_type_size_sha1_sha256_and_stream_shape():
             provenance.verify_laya_runtime_provenance_object_chunks(value, "1" * 40, iter((b"x",)))
     assert provenance.MAX_PROVENANCE_CHUNK_BYTES == 1024 * 1024
     assert provenance.MAX_PROVENANCE_CHUNKS == 64
+
+
+def test_synthetic_exact_sixteen_object_dag_reaches_evidence_and_private_summary(
+    monkeypatch,
+):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+
+    evidence = provenance.verify_laya_runtime_provenance_objects(plan, packets)
+
+    assert type(evidence) is provenance.LayaRuntimeProvenanceEvidence
+    assert evidence.plan is plan
+    assert tuple(receipt.spec for receipt in evidence.receipts) == plan.objects
+    assert len(evidence.receipts) == 16
+    assert all(receipt.provenance_object_verified is True for receipt in evidence.receipts)
+    assert evidence.source_git_content_verified is True
+    assert evidence.checkpoint_git_content_verified is True
+    assert evidence.source_license_declaration_observed is True
+    assert evidence.checkpoint_license_declaration_observed is True
+    true_flags = (
+        "artifact_integrity_verified",
+        "runtime_config_semantics_verified",
+        "checkpoint_manifest_semantics_verified",
+        "checkpoint_bytes_verified",
+        "provenance_objects_verified",
+        "source_git_content_verified",
+        "checkpoint_git_content_verified",
+        "source_license_declaration_observed",
+        "checkpoint_license_declaration_observed",
+    )
+    false_flags = (
+        "lock_verified",
+        "sbom_verified",
+        "lock_sbom_consistent",
+        "oci_bytes_verified",
+        "oci_manifest_semantics_verified",
+        "origin_verified",
+        "license_verified",
+        "base_ancestry_verified",
+        "runtime_materialized",
+        "executor_available",
+        "inference_executed",
+    )
+    assert all(getattr(evidence, name) is True for name in true_flags)
+    assert all(getattr(evidence, name) is False for name in false_flags)
+    for name in (*true_flags, *false_flags):
+        forged = _forge_exact(
+            evidence,
+            **{name: False if name in true_flags else True},
+        )
+        with pytest.raises(ValueError):
+            provenance.canonical_laya_runtime_provenance_summary_bytes(forged)
+    with pytest.raises(FrozenInstanceError):
+        evidence.origin_verified = True
+    with pytest.raises(ValueError):
+        replace(evidence, schema_version="private-schema-marker")
+    for sealed in (
+        evidence.plan.objects[0],
+        evidence.plan,
+        evidence.receipts[0].envelope,
+        evidence.receipts[0],
+        evidence,
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            replace(sealed)
+    summary = provenance.canonical_laya_runtime_provenance_summary_bytes(evidence)
+    assert EVIDENCE_SCHEMA.encode() in summary
+    for item in plan.objects:
+        assert item.sha1.encode() not in summary
+        assert item.sha256.encode() not in summary
+        assert item.repository.encode() not in summary
+        assert item.sha1 not in repr(evidence)
+        assert item.repository not in repr(evidence)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "repository",
+        "kind",
+        "sha1",
+        "size",
+        "nonbytes",
+        "container_type",
+        "missing",
+        "extra",
+        "duplicate",
+        "reordered",
+    ),
+)
+def test_synthetic_aggregate_rejects_packet_authority_and_coverage_mutations(monkeypatch, mutation):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    first = packets[0]
+    mutations = {
+        "repository": ((CHECKPOINT_REPOSITORY, *first[1:]), *packets[1:]),
+        "kind": ((first[0], "blob", *first[2:]), *packets[1:]),
+        "sha1": ((first[0], first[1], "f" * 40, first[3]), *packets[1:]),
+        "size": ((*first[:3], (first[3][0][:-1],)), *packets[1:]),
+        "nonbytes": ((*first[:3], ("private-payload",)), *packets[1:]),
+        "container_type": list(packets),
+        "missing": packets[:-1],
+        "extra": packets + (packets[-1],),
+        "duplicate": (packets[0], packets[0], *packets[2:]),
+        "reordered": (packets[1], packets[0], *packets[2:]),
+    }
+    with pytest.raises(ValueError) as caught:
+        provenance.verify_laya_runtime_provenance_objects(plan, mutations[mutation])
+    _private_error(caught.value, "private-payload")
+
+
+def test_synthetic_aggregate_rejects_independent_sha256_authority(monkeypatch):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    wrong = _forge_exact(plan.objects[0], sha256="f" * 64)
+    objects = (wrong, *plan.objects[1:])
+    monkeypatch.setattr(provenance, "PROVENANCE_OBJECTS", objects)
+    corrupt_plan = _forge_exact(plan, objects=objects)
+
+    with pytest.raises(ValueError):
+        provenance.verify_laya_runtime_provenance_objects(corrupt_plan, packets)
+
+
+def test_synthetic_dag_rejects_cross_swapped_edges_modes_and_lfs_authorities(
+    monkeypatch,
+):
+    provenance = _provenance()
+    plan, packets, payloads = _synthetic_profile(monkeypatch, provenance)
+    by_role = {item.role: item for item in plan.objects}
+    for role in ("weights_lfs", "tokenizer_lfs"):
+        parsed = provenance._parse_lfs_pointer_bytes(payloads[role])
+        spec = by_role[role]
+        assert spec.sha1 != spec.sha256[:40]
+        assert parsed.sha256 != spec.sha256
+        assert parsed.sha256 != spec.sha1
+    role_positions = {item.role: index for index, item in enumerate(plan.objects)}
+    for left, right in (
+        ("source_tag", "source_commit"),
+        ("source_commit", "checkpoint_commit"),
+        ("source_tree", "checkpoint_tree"),
+        ("encoder_tree", "tokenizer_tree"),
+        ("weights_lfs", "tokenizer_lfs"),
+    ):
+        mutated = list(packets)
+        a, b = role_positions[left], role_positions[right]
+        mutated[a], mutated[b] = mutated[b], mutated[a]
+        with pytest.raises(ValueError):
+            provenance.verify_laya_runtime_provenance_objects(plan, tuple(mutated))
+
+    identities = {item.role: item.sha1 for item in plan.objects}
+    graph_mutations = []
+    changed = dict(payloads)
+    changed["source_tag"] = _tag(identities["checkpoint_commit"])
+    graph_mutations.append((changed, None, None))
+    changed = dict(payloads)
+    changed["source_commit"] = _commit(identities["checkpoint_tree"])
+    new_source_commit = _git_sha1("commit", changed["source_commit"])
+    changed["source_tag"] = _tag(new_source_commit)
+    graph_mutations.append((changed, new_source_commit, None))
+    for license_mode, license_target in (
+        ("100644", "source_pyproject"),
+        ("040000", "source_license"),
+    ):
+        changed = dict(payloads)
+        changed["source_tree"] = b"".join(
+            (
+                _tree_entry(
+                    license_mode,
+                    "LICENSE",
+                    identities[license_target],
+                ),
+                _tree_entry("100644", "pyproject.toml", identities["source_pyproject"]),
+            )
+        )
+        changed["source_commit"] = _commit(_git_sha1("tree", changed["source_tree"]))
+        new_source_commit = _git_sha1("commit", changed["source_commit"])
+        changed["source_tag"] = _tag(new_source_commit)
+        graph_mutations.append((changed, new_source_commit, None))
+    changed = dict(payloads)
+    changed["checkpoint_tree"] = b"".join(
+        (
+            _tree_entry("100644", "README.md", identities["checkpoint_readme"]),
+            _tree_entry("040000", "multilingual", identities["encoder_tree"]),
+        )
+    )
+    changed["checkpoint_commit"] = _commit(_git_sha1("tree", changed["checkpoint_tree"]))
+    graph_mutations.append((changed, None, _git_sha1("commit", changed["checkpoint_commit"])))
+    for changed, source_commit, checkpoint_commit in graph_mutations:
+        monkeypatch.setattr(
+            provenance,
+            "SOURCE_COMMIT",
+            source_commit or _git_sha1("commit", changed["source_commit"]),
+        )
+        monkeypatch.setattr(
+            provenance,
+            "CHECKPOINT_COMMIT",
+            checkpoint_commit or _git_sha1("commit", changed["checkpoint_commit"]),
+        )
+        corrupt_plan, corrupt_packets = _rebind_synthetic_profile(
+            monkeypatch, provenance, plan, changed
+        )
+        with pytest.raises(ValueError):
+            provenance.verify_laya_runtime_provenance_objects(corrupt_plan, corrupt_packets)
+    weights_position = role_positions["weights_lfs"]
+    pointer = packets[weights_position][3][0]
+    for mutation in (
+        pointer.replace(b"size 17", b"size 18"),
+        pointer.replace(pointer.split(b"sha256:", 1)[1][:64], b"f" * 64),
+    ):
+        mutated = list(packets)
+        mutated[weights_position] = (*packets[weights_position][:3], (mutation,))
+        with pytest.raises(ValueError):
+            provenance.verify_laya_runtime_provenance_objects(plan, tuple(mutated))
+
+
+def test_invalid_exact_pr34_ancestry_fails_before_object_iterable_is_touched():
+    provenance = _provenance()
+    checkpoint = _checkpoint_evidence()
+
+    class Untouched:
+        def __iter__(self):
+            raise AssertionError("private-stream-marker")
+
+    bad_receipt = _forge_exact(checkpoint.receipts[0], checkpoint_file_bytes_verified=False)
+    file_corruptions = []
+    first_file = checkpoint.plan.files[0]
+    for changes in (
+        {"role": "private-role-marker"},
+        {"path": "private/path-marker"},
+        {"size_bytes": first_file.size_bytes + 1},
+        {"sha256": "f" * 64},
+    ):
+        bad_file = _forge_exact(first_file, **changes)
+        bad_plan = _forge_exact(checkpoint.plan, files=(bad_file, *checkpoint.plan.files[1:]))
+        bad_receipts = (
+            _forge_exact(checkpoint.receipts[0], plan=bad_plan, file=bad_file),
+            *(_forge_exact(receipt, plan=bad_plan) for receipt in checkpoint.receipts[1:]),
+        )
+        file_corruptions.append(_forge_exact(checkpoint, plan=bad_plan, receipts=bad_receipts))
+    corruptions = (
+        _forge_exact(checkpoint, runtime_identity=SimpleNamespace(sha256="f" * 64)),
+        _forge_exact(checkpoint, receipts=(bad_receipt, *checkpoint.receipts[1:])),
+        _forge_exact(checkpoint, receipts=tuple(reversed(checkpoint.receipts))),
+        _forge_exact(
+            checkpoint, plan=_forge_exact(checkpoint.plan, files=checkpoint.plan.files[:-1])
+        ),
+        _forge_exact(
+            checkpoint,
+            deployment_evidence=_forge_exact(
+                checkpoint.deployment_evidence,
+                checkpoint_manifest=_forge_exact(
+                    checkpoint.deployment_evidence.checkpoint_manifest,
+                    revision="f" * 40,
+                ),
+            ),
+        ),
+        *file_corruptions,
+        _forge_exact(
+            checkpoint,
+            deployment_evidence=_forge_exact(
+                checkpoint.deployment_evidence,
+                checkpoint_manifest=_forge_exact(
+                    checkpoint.deployment_evidence.checkpoint_manifest,
+                    subfolder="private-subfolder-marker",
+                ),
+            ),
+        ),
+        _forge_exact(
+            checkpoint,
+            deployment_evidence=_forge_exact(
+                checkpoint.deployment_evidence,
+                snapshot=_forge_exact(
+                    checkpoint.deployment_evidence.snapshot,
+                    artifacts=tuple(reversed(checkpoint.deployment_evidence.snapshot.artifacts)),
+                ),
+            ),
+        ),
+        _forge_exact(
+            checkpoint,
+            deployment_evidence=_forge_exact(
+                checkpoint.deployment_evidence,
+                snapshot=_forge_exact(
+                    checkpoint.deployment_evidence.snapshot,
+                    runtime_identity=SimpleNamespace(sha256="e" * 64),
+                ),
+            ),
+        ),
+        _forge_exact(
+            checkpoint,
+            deployment_evidence=_forge_exact(
+                checkpoint.deployment_evidence,
+                snapshot=_forge_exact(
+                    checkpoint.deployment_evidence.snapshot,
+                    artifacts=(
+                        _forge_exact(
+                            checkpoint.deployment_evidence.snapshot.artifacts[0],
+                            content=b"private-artifact-marker",
+                        ),
+                        *checkpoint.deployment_evidence.snapshot.artifacts[1:],
+                    ),
+                ),
+            ),
+        ),
+    )
+    for invalid in corruptions:
+        with pytest.raises(ValueError) as caught:
+            provenance.prepare_laya_runtime_provenance_plan(invalid)
+        _private_error(
+            caught.value,
+            "private-stream-marker",
+            "private-subfolder-marker",
+            "private-role-marker",
+            "private/path-marker",
+            "private-artifact-marker",
+        )
+    with pytest.raises((TypeError, ValueError)):
+        provenance.verify_laya_runtime_provenance_objects(SimpleNamespace(), Untouched())
+
+
+@pytest.mark.parametrize(
+    ("cap", "value"),
+    (
+        ("MAX_PROVENANCE_TOTAL_BYTES", 1),
+        ("MAX_PROVENANCE_TREE_ENTRIES", 3),
+        ("MAX_PROVENANCE_PATH_COMPONENTS", 2),
+        ("MAX_PROVENANCE_DAG_VISITS", 15),
+    ),
+)
+def test_synthetic_profile_caps_fail_closed_before_evidence(monkeypatch, cap, value):
+    provenance = _provenance()
+    plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    monkeypatch.setattr(provenance, cap, value)
+    with pytest.raises(ValueError):
+        provenance.verify_laya_runtime_provenance_objects(plan, packets)
 
 
 def test_factory_sealed_types_are_frozen_slotted_private_and_retain_no_payload():
@@ -371,13 +918,9 @@ def test_factory_sealed_types_are_frozen_slotted_private_and_retain_no_payload()
         }
         with pytest.raises((TypeError, ValueError)):
             cls()
-    assert all(
-        parameter.default is inspect.Parameter.empty
-        for name, parameter in inspect.signature(
-            provenance.LayaGitObjectEnvelope
-        ).parameters.items()
-        if name == "_factory_token"
-    )
+    for cls in classes:
+        token = inspect.signature(cls).parameters.get("_factory_token")
+        assert token is not None and token.default is inspect.Parameter.empty
 
 
 def test_evidence_claims_and_summary_remain_conservative_private_and_deep():
@@ -391,6 +934,10 @@ def test_evidence_claims_and_summary_remain_conservative_private_and_deep():
         "checkpoint_manifest_semantics_verified",
         "checkpoint_bytes_verified",
         "provenance_objects_verified",
+        "source_git_content_verified",
+        "checkpoint_git_content_verified",
+        "source_license_declaration_observed",
+        "checkpoint_license_declaration_observed",
     }
     false_flags = {
         "lock_verified",
@@ -400,6 +947,7 @@ def test_evidence_claims_and_summary_remain_conservative_private_and_deep():
         "oci_manifest_semantics_verified",
         "origin_verified",
         "license_verified",
+        "base_ancestry_verified",
         "runtime_materialized",
         "executor_available",
         "inference_executed",
@@ -436,34 +984,71 @@ def test_module_is_pure_and_has_no_productive_callers():
         "urllib",
         "shutil",
     }
-    forbidden_calls = {
-        "__import__",
-        "compile",
-        "eval",
-        "exec",
-        "open",
-        "system",
-        "read_bytes",
-        "read_text",
-        "write_bytes",
-        "write_text",
-    }
-    calls = {
+    forbidden_builtin_calls = {"__import__", "compile", "eval", "exec", "open"}
+    name_calls = {
         node.func.id
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    } | {
-        node.func.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
-    assert not calls & forbidden_calls
+    assert not name_calls & forbidden_builtin_calls
+    forbidden_owners = {
+        "os",
+        "pathlib",
+        "subprocess",
+        "socket",
+        "requests",
+        "urllib",
+        "shutil",
+    }
+
+    def owner_name(node):
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return node.id if isinstance(node, ast.Name) else None
+
+    assert (
+        not {
+            owner_name(node.func)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        & forbidden_owners
+    )
     offenders = []
     for root in (Path("src"), Path("backend"), Path("scripts")):
         for path in root.rglob("*.py"):
             if path.as_posix() == "src/human_feedback/runtime_provenance.py":
                 continue
-            candidate = path.read_text(encoding="utf-8")
-            if "human_feedback.runtime_provenance" in candidate:
-                offenders.append(path.as_posix())
+            candidate = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(candidate):
+                if isinstance(node, ast.Import) and any(
+                    alias.name == "human_feedback.runtime_provenance" for alias in node.names
+                ):
+                    offenders.append(path.as_posix())
+                    break
+                if isinstance(node, ast.ImportFrom) and (
+                    node.module == "human_feedback.runtime_provenance"
+                    or (
+                        node.module == "human_feedback"
+                        and any(alias.name == "runtime_provenance" for alias in node.names)
+                    )
+                    or (
+                        node.level > 0
+                        and (
+                            node.module == "runtime_provenance"
+                            or (
+                                node.module is None
+                                and any(alias.name == "runtime_provenance" for alias in node.names)
+                            )
+                        )
+                    )
+                ):
+                    offenders.append(path.as_posix())
+                    break
+                if (
+                    isinstance(node, ast.Constant)
+                    and node.value == "human_feedback.runtime_provenance"
+                ):
+                    offenders.append(path.as_posix())
+                    break
     assert offenders == []
