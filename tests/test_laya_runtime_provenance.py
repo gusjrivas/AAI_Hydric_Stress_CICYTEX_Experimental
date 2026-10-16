@@ -948,6 +948,20 @@ def test_exact_class_clones_cannot_self_assert_provenance_without_verified_bytes
     with pytest.raises(ValueError):
         provenance.canonical_laya_runtime_provenance_summary_bytes(replayed_evidence)
 
+    identity_cloned_receipts = tuple(
+        clone_private_slots(receipt) for receipt in evidence.receipts
+    )
+    identity_cloned_evidence = clone_private_slots(evidence)
+    with pytest.raises(ValueError):
+        provenance._seal_laya_runtime_provenance_evidence(
+            plan,
+            identity_cloned_receipts,
+        )
+    with pytest.raises(ValueError):
+        provenance.canonical_laya_runtime_provenance_summary_bytes(
+            identity_cloned_evidence,
+        )
+
 
 @pytest.mark.parametrize(
     ("role", "changes"),
