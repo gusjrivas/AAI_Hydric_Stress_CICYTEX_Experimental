@@ -9,6 +9,8 @@
 - [x] Specify canonical-root and exact-inventory preflight.
 - [x] Specify secure descriptors, file type/link checks and TOCTOU final sweep.
 - [x] Specify close-before-seal, all-or-nothing failures and external real gate.
+- [x] Specify `/` rejection, exact `multilingual`-contents root semantics and bounded adjacency.
+- [x] Specify late root/ancestor replacement and filesystem failure injection through final close.
 
 ## 3. GREEN
 

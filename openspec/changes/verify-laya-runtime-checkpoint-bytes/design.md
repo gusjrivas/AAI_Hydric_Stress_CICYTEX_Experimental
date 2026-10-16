@@ -23,18 +23,28 @@ remain private.
 
 ## Filesystem capture
 
-The Linux adapter validates evidence and a canonical absolute root before I/O.
+The Linux adapter validates evidence and a canonical absolute root before I/O,
+and rejects `/` before opening it.  Root is the manifest checkpoint subfolder
+itself (`.../multilingual`): its exact contents are `encoder/`,
+`model.safetensors`, `rl_agent_config.json` and `tokenizer/`; callers do not pass
+the parent and the adapter does not append another `multilingual/` component.
 It traverses with directory file descriptors, rejects symlinks, hardlinks and
-special files, and requires the exact declared directory/file inventory.  It
-records descriptor fingerprints, streams every file once, repeats an exact final
-path/inode/size inventory sweep, closes every descriptor exactly once, and only
-then invokes the private authority and evidence sealers.  Any read, stat, sweep
-or close failure prevents both sealers and leaks neither root nor content.
+special files, and checks only the bounded adjacency and depth derived from the
+declared directory/file inventory.  An unexpected directory fails at its parent
+entry and is never recursively enumerated.  It records descriptor and root-path
+chain fingerprints, streams every file once, repeats an exact final
+path/inode/size inventory and root/ancestor sweep, closes every descriptor
+exactly once, and only then invokes the private authority and evidence sealers.
+Any open, scan, stat, fstat, read, sweep or close failure—including the last
+retained-root close after valid receipts—prevents both sealers and leaks neither
+root nor content.
 
 Windows and hosts without required descriptor capabilities fail before root
 coercion or opening.  `LAYA_RUNTIME_CHECKPOINT_ROOT` is an opt-in Linux release
 gate; the regular suite uses sparse invalid skeletons only for negative adapter
-tests and never fabricates a successful cryptographic receipt.
+tests.  A bounded test-double success path exercises capture, complete cleanup,
+authority and evidence ordering without fabricating cryptographic claims or
+allocating the 678 MB payload; the real release gate remains separate.
 
 ## Claims
 

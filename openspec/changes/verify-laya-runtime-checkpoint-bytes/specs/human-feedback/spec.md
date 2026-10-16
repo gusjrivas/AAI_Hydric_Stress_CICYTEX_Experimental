@@ -36,9 +36,20 @@ the inherited deployment claims.
 
 ### Requirement: Filesystem capture SHALL preserve one secure root view
 
-The Linux adapter SHALL require an exact closed regular-file inventory, stream
-through secure descriptors, detect path/inode/size mutation with a final sweep,
-close every descriptor before sealing and fail closed on unsupported hosts.
+The Linux adapter SHALL reject filesystem root `/` before any open.  The supplied
+checkpoint root SHALL denote the exact contents of the checkpoint manifest's
+`multilingual` subfolder: the five declared files and their declared intermediate
+directories are immediate descendants of that root, not descendants of an
+additional `multilingual/` directory.  The adapter SHALL require that exact closed
+regular-file inventory, inspect only the bounded declared adjacency/depth, stream
+through secure descriptors, detect replacement of the supplied root path or any
+ancestor in addition to descriptor-local path/inode/size mutation, close every
+descriptor before sealing and fail closed on unsupported hosts.
+
+#### Scenario: Root scope is unsafe or ambiguous
+
+- **WHEN** root is `/`, points above the manifest `multilingual` contents, contains an unexpected adjacent directory, or exceeds the declared inventory depth/count
+- **THEN** capture fails before opening `/` as a capture root or recursively descending into the unexpected subtree
 
 #### Scenario: The filesystem changes during capture
 
@@ -47,8 +58,13 @@ close every descriptor before sealing and fail closed on unsupported hosts.
 
 #### Scenario: Cleanup fails
 
-- **WHEN** any descriptor close fails
+- **WHEN** any descriptor close fails, including the final retained-root close after receipts and the final sweep
 - **THEN** all remaining closes are attempted exactly once and no evidence is sealed
+
+#### Scenario: A filesystem primitive fails
+
+- **WHEN** open, adjacency scan, entry stat, descriptor fstat, read or close fails at any capture phase
+- **THEN** capture fails privately and neither authority nor evidence is sealed
 
 ### Requirement: Public checkpoint summaries SHALL not disclose file identity
 
