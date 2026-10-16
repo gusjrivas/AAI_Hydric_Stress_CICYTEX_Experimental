@@ -543,6 +543,19 @@ def test_issued_checkpoint_evidence_rejects_deep_post_issue_mutation(
     _private_error(caught.value, hostile_value)
 
 
+def test_issued_checkpoint_evidence_rejects_deep_artifact_content_mutation(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    artifact = evidence.deployment_evidence.snapshot.artifacts[0]
+    hostile_content = artifact.content + b"\nprivate-mutated-artifact-content"
+    assert evidence.artifact_integrity_verified is True
+    object.__setattr__(artifact, "content", hostile_content)
+
+    with pytest.raises(ValueError) as caught:
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    _private_error(caught.value, "private-mutated-artifact-content")
+
+
 def test_private_authority_rejects_caller_receipts_and_public_finalizers_do_not_exist():
     checkpoint = _core()
     plan = _plan()
