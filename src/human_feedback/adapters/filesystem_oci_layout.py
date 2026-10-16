@@ -9,6 +9,7 @@ from typing import Any
 
 import human_feedback.runtime_oci_layers as runtime_oci_layers
 import human_feedback.runtime_oci_layout as runtime_oci_layout
+import human_feedback.runtime_oci_tar as runtime_oci_tar
 
 verify_laya_oci_blob_chunks = runtime_oci_layout.verify_laya_oci_blob_chunks
 _seal_laya_oci_layout_capture_authority = runtime_oci_layout._seal_laya_oci_layout_capture_authority
@@ -598,5 +599,152 @@ def capture_and_verify_laya_oci_layer_diff_ids(
         raise
     except Exception:
         error = OciLayoutCaptureError("secure OCI layer DiffID capture failed")
+        error.__suppress_context__ = True
+        raise error
+
+
+def _capture_and_verify_tar_semantics(
+    tar_plan: Any,
+    components: tuple[str, ...],
+):
+    layout_plan = tar_plan.layout_plan
+    owned: list[int] = []
+    close_error = None
+    result = None
+    try:
+        root_fd = _open_root_directory(components, owned)
+        fingerprints = {"root": _require_directory(root_fd)}
+        controls = {}
+        for name, maximum in _CONTROL_LIMITS.items():
+            payload, fingerprint = _capture_control(root_fd, name, maximum, owned)
+            controls[name] = payload
+            fingerprints["control:" + name] = fingerprint
+            if _path_fingerprint(root_fd, name, owned) != fingerprint:
+                raise OciLayoutCaptureError("secure OCI control path changed during capture")
+        captured_plan = runtime_oci_layout.prepare_laya_oci_layout_plan(
+            layout_plan.oci_evidence,
+            controls["oci-layout"],
+            controls["index.json"],
+        )
+        if captured_plan != layout_plan:
+            raise OciLayoutCaptureError("secure OCI layout plan does not match TAR evidence")
+
+        blobs_fd = _open_directory(root_fd, "blobs", owned)
+        sha256_fd = _open_directory(blobs_fd, "sha256", owned)
+        fingerprints["blobs"] = _require_directory(blobs_fd)
+        fingerprints["sha256"] = _require_directory(sha256_fd)
+        _verify_exact_laya_oci_layout_inventory(root_fd, blobs_fd, sha256_fd, layout_plan)
+
+        for blob in layout_plan.blobs:
+            fingerprint = _rehash_blob_for_layer_capture(
+                sha256_fd,
+                layout_plan,
+                blob,
+                owned,
+            )
+            fingerprints["blob:" + blob.role] = fingerprint
+            name = blob.digest.removeprefix("sha256:")
+            if (
+                _path_fingerprint(
+                    sha256_fd,
+                    name,
+                    owned,
+                    expected_size=blob.size_bytes,
+                )
+                != fingerprint
+            ):
+                raise OciLayoutCaptureError("secure OCI blob path changed during TAR capture")
+
+        receipts = []
+        remaining_rootfs = runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
+        for blob in tar_plan.layer_plan.layer_blobs:
+            effective_limit = _effective_layer_budget(remaining_rootfs)
+            name = blob.digest.removeprefix("sha256:")
+            descriptor = _open_file(sha256_fd, name, owned)
+            try:
+                before = os.fstat(descriptor)
+                _require_file(before, blob.size_bytes)
+                receipt = runtime_oci_tar._verify_laya_oci_tar_semantics_chunks_with_budget(
+                    tar_plan,
+                    blob.digest,
+                    _blob_chunks(descriptor, blob.size_bytes),
+                    max_uncompressed_bytes=effective_limit,
+                )
+                after = os.fstat(descriptor)
+                if _fingerprint(before) != _fingerprint(after):
+                    raise OciLayoutCaptureError("secure OCI layer changed during TAR capture")
+                fingerprint = _fingerprint(before)
+            finally:
+                _close_descriptor(owned, descriptor)
+            remaining_rootfs -= receipt.layer_receipt.uncompressed_size_bytes
+            if fingerprint != fingerprints["blob:" + blob.role]:
+                raise OciLayoutCaptureError("secure OCI layer changed between TAR passes")
+            if (
+                _path_fingerprint(
+                    sha256_fd,
+                    name,
+                    owned,
+                    expected_size=blob.size_bytes,
+                )
+                != fingerprint
+            ):
+                raise OciLayoutCaptureError("secure OCI layer path changed during TAR capture")
+            receipts.append(receipt)
+
+        receipt_tuple = tuple(receipts)
+        _verify_laya_oci_layout_final_sweep(
+            components,
+            layout_plan,
+            fingerprints,
+            owned,
+        )
+        close_error = _close_owned_once(owned)
+        if close_error is not None:
+            raise OciLayoutCaptureError("secure OCI descriptor cleanup failed")
+        authority = runtime_oci_tar._seal_laya_oci_tar_semantics_capture_authority(
+            tar_plan,
+            receipt_tuple,
+            controls_captured_from_same_root=True,
+            blobs_captured_from_same_root=True,
+            inventory_captured_from_same_root=True,
+            final_fd_sweep_verified=True,
+            descriptors_closed_before_seal=True,
+        )
+        result = runtime_oci_tar._seal_laya_runtime_oci_tar_semantics_evidence(authority)
+    finally:
+        final_error = _close_owned_once(owned)
+        if final_error is not None and close_error is None:
+            raise OciLayoutCaptureError("secure OCI descriptor cleanup failed") from None
+    return result
+
+
+def capture_and_verify_laya_oci_tar_semantics(
+    layer_evidence: Any,
+    layout_root: Any,
+) -> Any:
+    """Recapture all layers and attest bounded TAR semantics atomically."""
+
+    preflight_failed = False
+    try:
+        tar_plan = runtime_oci_tar.prepare_laya_oci_tar_semantics_plan(layer_evidence)
+    except Exception:
+        preflight_failed = True
+    if preflight_failed:
+        error = OciLayoutCaptureError("OCI TAR layer evidence is invalid")
+        error.__suppress_context__ = True
+        raise error
+    if not _secure_oci_layout_capture_available():
+        error = SecureOciLayoutCaptureUnavailableError(
+            "secure OCI layout capture capability is unavailable"
+        )
+        error.__suppress_context__ = True
+        raise error
+    try:
+        components = _root_components(layout_root)
+        return _capture_and_verify_tar_semantics(tar_plan, components)
+    except SecureOciLayoutCaptureUnavailableError:
+        raise
+    except Exception:
+        error = OciLayoutCaptureError("secure OCI TAR semantics capture failed")
         error.__suppress_context__ = True
         raise error

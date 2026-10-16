@@ -1,5 +1,6 @@
 import ast
 import gzip
+import hashlib
 import inspect
 import os
 import traceback
@@ -21,6 +22,158 @@ MAX_LAYER_CHUNK_BYTES = 1024 * 1024
 MAX_LAYER_CHUNKS = 1024
 MAX_LAYER_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
 MAX_ROOTFS_UNCOMPRESSED_BYTES = 3 * 1024 * 1024 * 1024
+
+
+def test_private_consumer_bridge_preserves_public_pr22_api_and_streams_verified_output_once(
+    monkeypatch,
+):
+    from human_feedback import runtime_oci_layers as module
+    from tests.test_laya_runtime_oci_tar import _synthetic_pr22_evidence
+
+    public_parameters = inspect.signature(module.verify_laya_oci_layer_diff_id_chunks).parameters
+    assert tuple(public_parameters) == (
+        "plan",
+        "digest",
+        "chunks",
+        "max_uncompressed_bytes",
+    )
+    assert public_parameters["max_uncompressed_bytes"].kind is inspect.Parameter.KEYWORD_ONLY
+
+    evidence = _synthetic_pr22_evidence()
+    plan = evidence.plan
+    payload = b"small verified layer output split across consumer calls"
+    member = gzip.compress(payload, mtime=0)
+    digest = "sha256:" + hashlib.sha256(member).hexdigest()
+    diff_id = "sha256:" + hashlib.sha256(payload).hexdigest()
+    blob = plan.layer_blobs[0]
+    blob.digest = digest
+    blob.size_bytes = len(member)
+    object.__setattr__(
+        plan,
+        "declared_diff_ids",
+        (diff_id, *plan.declared_diff_ids[1:]),
+    )
+    monkeypatch.setattr(module, "_authorize_layer", lambda candidate, value: (plan, 0))
+
+    compressed_calls = []
+
+    def verify_compressed(layout_plan, value, chunks):
+        captured = bytearray()
+        for chunk in chunks:
+            captured.extend(chunk)
+        compressed_calls.append((layout_plan, value, bytes(captured)))
+        if value != digest or len(captured) != len(member):
+            raise ValueError("compressed size mismatch")
+        if "sha256:" + hashlib.sha256(captured).hexdigest() != digest:
+            raise ValueError("compressed digest mismatch")
+        return plan.layer_receipts[0]
+
+    monkeypatch.setattr(
+        module.runtime_oci_layout,
+        "verify_laya_oci_blob_chunks",
+        verify_compressed,
+    )
+
+    public_receipt = module.verify_laya_oci_layer_diff_id_chunks(
+        plan,
+        digest,
+        iter((member[:7], member[7:])),
+    )
+    assert public_receipt.computed_diff_id == diff_id
+    assert public_receipt.uncompressed_size_bytes == len(payload)
+
+    delivered = bytearray()
+    delivery_calls = []
+
+    def consume(chunk):
+        delivery_calls.append(chunk)
+        delivered.extend(chunk)
+
+    bridge_receipt = module._verify_laya_oci_layer_diff_id_chunks_with_consumer(
+        plan,
+        digest,
+        iter((member[:1], member[1:9], member[9:])),
+        consume,
+    )
+    assert bridge_receipt is not public_receipt
+    assert bridge_receipt.computed_diff_id == diff_id
+    assert bridge_receipt.uncompressed_size_bytes == len(payload)
+    assert bytes(delivered) == payload
+    assert sum(len(chunk) for chunk in delivery_calls) == len(payload)
+    assert len(compressed_calls) == 2
+    assert all(call[1] == digest and call[2] == member for call in compressed_calls)
+
+    tampered = member[:-1] + bytes([member[-1] ^ 1])
+    delivered.clear()
+    with pytest.raises((TypeError, ValueError), match="compressed|digest|layer|stream"):
+        module._verify_laya_oci_layer_diff_id_chunks_with_consumer(
+            plan,
+            digest,
+            iter((tampered,)),
+            delivered.extend,
+        )
+
+
+def test_private_consumer_bridge_stops_immediately_on_consumer_rejection(monkeypatch):
+    from human_feedback import runtime_oci_layers as module
+    from tests.test_laya_runtime_oci_tar import _synthetic_pr22_evidence
+
+    evidence = _synthetic_pr22_evidence()
+    plan = evidence.plan
+    payload = b"consumer-visible-output"
+    member = gzip.compress(payload, mtime=0)
+    digest = "sha256:" + hashlib.sha256(member).hexdigest()
+    diff_id = "sha256:" + hashlib.sha256(payload).hexdigest()
+    plan.layer_blobs[0].digest = digest
+    plan.layer_blobs[0].size_bytes = len(member)
+    object.__setattr__(
+        plan,
+        "declared_diff_ids",
+        (diff_id, *plan.declared_diff_ids[1:]),
+    )
+    monkeypatch.setattr(module, "_authorize_layer", lambda candidate, value: (plan, 0))
+
+    def verify_compressed(_layout_plan, value, chunks):
+        for _chunk in chunks:
+            pass
+        assert value == digest
+        return plan.layer_receipts[0]
+
+    monkeypatch.setattr(
+        module.runtime_oci_layout,
+        "verify_laya_oci_blob_chunks",
+        verify_compressed,
+    )
+
+    class HostileCompressedStream:
+        def __init__(self):
+            self.requests = 0
+            self.sentinel_executed = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requests += 1
+            if self.requests == 1:
+                return member
+            self.sentinel_executed = True
+            raise AssertionError("private-post-consumer-sentinel")
+
+    def reject(_output):
+        raise ValueError("consumer rejected TAR output")
+
+    stream = HostileCompressedStream()
+    with pytest.raises(ValueError, match="consumer rejected TAR output") as captured:
+        module._verify_laya_oci_layer_diff_id_chunks_with_consumer(
+            plan,
+            digest,
+            stream,
+            reject,
+        )
+    assert stream.requests == 1
+    assert stream.sentinel_executed is False
+    assert "zlib" not in str(captured.value).lower()
 
 
 def _private_error(error: BaseException, *markers: str) -> None:
@@ -199,11 +352,56 @@ def _filesystem_adapter_layer_contract_violations(source: str) -> tuple[str, ...
     return tuple(sorted(set(violations)))
 
 
-def test_only_filesystem_adapter_imports_or_calls_layer_capture_contract():
+def _tar_successor_layer_contract_violations(source: str) -> tuple[str, ...]:
+    tree = ast.parse(source)
+    allowed = {
+        "LayaRuntimeOciLayerDiffIdsEvidence",
+        "canonical_laya_runtime_oci_layer_diff_ids_summary_bytes",
+        "_verify_laya_oci_layer_diff_id_chunks_with_consumer",
+    }
+    exact_imports = 0
+    used = set()
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for imported in node.names:
+                if imported.name == "human_feedback.runtime_oci_layers":
+                    exact_imports += 1
+                    if imported.asname != "runtime_oci_layers":
+                        violations.append("tar-layer-module-alias-not-exact")
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            "human_feedback.runtime_oci_layers",
+            "runtime_oci_layers",
+        }:
+            violations.append("tar-layer-from-import-forbidden")
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "runtime_oci_layers"
+        ):
+            used.add(node.attr)
+            if node.attr not in allowed:
+                violations.append(f"tar-layer-symbol-forbidden:{node.attr}")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"__import__", "getattr", "import_module"}
+        ):
+            violations.append("tar-dynamic-layer-access-forbidden")
+    if exact_imports != 1:
+        violations.append("exactly-one-tar-layer-module-import-required")
+    if used != allowed:
+        violations.append("exact-tar-layer-successor-contract-required")
+    return tuple(sorted(set(violations)))
+
+
+def test_only_filesystem_adapter_and_tar_successor_use_layer_contracts():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_oci_layers.py"
     adapter = repository / "src" / "human_feedback" / "adapters" / "filesystem_oci_layout.py"
+    tar_successor = repository / "src" / "human_feedback" / "runtime_oci_tar.py"
     assert _filesystem_adapter_layer_contract_violations(adapter.read_text(encoding="utf-8")) == ()
+    assert _tar_successor_layer_contract_violations(tar_successor.read_text(encoding="utf-8")) == ()
     symbols = {
         "LayaOciLayerDiffIdPlan",
         "prepare_laya_oci_layer_diff_id_plan",
@@ -217,7 +415,7 @@ def test_only_filesystem_adapter_imports_or_calls_layer_capture_contract():
         if not root.is_dir():
             continue
         for path in root.rglob("*.py"):
-            if path in {owner, adapter}:
+            if path in {owner, adapter, tar_successor}:
                 continue
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source)

@@ -28,6 +28,28 @@ jobs:
       - name: Tests (pytest)
         run: pytest
 
+  laya-oci-tar-contract:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Test bounded OCI TAR semantics
+        run: >-
+          python -m pytest
+          tests/test_laya_runtime_oci_tar.py
+          tests/test_laya_runtime_oci_layers.py
+          tests/test_laya_runtime_oci_layout_filesystem.py
+
   experiment-v4-container:
     runs-on: ubuntu-latest
     steps:
