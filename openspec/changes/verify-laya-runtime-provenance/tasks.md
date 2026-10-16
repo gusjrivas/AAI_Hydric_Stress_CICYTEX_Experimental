@@ -6,13 +6,16 @@
 - [x] 1.4 Specify the exact checkpoint `multilingual` tree and five small-or-LFS links to PR34.
 - [x] 1.5 Specify caps, privacy, fail-closed DAG traversal and mix-and-match rejection.
 - [x] 1.6 Preserve conservative claims and isolate the bytes-only core from all I/O and productive callers.
+- [ ] 1.7 RED audit remediation: prove the exact three-function public API and observed-declaration naming.
+- [ ] 1.8 RED audit remediation: prove README identity exclusion and exact PR34/LFS/DAG-edge bindings.
+- [ ] 1.9 RED audit remediation: prove local-only `git cat-file` precheck, environment and timeout controls.
 
 ## 2. RED tests
 
 - [ ] 2.1 Add failing tests for Git object framing, type, size, SHA-1 and SHA-256 authority.
 - [ ] 2.2 Add failing tests for source commit/tag/tree and Apache declaration selection.
 - [ ] 2.3 Add failing tests for checkpoint tree, small blobs, LFS pointers and PR34 binding.
-- [ ] 2.4 Add failing tests for caps, privacy, mixed authorities and canonical evidence.
+- [ ] 2.4 Add failing tests for exact caps, privacy, mixed PR34/LFS/edge authorities and canonical evidence.
 - [ ] 2.5 Add failing tests for exact conservative flags and absent productive callers.
 
 ## 3. GREEN implementation

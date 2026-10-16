@@ -39,7 +39,7 @@ flag SHALL NOT mean `license_verified` or a legal license conclusion.
 #### Scenario: Both source declarations are observed
 
 - **WHEN** both selected blobs contain their exact expected declarations
-- **THEN** the source license-declaration flag may become true
+- **THEN** `source_license_declaration_observed` may become true
 - **AND** `license_verified` remains false
 
 ### Requirement: Checkpoint provenance SHALL bind one exact tree
@@ -84,14 +84,19 @@ coverage, compatibility or permission to use checkpoint payloads.
 #### Scenario: README declaration is observed
 
 - **WHEN** exact README bytes contain the expected Apache metadata
-- **THEN** the checkpoint license-declaration flag may become true
+- **THEN** `checkpoint_license_declaration_observed` may become true
 - **AND** `license_verified` remains false
+
+#### Scenario: README omits repository identity
+
+- **WHEN** real README frontmatter declares Apache metadata but no repository or subfolder
+- **THEN** identity derives from the plan, pinned DAG edges and exact PR34 evidence
 
 ### Requirement: Provenance validation SHALL be bounded and all-or-nothing
 
-Public positive caps SHALL bound object count, individual and aggregate bytes,
-tree entries, path components and DAG visits.  Missing, duplicate, extra,
-oversized, malformed or unreachable objects SHALL fail before evidence sealing.
+The system SHALL cap inputs at 16 objects, 64 KiB per object, 1 MiB aggregate,
+256 entries per tree, eight path components and 64 DAG visits.  Missing, duplicate,
+extra, oversized, malformed or unreachable objects SHALL fail before sealing.
 
 #### Scenario: A bound is exhausted
 
@@ -109,11 +114,17 @@ immutable evidence or a public summary.
 - **WHEN** objects or PR34 evidence belong to different revisions, manifests or runtime identities
 - **THEN** validation and summary generation fail closed
 
+#### Scenario: A checkpoint edge is mismatched
+
+- **WHEN** a DAG edge, role, path, Git object, small-blob digest or LFS oid/size differs from exact PR34 bindings
+- **THEN** no receipt set or provenance evidence is accepted
+
 ### Requirement: Provenance summaries SHALL remain private and conservative
 
-The public summary SHALL expose only schemas, runtime identity and narrow content
-or declaration flags.  Object bytes, Git identifiers, SHA authorities, paths, LFS
-data and license text SHALL be absent from repr, errors and summary.
+The public summary SHALL expose only schemas, runtime identity, content flags and
+`source_license_declaration_observed` or
+`checkpoint_license_declaration_observed`.  Object bytes, Git identifiers, SHA
+authorities, paths, LFS data and license text SHALL remain private.
 
 #### Scenario: Valid provenance is summarized
 
@@ -132,14 +143,28 @@ runners, readiness and scripts SHALL have no productive caller.
 - **WHEN** synthetic bounded provenance tests and existing scientific scenarios execute
 - **THEN** no external repository or checkpoint is accessed
 
+#### Scenario: The public API is inspected
+
+- **WHEN** callers import the provenance module
+- **THEN** the only public operations are `prepare_laya_runtime_provenance_plan`, `verify_laya_runtime_provenance_objects` and `canonical_laya_runtime_provenance_summary_bytes`
+
 ### Requirement: Real provenance evidence SHALL require an opt-in gate
 
 A real release gate MAY validate pre-captured objects for both pinned repositories
 with exact PR34 evidence.  It SHALL be opt-in, non-downloading and separate from
 ordinary CI; absence of that gate SHALL NOT be reported as real verification.
 
+Its helper SHALL precheck each local object, invoke only bounded `git cat-file`, set
+`GIT_NO_LAZY_FETCH=1`, `GIT_NO_REPLACE_OBJECTS=1` and `GIT_TERMINAL_PROMPT=0`, and
+enforce a fixed subprocess timeout.
+
 #### Scenario: The real gate is not configured
 
 - **WHEN** normal CI or local tests run without external captured inputs
 - **THEN** they exercise only synthetic contracts and publish no real provenance claim
+
+#### Scenario: A local object is absent
+
+- **WHEN** precheck cannot prove a required object exists locally
+- **THEN** the helper fails without lazy fetch, replacement lookup or terminal prompt
 

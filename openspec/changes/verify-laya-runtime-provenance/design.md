@@ -12,6 +12,11 @@ pinned DAG.  SHA-256 binds the exact supplied object bytes independently.  Both
 must match before an object can participate; neither establishes who produced or
 published it.
 
+The only public operations are `prepare_laya_runtime_provenance_plan`,
+`verify_laya_runtime_provenance_objects` and
+`canonical_laya_runtime_provenance_summary_bytes`.  Object parsers, per-object
+stream verification and evidence sealing remain private implementation details.
+
 ## Source profile
 
 The source side is fixed to `NandhaKishorM/laya` commit
@@ -32,7 +37,9 @@ The checkpoint side is fixed to `convaiinnovations/laya` commit
 Each selected blob is classified as either an exact small Git blob or a canonical
 Git LFS pointer.  For LFS, the pointer only links an oid/size declaration to the
 corresponding PR34 descriptor; it is not the checkpoint payload.  The checkpoint
-README Apache metadata is also observed from its exact tree-selected blob.
+README Apache metadata is also observed from its exact tree-selected blob.  The
+real README frontmatter does not carry repository or subfolder identity; those
+bindings derive only from the plan, pinned DAG edges and exact PR34 evidence.
 
 PR34 `LayaRuntimeCheckpointEvidence` is the only authority that the five payloads
 match their sizes and SHA-256 digests.  PR35 neither accepts replacement file
@@ -42,11 +49,11 @@ manifest proven by PR34.
 
 ## Bounded validation and canonical evidence
 
-Public fixed positive caps limit object count, individual and aggregate bytes,
-tree entries, path components and DAG visits.  Git object framing, type and size
-are checked before parsing.  Trees must be canonical, paths unique and the selected
-commit/tag/tree/blob relationships exact.  LFS pointers use a closed grammar and
-declared sizes must be within the checkpoint descriptor bounds.
+The fixed caps are 16 objects, 64 KiB per object, 1 MiB aggregate object bytes,
+256 entries per tree, eight path components and 64 DAG visits.  Git object framing,
+type and size are checked before parsing.  Trees must be canonical, paths unique
+and selected commit/tag/tree/blob relationships exact.  LFS pointers use a closed
+grammar and declared sizes must equal their checkpoint descriptor bounds.
 
 All inputs are consumed all-or-nothing.  Missing, duplicate, extra, oversized,
 foreign or unreachable objects fail closed.  Source and checkpoint authority sets,
@@ -55,8 +62,10 @@ immutable evidence is canonically rebuilt from validated content before summary.
 
 ## Claims and privacy
 
-Successful evidence may elevate only narrow flags for verified source Git content,
-verified checkpoint Git content and observed source/checkpoint license declarations.
+Successful evidence may elevate only `provenance_objects_verified`,
+`source_git_content_verified`, `checkpoint_git_content_verified`,
+`source_license_declaration_observed` and
+`checkpoint_license_declaration_observed` beyond exact inherited PR34 claims.
 “Content verified” means exact supplied object bytes match both authorities and the
 pinned DAG.  “Declaration observed” means expected metadata exists in exact selected
 blobs; it is not legal advice or a license grant.
@@ -73,10 +82,15 @@ license text remain absent from repr, errors and summary.
 ## Isolation and real gate
 
 No adapter or productive caller is introduced.  Normal tests use bounded synthetic
-object packets and do not clone, fetch or download.  A separate opt-in release gate
-may validate pre-captured objects from the two real pinned repositories plus real
-PR34 evidence.  Its result is external release evidence, not a mandatory CI claim,
-and it does not broaden the pure core or authorize materialization.
+object packets and do not clone, fetch or download.  A release-test helper may read
+only pre-existing local objects using `git cat-file`, after an explicit local object
+precheck.  Every Git subprocess sets `GIT_NO_LAZY_FETCH=1`,
+`GIT_NO_REPLACE_OBJECTS=1` and `GIT_TERMINAL_PROMPT=0`, and has a fixed timeout.
+
+The separate opt-in gate may validate those local objects from the two real pinned
+repositories plus real PR34 evidence.  It must not fetch missing objects.  Its
+result is external release evidence, not a mandatory CI claim, and it does not
+broaden the pure core or authorize materialization.
 
 ## TDD sequence
 
