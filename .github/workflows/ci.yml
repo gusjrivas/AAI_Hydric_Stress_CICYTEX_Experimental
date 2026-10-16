@@ -47,6 +47,7 @@ jobs:
         run: >-
           python -m pytest
           tests/test_laya_runtime_oci_tar.py
+          tests/test_laya_runtime_oci_rootfs.py
           tests/test_laya_runtime_oci_layers.py
           tests/test_laya_runtime_oci_layout_filesystem.py
 

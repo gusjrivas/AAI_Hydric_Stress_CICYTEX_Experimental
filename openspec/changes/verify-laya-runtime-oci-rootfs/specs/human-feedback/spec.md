@@ -35,7 +35,9 @@ order without caller-supplied overlays.
 
 The system SHALL treat an empty regular `.wh.<name>` as removal of the lower-layer
 target subtree and `.wh..wh..opq` as hiding lower children of its directory.
-Markers SHALL not appear in the final rootfs.
+Markers SHALL not appear in the final rootfs. Parent validation SHALL use lower
+state plus directories declared anywhere in the current layer, but removal SHALL
+still affect only lower state.
 
 #### Scenario: A layer deletes and recreates one path
 
@@ -48,6 +50,12 @@ Markers SHALL not appear in the final rootfs.
 - **WHEN** an opaque marker and new children share a layer
 - **THEN** all lower children are hidden
 - **AND** all current-layer children survive regardless of TAR order
+
+#### Scenario: A same-layer directory supplies a marker parent
+
+- **WHEN** a whiteout or opaque marker and its parent directory occur in the same layer in either TAR order
+- **THEN** parent validation succeeds against the current-layer directory view
+- **AND** a same-layer file or symlink in that parent position fails closed
 
 #### Scenario: Reserved marker metadata is invalid
 
@@ -70,22 +78,34 @@ virtual image root. It SHALL never inspect or follow a host path.
 - **WHEN** resolution escapes the image root, is cyclic or remains dangling
 - **THEN** composition fails without exposing the target
 
-#### Scenario: A hardlink target is invalid
+#### Scenario: A hardlink resolves against final state
 
-- **WHEN** a hardlink does not resolve to an effective regular file
+- **WHEN** a forward hardlink or bounded hardlink chain ends at a regular file in the final ten-layer namespace
+- **THEN** the hardlink remains valid independent of same-layer TAR order
+
+#### Scenario: A hardlink target is invalid in final state
+
+- **WHEN** a hardlink is missing, cyclic or does not end at an effective regular file after all layers
 - **THEN** composition fails closed
 
 ### Requirement: Composition SHALL be bounded and all-or-nothing
 
-The system SHALL use fixed positive caps for effective nodes, whiteouts, metadata,
-path components, link hops and mutation work. Deleting a subtree SHALL charge each
-removed node.
+The system SHALL cap entries at 65,536, whiteouts at 4,096, effective path/link
+metadata at 8 MiB, paths at 32 components, links at 16 hops and mutations at
+131,072. TAR-width maxima SHALL bound mode/uid/gid/mtime and the TAR payload cap
+SHALL bound each regular node. Deleting a subtree SHALL charge each removed node.
 
 #### Scenario: A budget is exhausted
 
 - **WHEN** the next operation would exceed any cap
 - **THEN** the operation and remaining layers are not applied
 - **AND** the evidence sealer is never invoked
+
+#### Scenario: A large subtree is removed
+
+- **WHEN** composition removes descendants
+- **THEN** a maintained parent→direct-children index supplies the bounded traversal
+- **AND** every removed node consumes the remaining mutation budget
 
 ### Requirement: Rootfs evidence SHALL remain conservative and private
 
@@ -94,12 +114,26 @@ after complete composition. It SHALL inherit all PR32 claims and elevate no othe
 claim. `rootfs_materialized`, origin, license, ancestry, executor and inference
 SHALL remain false.
 
+Evidence validation SHALL rederive root metadata and canonically ordered final
+nodes from the exact TAR plan and SHALL recompute the private manifest commitment.
+
 #### Scenario: Public summary is rendered
 
 - **WHEN** exact rootfs evidence is summarized
 - **THEN** the bytes contain only schemas, runtime identity and claims
 - **AND** paths, targets, layer digests, metadata and the private rootfs manifest
   commitment are absent
+
+#### Scenario: Stored evidence is deeply forged
+
+- **WHEN** stored root metadata, nodes, bindings or manifest commitment differ from exact rederivation
+- **THEN** validation and summary generation fail closed
+
+#### Scenario: The exact real layout is composed
+
+- **WHEN** the ten verified real layers contribute 56,996 TAR entries
+- **THEN** deterministic overlay composition yields 56,114 final nodes and `oci_rootfs_verified=true`
+- **AND** `rootfs_materialized=false` remains unchanged
 
 ### Requirement: Existing scientific scenarios SHALL remain isolated
 

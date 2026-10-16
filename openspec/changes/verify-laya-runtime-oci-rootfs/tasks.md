@@ -1,29 +1,30 @@
 ## 1. RED — metadata prerequisite
 
-- [x] 1.1 Require effective mode, uid, gid and mtime on every TAR entry.
-- [x] 1.2 Require optional root-directory metadata outside ordinary manifest entries.
-- [x] 1.3 Reject conflicting repeated root markers.
+- [x] 1.1 Require effective mode, uid, gid and mtime on every TAR entry (`3a93793`, `0e76684`).
+- [x] 1.2 Require optional root-directory metadata outside ordinary manifest entries (`3a93793`).
+- [x] 1.3 Reject conflicting repeated root markers (`0e76684`, `62c64c1`).
 
 ## 2. RED — composition
 
-- [x] 2.1 Specify exact PR32 evidence binding and sealed plan/evidence types.
-- [x] 2.2 Specify ordered whiteout and opaque-directory overlay behavior.
-- [x] 2.3 Specify file/directory replacement and final canonical node ordering.
-- [x] 2.4 Specify root-bound link behavior with compatible dangling symlink leaves.
-- [x] 2.5 Specify fixed budgets, all-or-nothing sealing and private summaries.
+- [x] 2.1 Specify exact PR32 evidence binding and sealed plan/evidence types (`3a93793`, `d3aa626`, `7c921ce`).
+- [x] 2.2 Specify lower-state whiteouts, same-layer directory parent view and opaque behavior (`3a93793`, `a388d6b`).
+- [x] 2.3 Specify replacement, final canonical ordering and hardlink final-state resolution (`0e76684`, `62c64c1`).
+- [x] 2.4 Specify root-bound link behavior with compatible dangling symlink leaves (`a388d6b`).
+- [x] 2.5 Specify metadata/payload caps, parent→children bounded work, all-or-nothing sealing and private summaries (`92b8993`, `7c921ce`).
 
 ## 3. GREEN
 
-- [ ] 3.1 Preserve TAR numeric and root-marker metadata.
-- [ ] 3.2 Implement pure rootfs plan and overlay compositor.
-- [ ] 3.3 Implement deep revalidation, budgets and canonical evidence.
+- [x] 3.1 Preserve TAR numeric and root-marker metadata (`87a50eb`).
+- [x] 3.2 Implement pure rootfs plan and overlay compositor (`87a50eb`).
+- [x] 3.3 Implement exact rederivation, budgets, bounded child index and canonical evidence (`87a50eb`).
 
 ## 4. Gates
 
-- [ ] 4.1 Run PR32 TAR/layer/filesystem regressions.
-- [ ] 4.2 Run Melchor Romero and Pergamino historical/demo regressions.
-- [ ] 4.3 Run CICYTEX experiment and mocked-sensor regressions.
-- [ ] 4.4 Characterize the real Laya link topology before tightening dangling-link policy.
+- [x] 4.1 Run PR32 TAR/layer/filesystem regressions; gatekeeper GO on `87a50eb`.
+- [x] 4.2 Run Melchor Romero and Pergamino historical/demo regressions; gatekeeper GO on `87a50eb`.
+- [x] 4.3 Run CICYTEX experiment and mocked-sensor regressions; gatekeeper GO on `87a50eb`.
+- [x] 4.4 Characterize the real Laya topology: dangling symlink leaves remain compatible; 56,996 entries compose to 56,114 final nodes with rootfs verified and not materialized.
+- [x] 4.5 Extend the existing Ubuntu/Windows `laya-oci-tar-contract` CI job with the rootfs suite, preserving its job id, name and single dependency installation.
 
 ## 5. Deferred
 
