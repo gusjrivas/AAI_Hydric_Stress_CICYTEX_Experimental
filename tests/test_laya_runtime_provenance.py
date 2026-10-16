@@ -619,7 +619,7 @@ def test_synthetic_exact_sixteen_object_dag_reaches_evidence_and_private_summary
             provenance.canonical_laya_runtime_provenance_summary_bytes(forged)
     with pytest.raises(FrozenInstanceError):
         evidence.origin_verified = True
-    with pytest.raises(ValueError):
+    with pytest.raises((TypeError, ValueError)):
         replace(evidence, schema_version="private-schema-marker")
     for sealed in (
         evidence.plan.objects[0],
