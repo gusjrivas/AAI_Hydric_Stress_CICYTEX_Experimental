@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.test_laya_runtime_deployment_metadata import CHECKPOINT_FILES, _validate
+from tests.test_laya_runtime_deployment_metadata import CHECKPOINT_FILES
 
 PLAN_SCHEMA = "laya-runtime-provenance-plan-v1"
 EVIDENCE_SCHEMA = "laya-runtime-provenance-evidence-v1"
@@ -190,19 +190,10 @@ def _forge_exact(instance, **changes):
     return forged
 
 
-def _checkpoint_evidence():
-    from human_feedback import runtime_checkpoint
+def _checkpoint_evidence(monkeypatch):
+    from tests.test_laya_runtime_checkpoint import _legitimate_checkpoint_evidence
 
-    plan = runtime_checkpoint.prepare_laya_runtime_checkpoint_plan(_validate())
-    receipts = []
-    for descriptor in plan.files:
-        receipt = object.__new__(runtime_checkpoint.VerifiedLayaCheckpointFile)
-        object.__setattr__(receipt, "plan", plan)
-        object.__setattr__(receipt, "file", descriptor)
-        object.__setattr__(receipt, "checkpoint_file_bytes_verified", True)
-        receipts.append(receipt)
-    authority = runtime_checkpoint._seal_laya_checkpoint_capture_authority(plan, tuple(receipts))
-    return runtime_checkpoint._seal_laya_runtime_checkpoint_evidence(authority)
+    return _legitimate_checkpoint_evidence(monkeypatch)
 
 
 def _spec(provenance, role, repository, kind, payload):
@@ -217,7 +208,7 @@ def _spec(provenance, role, repository, kind, payload):
 
 
 def _synthetic_profile(monkeypatch, provenance):
-    checkpoint = _checkpoint_evidence()
+    checkpoint = _checkpoint_evidence(monkeypatch)
     small = {
         "encoder_config": b'{"model_type":"synthetic-laya"}\n',
         "laya_config": b'{"profile":"synthetic-laya"}\n',
@@ -562,9 +553,7 @@ def test_object_verifier_rejects_wrong_type_size_sha1_sha256_and_stream_shape():
     bad_plan = SimpleNamespace()
     for value in (None, bad_plan, object()):
         with pytest.raises((TypeError, ValueError)):
-            provenance._verify_laya_runtime_provenance_object_chunks(
-                value, "1" * 40, iter((b"x",))
-            )
+            provenance._verify_laya_runtime_provenance_object_chunks(value, "1" * 40, iter((b"x",)))
     assert provenance.MAX_PROVENANCE_CHUNK_BYTES == provenance.MAX_PROVENANCE_OBJECT_BYTES
     assert provenance.MAX_PROVENANCE_CHUNKS == 64
 
@@ -782,9 +771,11 @@ def test_synthetic_dag_rejects_cross_swapped_edges_modes_and_lfs_authorities(
             provenance.verify_laya_runtime_provenance_objects(plan, tuple(mutated))
 
 
-def test_invalid_exact_pr34_ancestry_fails_before_object_iterable_is_touched():
+def test_invalid_exact_pr34_ancestry_fails_before_object_iterable_is_touched(
+    monkeypatch,
+):
     provenance = _provenance()
-    checkpoint = _checkpoint_evidence()
+    checkpoint = _checkpoint_evidence(monkeypatch)
 
     class Untouched:
         def __iter__(self):
@@ -886,6 +877,49 @@ def test_invalid_exact_pr34_ancestry_fails_before_object_iterable_is_touched():
         provenance.verify_laya_runtime_provenance_objects(SimpleNamespace(), Untouched())
 
 
+def test_prepare_rejects_fabricated_exact_checkpoint_evidence():
+    provenance = _provenance()
+    from tests.test_laya_runtime_checkpoint import _fabricated_checkpoint_evidence
+
+    fabricated = _fabricated_checkpoint_evidence()
+    with pytest.raises(ValueError):
+        provenance.prepare_laya_runtime_provenance_plan(fabricated)
+
+
+def test_fabricated_checkpoint_plan_is_rejected_before_object_stream_consumption(
+    monkeypatch,
+):
+    provenance = _provenance()
+    from tests.test_laya_runtime_checkpoint import _fabricated_checkpoint_evidence
+
+    legitimate_plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
+    fabricated = _fabricated_checkpoint_evidence()
+    forged_plan = _forge_exact(
+        legitimate_plan,
+        checkpoint_evidence=fabricated,
+        runtime_identity=fabricated.runtime_identity,
+    )
+
+    class Untouched:
+        requested = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requested += 1
+            raise AssertionError("private-forged-checkpoint-stream")
+
+    chunks = Untouched()
+    with pytest.raises(ValueError) as caught:
+        provenance.verify_laya_runtime_provenance_object_chunks(
+            forged_plan, forged_plan.objects[0].sha1, chunks
+        )
+    assert chunks.requested == 0
+    _private_error(caught.value, "private-forged-checkpoint-stream")
+    assert packets
+
+
 @pytest.mark.parametrize(
     ("cap", "value"),
     (
@@ -950,9 +984,7 @@ def test_exact_class_clones_cannot_self_assert_provenance_without_verified_bytes
     with pytest.raises(ValueError):
         provenance.canonical_laya_runtime_provenance_summary_bytes(replayed_evidence)
 
-    identity_cloned_receipts = tuple(
-        clone_private_slots(receipt) for receipt in evidence.receipts
-    )
+    identity_cloned_receipts = tuple(clone_private_slots(receipt) for receipt in evidence.receipts)
     identity_cloned_evidence = clone_private_slots(evidence)
     with pytest.raises(ValueError):
         provenance._seal_laya_runtime_provenance_evidence(

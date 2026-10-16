@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
+from itertools import chain, repeat
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,6 +58,83 @@ def _forge_exact(instance, **changes):
             forged, field.name, changes.get(field.name, getattr(instance, field.name))
         )
     return forged
+
+
+def _clone_all_slots(instance):
+    """Copy even private capability slots without granting issued identity."""
+
+    cloned = object.__new__(type(instance))
+    for cls in type(instance).__mro__:
+        for name in getattr(cls, "__slots__", ()):
+            if name not in {"__weakref__", "__dict__"} and hasattr(instance, name):
+                object.__setattr__(cloned, name, getattr(instance, name))
+    return cloned
+
+
+def _legitimate_checkpoint_evidence(monkeypatch):
+    """Issue bounded receipts through the public byte verifier."""
+
+    checkpoint = _core()
+    plan = _plan()
+    expected_digests = iter(descriptor.sha256 for descriptor in plan.files)
+
+    class MatchingDigest:
+        def __init__(self, expected):
+            self.expected = expected
+
+        def update(self, payload):
+            assert type(payload) is bytes
+
+        def hexdigest(self):
+            return self.expected
+
+    def digest_factory(initial=b""):
+        assert initial == b""
+        return MatchingDigest(next(expected_digests))
+
+    reusable = b"x" * checkpoint.MAX_CHECKPOINT_CHUNK_BYTES
+    receipts = []
+    with monkeypatch.context() as scoped:
+        scoped.setattr(checkpoint.hashlib, "sha256", digest_factory)
+        for descriptor in plan.files:
+            whole, remainder = divmod(descriptor.size_bytes, checkpoint.MAX_CHECKPOINT_CHUNK_BYTES)
+            chunks = chain(
+                repeat(reusable, whole),
+                (b"x" * remainder,) if remainder else (),
+            )
+            receipts.append(
+                checkpoint.verify_laya_checkpoint_file_chunks(plan, descriptor.sha256, chunks)
+            )
+    authority = checkpoint._seal_laya_checkpoint_capture_authority(plan, tuple(receipts))
+    return checkpoint._seal_laya_runtime_checkpoint_evidence(authority)
+
+
+def _fabricated_checkpoint_evidence():
+    """Build an exact-class graph without invoking either byte or private sealers."""
+
+    checkpoint = _core()
+    plan = _plan()
+    receipts = []
+    for descriptor in plan.files:
+        receipt = object.__new__(checkpoint.VerifiedLayaCheckpointFile)
+        object.__setattr__(receipt, "plan", plan)
+        object.__setattr__(receipt, "file", descriptor)
+        object.__setattr__(receipt, "checkpoint_file_bytes_verified", True)
+        receipts.append(receipt)
+
+    evidence = object.__new__(checkpoint.LayaRuntimeCheckpointEvidence)
+    values = {
+        "schema_version": checkpoint.CHECKPOINT_EVIDENCE_SCHEMA,
+        "plan": plan,
+        "deployment_evidence": plan.deployment_evidence,
+        "runtime_identity": plan.runtime_identity,
+        "receipts": tuple(receipts),
+    }
+    values.update({name: True for name in TRUE_FLAGS})
+    values.update({name: False for name in FALSE_FLAGS})
+    for name, value in values.items():
+        object.__setattr__(evidence, name, value)
+    return evidence
 
 
 def test_checkpoint_plan_is_exact_identity_bound_and_private():
@@ -372,6 +450,73 @@ def test_receipt_and_evidence_public_contract_is_deeply_sealed_and_conservative(
         receipt_type()
     with pytest.raises((TypeError, ValueError)):
         evidence_type()
+
+
+def test_exact_class_checkpoint_evidence_cannot_be_fabricated_without_byte_verification():
+    checkpoint = _core()
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(
+            _fabricated_checkpoint_evidence()
+        )
+
+
+def test_lightweight_checkpoint_helper_uses_public_verifier_issued_receipts(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    assert type(evidence) is checkpoint.LayaRuntimeCheckpointEvidence
+    assert tuple(receipt.file for receipt in evidence.receipts) == evidence.plan.files
+    assert all(
+        type(receipt) is checkpoint.VerifiedLayaCheckpointFile for receipt in evidence.receipts
+    )
+
+
+def test_cloned_checkpoint_plan_is_rejected_before_stream_consumption(monkeypatch):
+    checkpoint = _core()
+    plan = _legitimate_checkpoint_evidence(monkeypatch).plan
+
+    class Untouched:
+        requested = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requested += 1
+            raise AssertionError("private-cloned-plan-stream")
+
+    cloned_plan = _clone_all_slots(plan)
+    chunks = Untouched()
+    with pytest.raises(ValueError):
+        checkpoint.verify_laya_checkpoint_file_chunks(
+            cloned_plan, cloned_plan.files[0].sha256, chunks
+        )
+    assert chunks.requested == 0
+
+
+def test_cloned_checkpoint_receipt_cannot_authorize_capture(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    plan = evidence.plan
+    cloned_receipt = _clone_all_slots(evidence.receipts[0])
+    with pytest.raises(ValueError):
+        checkpoint._seal_laya_checkpoint_capture_authority(
+            plan, (cloned_receipt, *evidence.receipts[1:])
+        )
+
+
+def test_cloned_checkpoint_authority_cannot_seal_evidence(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    authority = checkpoint._seal_laya_checkpoint_capture_authority(evidence.plan, evidence.receipts)
+    with pytest.raises(ValueError):
+        checkpoint._seal_laya_runtime_checkpoint_evidence(_clone_all_slots(authority))
+
+
+def test_cloned_checkpoint_evidence_cannot_publish_summary(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(_clone_all_slots(evidence))
 
 
 def test_private_authority_rejects_caller_receipts_and_public_finalizers_do_not_exist():
