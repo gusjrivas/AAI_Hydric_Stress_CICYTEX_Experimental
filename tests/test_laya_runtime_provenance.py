@@ -569,6 +569,7 @@ def test_real_checkpoint_commit_still_rejects_ambiguous_or_truncated_bytes():
         ),
         header,
         header + b"\n\n",
+        header + b"\n\n\n",
     )
     for corrupt in invalid:
         with pytest.raises(ValueError) as caught:
