@@ -9,6 +9,8 @@ from typing import Any
 
 import human_feedback.runtime_checkpoint as runtime_checkpoint
 
+_MAX_CHECKPOINT_ROOT_COMPONENTS = 128
+
 
 class CheckpointCaptureError(ValueError):
     """The complete checkpoint could not be captured safely."""
@@ -53,10 +55,16 @@ def _drain_owned(owned: list[int]) -> OSError | None:
 
 
 def _root_components(root: Any) -> tuple[str, ...]:
+    coercion_failed = False
     try:
         raw = os.fspath(root)
-    except TypeError:
-        raise CheckpointCaptureError("checkpoint root is invalid") from None
+    except BaseException:
+        coercion_failed = True
+        raw = None
+    if coercion_failed:
+        error = CheckpointCaptureError("checkpoint root is invalid")
+        error.__suppress_context__ = True
+        raise error
     if type(raw) is not str or not os.path.isabs(raw):
         raise CheckpointCaptureError("checkpoint root must be absolute")
     if raw == os.sep:
@@ -66,11 +74,12 @@ def _root_components(root: Any) -> tuple[str, ...]:
     components = tuple(raw.split(os.sep)[1:])
     if not components or any(component in ("", ".", "..") for component in components):
         raise CheckpointCaptureError("checkpoint root is not canonical")
+    if len(components) > _MAX_CHECKPOINT_ROOT_COMPONENTS:
+        raise CheckpointCaptureError("checkpoint root has too many components")
     return components
 
 
-def _open_root(root: Any) -> int:
-    components = _root_components(root)
+def _open_root(components: tuple[str, ...]) -> int:
     owned: list[int] = []
     try:
         owned.append(os.open(os.sep, _directory_flags()))
@@ -290,7 +299,7 @@ def capture_and_verify_laya_runtime_checkpoint(
     failed = False
     result = None
     try:
-        owned.append(_open_root(root))
+        owned.append(_open_root(components))
         root_fd = owned[-1]
         initial_chain = _open_absolute_chain(components)
         owned.extend(initial_chain)
