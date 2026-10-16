@@ -912,7 +912,7 @@ def test_fabricated_checkpoint_plan_is_rejected_before_object_stream_consumption
 
     chunks = Untouched()
     with pytest.raises(ValueError) as caught:
-        provenance.verify_laya_runtime_provenance_object_chunks(
+        provenance._verify_laya_runtime_provenance_object_chunks(
             forged_plan, forged_plan.objects[0].sha1, chunks
         )
     assert chunks.requested == 0
@@ -1129,6 +1129,7 @@ def test_public_surface_is_closed():
     assert type(provenance.__all__) is tuple
     assert set(provenance.__all__) == expected
     assert len(provenance.__all__) == len(expected)
+    assert not hasattr(provenance, "verify_laya_runtime_provenance_object_chunks")
 
 
 def test_live_chunk_cap_never_exceeds_object_cap(monkeypatch):

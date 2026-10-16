@@ -519,6 +519,30 @@ def test_cloned_checkpoint_evidence_cannot_publish_summary(monkeypatch):
         checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(_clone_all_slots(evidence))
 
 
+@pytest.mark.parametrize(
+    ("nested_object", "field_name", "hostile_value"),
+    (
+        ("runtime_identity", "sha256", "f" * 64),
+        ("checkpoint_manifest", "revision", "private-mutated-revision"),
+    ),
+)
+def test_issued_checkpoint_evidence_rejects_deep_post_issue_mutation(
+    monkeypatch, nested_object, field_name, hostile_value
+):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    target = (
+        evidence.runtime_identity
+        if nested_object == "runtime_identity"
+        else evidence.deployment_evidence.checkpoint_manifest
+    )
+    object.__setattr__(target, field_name, hostile_value)
+
+    with pytest.raises(ValueError) as caught:
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    _private_error(caught.value, hostile_value)
+
+
 def test_private_authority_rejects_caller_receipts_and_public_finalizers_do_not_exist():
     checkpoint = _core()
     plan = _plan()
