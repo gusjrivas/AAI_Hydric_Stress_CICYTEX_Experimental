@@ -1,9 +1,12 @@
 import ast
+import gc
 import inspect
 import json
 import os
 import sys
-from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
+import weakref
+from dataclasses import FrozenInstanceError, dataclass, fields, is_dataclass, replace
+from itertools import chain, repeat
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,6 +60,83 @@ def _forge_exact(instance, **changes):
             forged, field.name, changes.get(field.name, getattr(instance, field.name))
         )
     return forged
+
+
+def _clone_all_slots(instance):
+    """Copy even private capability slots without granting issued identity."""
+
+    cloned = object.__new__(type(instance))
+    for cls in type(instance).__mro__:
+        for name in getattr(cls, "__slots__", ()):
+            if name not in {"__weakref__", "__dict__"} and hasattr(instance, name):
+                object.__setattr__(cloned, name, getattr(instance, name))
+    return cloned
+
+
+def _legitimate_checkpoint_evidence(monkeypatch):
+    """Issue bounded receipts through the public byte verifier."""
+
+    checkpoint = _core()
+    plan = _plan()
+    expected_digests = iter(descriptor.sha256 for descriptor in plan.files)
+
+    class MatchingDigest:
+        def __init__(self, expected):
+            self.expected = expected
+
+        def update(self, payload):
+            assert type(payload) is bytes
+
+        def hexdigest(self):
+            return self.expected
+
+    def digest_factory(initial=b""):
+        assert initial == b""
+        return MatchingDigest(next(expected_digests))
+
+    reusable = b"x" * checkpoint.MAX_CHECKPOINT_CHUNK_BYTES
+    receipts = []
+    with monkeypatch.context() as scoped:
+        scoped.setattr(checkpoint.hashlib, "sha256", digest_factory)
+        for descriptor in plan.files:
+            whole, remainder = divmod(descriptor.size_bytes, checkpoint.MAX_CHECKPOINT_CHUNK_BYTES)
+            chunks = chain(
+                repeat(reusable, whole),
+                (b"x" * remainder,) if remainder else (),
+            )
+            receipts.append(
+                checkpoint.verify_laya_checkpoint_file_chunks(plan, descriptor.sha256, chunks)
+            )
+    authority = checkpoint._seal_laya_checkpoint_capture_authority(plan, tuple(receipts))
+    return checkpoint._seal_laya_runtime_checkpoint_evidence(authority)
+
+
+def _fabricated_checkpoint_evidence():
+    """Build an exact-class graph without invoking either byte or private sealers."""
+
+    checkpoint = _core()
+    plan = _plan()
+    receipts = []
+    for descriptor in plan.files:
+        receipt = object.__new__(checkpoint.VerifiedLayaCheckpointFile)
+        object.__setattr__(receipt, "plan", plan)
+        object.__setattr__(receipt, "file", descriptor)
+        object.__setattr__(receipt, "checkpoint_file_bytes_verified", True)
+        receipts.append(receipt)
+
+    evidence = object.__new__(checkpoint.LayaRuntimeCheckpointEvidence)
+    values = {
+        "schema_version": checkpoint.CHECKPOINT_EVIDENCE_SCHEMA,
+        "plan": plan,
+        "deployment_evidence": plan.deployment_evidence,
+        "runtime_identity": plan.runtime_identity,
+        "receipts": tuple(receipts),
+    }
+    values.update({name: True for name in TRUE_FLAGS})
+    values.update({name: False for name in FALSE_FLAGS})
+    for name, value in values.items():
+        object.__setattr__(evidence, name, value)
+    return evidence
 
 
 def test_checkpoint_plan_is_exact_identity_bound_and_private():
@@ -372,6 +452,434 @@ def test_receipt_and_evidence_public_contract_is_deeply_sealed_and_conservative(
         receipt_type()
     with pytest.raises((TypeError, ValueError)):
         evidence_type()
+
+
+def test_exact_class_checkpoint_evidence_cannot_be_fabricated_without_byte_verification():
+    checkpoint = _core()
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(
+            _fabricated_checkpoint_evidence()
+        )
+
+
+def test_lightweight_checkpoint_helper_uses_public_verifier_issued_receipts(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    assert type(evidence) is checkpoint.LayaRuntimeCheckpointEvidence
+    assert tuple(receipt.file for receipt in evidence.receipts) == evidence.plan.files
+    assert all(
+        type(receipt) is checkpoint.VerifiedLayaCheckpointFile for receipt in evidence.receipts
+    )
+
+
+def test_cloned_checkpoint_plan_is_rejected_before_stream_consumption(monkeypatch):
+    checkpoint = _core()
+    plan = _legitimate_checkpoint_evidence(monkeypatch).plan
+
+    class Untouched:
+        requested = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requested += 1
+            raise AssertionError("private-cloned-plan-stream")
+
+    cloned_plan = _clone_all_slots(plan)
+    chunks = Untouched()
+    with pytest.raises(ValueError):
+        checkpoint.verify_laya_checkpoint_file_chunks(
+            cloned_plan, cloned_plan.files[0].sha256, chunks
+        )
+    assert chunks.requested == 0
+
+
+def test_cloned_checkpoint_receipt_cannot_authorize_capture(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    plan = evidence.plan
+    cloned_receipt = _clone_all_slots(evidence.receipts[0])
+    with pytest.raises(ValueError):
+        checkpoint._seal_laya_checkpoint_capture_authority(
+            plan, (cloned_receipt, *evidence.receipts[1:])
+        )
+
+
+def test_cloned_checkpoint_authority_cannot_seal_evidence(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    authority = checkpoint._seal_laya_checkpoint_capture_authority(evidence.plan, evidence.receipts)
+    with pytest.raises(ValueError):
+        checkpoint._seal_laya_runtime_checkpoint_evidence(_clone_all_slots(authority))
+
+
+def test_cloned_checkpoint_evidence_cannot_publish_summary(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(_clone_all_slots(evidence))
+
+
+@pytest.mark.parametrize(
+    ("nested_object", "field_name", "hostile_value"),
+    (
+        ("runtime_identity", "sha256", "f" * 64),
+        ("checkpoint_manifest", "revision", "private-mutated-revision"),
+    ),
+)
+def test_issued_checkpoint_evidence_rejects_deep_post_issue_mutation(
+    monkeypatch, nested_object, field_name, hostile_value
+):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    target = (
+        evidence.runtime_identity
+        if nested_object == "runtime_identity"
+        else evidence.deployment_evidence.checkpoint_manifest
+    )
+    object.__setattr__(target, field_name, hostile_value)
+
+    with pytest.raises(ValueError) as caught:
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    _private_error(caught.value, hostile_value)
+
+
+def test_issued_checkpoint_evidence_rejects_deep_artifact_content_mutation(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    artifact = evidence.deployment_evidence.snapshot.artifacts[0]
+    hostile_content = artifact.content + b"\nprivate-mutated-artifact-content"
+    assert evidence.artifact_integrity_verified is True
+    object.__setattr__(artifact, "content", hostile_content)
+
+    with pytest.raises(ValueError) as caught:
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    _private_error(caught.value, "private-mutated-artifact-content")
+
+
+@pytest.mark.parametrize("nested_name", ("checkpoint_manifest", "snapshot"))
+@pytest.mark.parametrize("consumer", ("checkpoint_summary", "provenance_prepare"))
+def test_issued_checkpoint_evidence_rejects_equal_distinct_nested_clone(
+    monkeypatch, nested_name, consumer
+):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    original = getattr(evidence.deployment_evidence, nested_name)
+    cloned = _clone_all_slots(original)
+    assert cloned == original
+    assert cloned is not original
+    object.__setattr__(evidence.deployment_evidence, nested_name, cloned)
+
+    if consumer == "checkpoint_summary":
+        publish = checkpoint.canonical_laya_runtime_checkpoint_summary_bytes
+    else:
+        from human_feedback.runtime_provenance import (
+            prepare_laya_runtime_provenance_plan,
+        )
+
+        publish = prepare_laya_runtime_provenance_plan
+    with pytest.raises(ValueError):
+        publish(evidence)
+
+
+def test_issued_checkpoint_topology_retains_original_manifest_authority(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    deployment = evidence.deployment_evidence
+    original = deployment.checkpoint_manifest
+    cloned = _clone_all_slots(original)
+    try:
+        retained = weakref.ref(original)
+    except TypeError:
+        retained = None
+    object.__setattr__(deployment, "checkpoint_manifest", cloned)
+
+    # The issuance seal must retain the exact original node while evidence is alive.
+    # Otherwise its id can be recycled and identity-only topology checks become unsafe.
+    if retained is not None:
+        del original
+        gc.collect()
+        assert retained() is not None
+    else:
+        # local + getrefcount temporary + at least one seal-owned strong reference;
+        # an id-only implementation has only the first two after replacement.
+        assert sys.getrefcount(original) >= 3
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+
+
+def _retarget_identity_seals(checkpoint, value, original, replacement):
+    if type(value) is checkpoint._IdentitySeal:
+        if value.value is original:
+            object.__setattr__(value, "value", replacement)
+            return 1
+        return 0
+    if type(value) in {tuple, list}:
+        return sum(
+            _retarget_identity_seals(checkpoint, item, original, replacement) for item in value
+        )
+    if type(value) is dict:
+        return sum(
+            _retarget_identity_seals(checkpoint, item, original, replacement)
+            for item in value.values()
+        )
+    return 0
+
+
+@pytest.mark.parametrize("consumer", ("checkpoint_summary", "provenance_prepare"))
+def test_caller_visible_semantic_capability_cannot_retarget_nested_authority(monkeypatch, consumer):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    deployment = evidence.deployment_evidence
+    original = deployment.checkpoint_manifest
+    cloned = _clone_all_slots(original)
+    retargeted = sum(
+        _retarget_identity_seals(
+            checkpoint,
+            sealed._semantic_capability,
+            original,
+            cloned,
+        )
+        for sealed in (evidence.plan, evidence)
+    )
+    assert retargeted >= 2
+    object.__setattr__(deployment, "checkpoint_manifest", cloned)
+
+    if consumer == "checkpoint_summary":
+        publish = checkpoint.canonical_laya_runtime_checkpoint_summary_bytes
+    else:
+        from human_feedback.runtime_provenance import (
+            prepare_laya_runtime_provenance_plan,
+        )
+
+        publish = prepare_laya_runtime_provenance_plan
+    with pytest.raises(ValueError):
+        publish(evidence)
+
+
+def test_deep_snapshot_rejects_oversized_artifact_before_hashing(monkeypatch):
+    checkpoint = _core()
+    from human_feedback import runtime_deployment_metadata
+
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    artifact = next(
+        item
+        for item in evidence.deployment_evidence.snapshot.artifacts
+        if item.spec.kind == "checkpoint_manifest"
+    )
+    maximum = runtime_deployment_metadata.MAX_CHECKPOINT_MANIFEST_BYTES
+    object.__setattr__(artifact, "content", b"x" * (maximum + 1))
+    original_new = checkpoint.hashlib.new
+    oversized_hash_attempts = 0
+
+    def bounded_hash(name, payload=b"", *args, **kwargs):
+        nonlocal oversized_hash_attempts
+        if type(payload) is bytes and len(payload) > maximum:
+            oversized_hash_attempts += 1
+            raise AssertionError("oversized artifact reached the hash function")
+        return original_new(name, payload, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint.hashlib, "new", bounded_hash)
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    assert oversized_hash_attempts == 0
+
+
+@pytest.mark.parametrize("leaf_kind", ("bytes", "text"))
+def test_deep_snapshot_enforces_aggregate_leaf_byte_budget(monkeypatch, leaf_kind):
+    checkpoint = _core()
+    maximum = checkpoint.MAX_SEMANTIC_SNAPSHOT_BYTES
+    leaf_size = 1024 * 1024
+    leaf = b"x" * leaf_size if leaf_kind == "bytes" else "x" * leaf_size
+    graph = (leaf,) * (maximum // leaf_size + 1)
+    oversized_hash_attempts = 0
+    hashed_bytes = 0
+    original_new = checkpoint.hashlib.new
+
+    def bounded_hash(name, payload=b"", *args, **kwargs):
+        nonlocal hashed_bytes, oversized_hash_attempts
+        if type(payload) is bytes:
+            if hashed_bytes + len(payload) > maximum:
+                oversized_hash_attempts += 1
+                raise AssertionError("aggregate byte budget reached the hash function")
+            hashed_bytes += len(payload)
+        return original_new(name, payload, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint.hashlib, "new", bounded_hash)
+    with pytest.raises(ValueError):
+        checkpoint._deep_semantic_snapshot(graph)
+    assert oversized_hash_attempts == 0
+
+
+@pytest.mark.parametrize("node_kind", ("tuple", "dataclass"))
+def test_deep_snapshot_enforces_explicit_maximum_depth_before_recursion_failure(
+    node_kind,
+):
+    checkpoint = _core()
+    maximum = getattr(checkpoint, "MAX_SEMANTIC_SNAPSHOT_DEPTH", 64)
+    assert type(maximum) is int and 0 < maximum <= 64
+
+    @dataclass(frozen=True)
+    class Node:
+        child: object
+
+    graph = "leaf"
+    for _ in range(maximum + 1):
+        graph = (graph,) if node_kind == "tuple" else Node(graph)
+
+    with pytest.raises(ValueError):
+        checkpoint._deep_semantic_snapshot(graph)
+
+
+def test_deep_snapshot_rejects_oversized_utf8_text_leaf_with_small_budget():
+    checkpoint = _core()
+    maximum = 16
+    oversized_text = "é" * 9
+    assert len(oversized_text) <= maximum
+    assert len(oversized_text.encode("utf-8")) > maximum
+
+    with pytest.raises(ValueError):
+        checkpoint._deep_semantic_snapshot(oversized_text, _byte_limit=maximum)
+
+
+def test_deep_snapshot_rejects_oversized_utf8_mapping_key_before_sort(monkeypatch):
+    checkpoint = _core()
+    import builtins
+
+    maximum = 16
+    oversized_key = "é" * 9
+    sort_attempts = 0
+    original_sorted = builtins.sorted
+
+    def guarded_sorted(values, *args, **kwargs):
+        nonlocal sort_attempts
+        sort_attempts += 1
+        return original_sorted(values, *args, **kwargs)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(builtins, "sorted", guarded_sorted)
+        with pytest.raises(ValueError):
+            checkpoint._deep_semantic_snapshot(
+                {oversized_key: None},
+                _byte_limit=maximum,
+            )
+    assert sort_attempts == 0
+
+
+def _deep_snapshot_branch(predicate: str):
+    checkpoint = _core()
+    tree = ast.parse(inspect.getsource(checkpoint._deep_semantic_snapshot))
+    function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
+    return next(
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.If) and ast.unparse(node.test) == predicate
+    )
+
+
+def _is_utf8_encode_call(node) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "encode"
+        and any(isinstance(arg, ast.Constant) and arg.value == "utf-8" for arg in node.args)
+    )
+
+
+def _contains_utf8_encode(node) -> bool:
+    return any(_is_utf8_encode_call(item) for item in ast.walk(node))
+
+
+def test_deep_snapshot_prechecks_text_length_before_utf8_encoding():
+    branch = _deep_snapshot_branch("type(value) is str")
+    encode_line = min(node.lineno for node in ast.walk(branch) if _is_utf8_encode_call(node))
+    prechecks = [
+        node
+        for node in branch.body
+        if isinstance(node, ast.If)
+        and node.lineno < encode_line
+        and "len(value)" in ast.unparse(node.test)
+        and "byte_budget" in ast.unparse(node.test)
+    ]
+    assert prechecks, "text length must be rejected before UTF-8 encoding"
+
+
+def test_deep_snapshot_processes_mapping_keys_sequentially_with_prechecks():
+    branch = _deep_snapshot_branch("type(value) is dict")
+    assert not any(
+        isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp))
+        and _contains_utf8_encode(node)
+        for node in ast.walk(branch)
+    )
+    key_loop = next(
+        (
+            node
+            for node in branch.body
+            if isinstance(node, ast.For)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "key"
+        ),
+        None,
+    )
+    assert key_loop is not None, "mapping keys must be budgeted one at a time"
+    encode_lines = [node.lineno for node in ast.walk(key_loop) if _is_utf8_encode_call(node)]
+    assert encode_lines
+    encode_line = min(encode_lines)
+    assert any(
+        isinstance(node, ast.If)
+        and node.lineno < encode_line
+        and "len(key)" in ast.unparse(node.test)
+        for node in key_loop.body
+    )
+    consume_lines = [
+        node.lineno
+        for node in ast.walk(key_loop)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_consume_semantic_bytes"
+    ]
+    assert consume_lines and min(consume_lines) > encode_line
+    sorted_lines = [
+        node.lineno
+        for node in ast.walk(branch)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "sorted"
+    ]
+    assert sorted_lines and min(sorted_lines) > key_loop.end_lineno
+
+
+def test_deep_snapshot_rejects_abnormal_mapping_without_iterating(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+
+    class HostileMapping(dict):
+        requested = 0
+
+        def __iter__(self):
+            self.requested += 1
+            raise AssertionError("abnormal mapping was traversed")
+
+        def items(self):
+            self.requested += 1
+            raise AssertionError("abnormal mapping items were traversed")
+
+    hostile = HostileMapping()
+    object.__setattr__(evidence.deployment_evidence.runtime_config, "environment", hostile)
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    assert hostile.requested == 0
+
+
+def test_deep_snapshot_rejects_oversized_exact_sequence(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    oversized = (("KEY", "VALUE"),) * 2049
+    object.__setattr__(evidence.deployment_evidence.runtime_config, "environment", oversized)
+
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
 
 
 def test_private_authority_rejects_caller_receipts_and_public_finalizers_do_not_exist():
