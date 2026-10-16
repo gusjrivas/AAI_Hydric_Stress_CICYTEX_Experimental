@@ -51,6 +51,27 @@ jobs:
           tests/test_laya_runtime_oci_layers.py
           tests/test_laya_runtime_oci_layout_filesystem.py
 
+  laya-checkpoint-bytes-contract:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Test checkpoint byte contracts
+        run: >-
+          python -m pytest
+          tests/test_laya_runtime_checkpoint.py
+          tests/test_laya_runtime_checkpoint_filesystem.py
+
   experiment-v4-container:
     runs-on: ubuntu-latest
     steps:
