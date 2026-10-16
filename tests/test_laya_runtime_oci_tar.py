@@ -44,6 +44,10 @@ def _tar_header(
     size: int = 0,
     typeflag: bytes = b"0",
     linkname: str = "",
+    mode: int | None = None,
+    uid: int = 0,
+    gid: int = 0,
+    mtime: int = 0,
     magic: bytes = b"ustar\0",
     version: bytes = b"00",
 ) -> bytes:
@@ -58,11 +62,12 @@ def _tar_header(
     )
     header = bytearray(512)
     header[: len(name_bytes)] = name_bytes
-    header[100:108] = _octal(0o644 if typeflag == b"0" else 0o777, 8)
-    header[108:116] = _octal(0, 8)
-    header[116:124] = _octal(0, 8)
+    effective_mode = (0o644 if typeflag == b"0" else 0o777) if mode is None else mode
+    header[100:108] = _octal(effective_mode, 8)
+    header[108:116] = _octal(uid, 8)
+    header[116:124] = _octal(gid, 8)
     header[124:136] = _octal(size, 12)
-    header[136:148] = _octal(0, 12)
+    header[136:148] = _octal(mtime, 12)
     header[148:156] = b"        "
     header[156:157] = typeflag
     header[157 : 157 + len(link_bytes)] = link_bytes
@@ -78,6 +83,10 @@ def _tar_entry(
     *,
     typeflag: bytes = b"0",
     linkname: str = "",
+    mode: int | None = None,
+    uid: int = 0,
+    gid: int = 0,
+    mtime: int = 0,
     gnu: bool = False,
 ) -> bytes:
     return (
@@ -86,6 +95,10 @@ def _tar_entry(
             size=len(payload),
             typeflag=typeflag,
             linkname=linkname,
+            mode=mode,
+            uid=uid,
+            gid=gid,
+            mtime=mtime,
             magic=b"ustar " if gnu else b"ustar\0",
             version=b" \0" if gnu else b"00",
         )
@@ -965,6 +978,77 @@ def test_exact_root_directory_markers_are_accounted_but_not_manifest_entries(
     assert tuple(entry.path for entry in receipt.entries) == ("data/result.txt",)
     assert receipt.payload_size_bytes == 1
     assert receipt.tar_size_bytes == len(archive)
+
+
+def test_effective_file_metadata_is_preserved_for_rootfs_composition(
+    monkeypatch,
+    synthetic_pr22,
+):
+    archive = _archive(
+        _tar_entry(
+            "data/result.txt",
+            b"x",
+            mode=0o640,
+            uid=123,
+            gid=456,
+            mtime=1_700_000_000,
+        )
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, archive)
+    entry = receipt.entries[0]
+
+    assert (entry.mode, entry.uid, entry.gid, entry.mtime) == (
+        0o640,
+        123,
+        456,
+        1_700_000_000,
+    )
+    assert all(value not in repr(entry) for value in ("123", "456", "1700000000"))
+
+
+def test_root_directory_marker_metadata_is_preserved_outside_manifest_entries(
+    monkeypatch,
+    synthetic_pr22,
+):
+    archive = _archive(
+        _tar_entry(
+            "./",
+            typeflag=b"5",
+            mode=0o750,
+            uid=321,
+            gid=654,
+            mtime=1_700_000_001,
+        ),
+        _tar_entry("data/result.txt", b"x"),
+    )
+
+    receipt = _verify_archive(monkeypatch, synthetic_pr22, archive)
+
+    assert tuple(entry.path for entry in receipt.entries) == ("data/result.txt",)
+    assert receipt.root_directory is not None
+    assert receipt.root_directory.path == "."
+    assert receipt.root_directory.typeflag == "5"
+    assert (
+        receipt.root_directory.mode,
+        receipt.root_directory.uid,
+        receipt.root_directory.gid,
+        receipt.root_directory.mtime,
+    ) == (0o750, 321, 654, 1_700_000_001)
+
+
+def test_conflicting_repeated_root_directory_metadata_is_rejected(
+    monkeypatch,
+    synthetic_pr22,
+):
+    archive = _archive(
+        _tar_entry("./", typeflag=b"5", mode=0o755),
+        _tar_entry("./", typeflag=b"5", mode=0o700),
+    )
+
+    with pytest.raises(ValueError, match="root|metadata|directory|valid") as captured:
+        _verify_archive(monkeypatch, synthetic_pr22, archive)
+    _private_error(captured.value)
 
 
 @pytest.mark.parametrize(
