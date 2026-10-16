@@ -3,7 +3,7 @@ import inspect
 import json
 import os
 import sys
-from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
+from dataclasses import FrozenInstanceError, dataclass, fields, is_dataclass, replace
 from itertools import chain, repeat
 from pathlib import Path
 from types import SimpleNamespace
@@ -649,6 +649,61 @@ def test_deep_snapshot_enforces_aggregate_leaf_byte_budget(monkeypatch, leaf_kin
     with pytest.raises(ValueError):
         checkpoint._deep_semantic_snapshot(graph)
     assert oversized_hash_attempts == 0
+
+
+@pytest.mark.parametrize("node_kind", ("tuple", "dataclass"))
+def test_deep_snapshot_enforces_explicit_maximum_depth_before_recursion_failure(
+    node_kind,
+):
+    checkpoint = _core()
+    maximum = getattr(checkpoint, "MAX_SEMANTIC_SNAPSHOT_DEPTH", 64)
+    assert type(maximum) is int and 0 < maximum <= 64
+
+    @dataclass(frozen=True)
+    class Node:
+        child: object
+
+    graph = "leaf"
+    for _ in range(maximum + 1):
+        graph = (graph,) if node_kind == "tuple" else Node(graph)
+
+    with pytest.raises(ValueError):
+        checkpoint._deep_semantic_snapshot(graph)
+
+
+def test_deep_snapshot_rejects_oversized_utf8_text_leaf_with_small_budget():
+    checkpoint = _core()
+    maximum = 16
+    oversized_text = "é" * 9
+    assert len(oversized_text) <= maximum
+    assert len(oversized_text.encode("utf-8")) > maximum
+
+    with pytest.raises(ValueError):
+        checkpoint._deep_semantic_snapshot(oversized_text, _byte_limit=maximum)
+
+
+def test_deep_snapshot_rejects_oversized_utf8_mapping_key_before_sort(monkeypatch):
+    checkpoint = _core()
+    import builtins
+
+    maximum = 16
+    oversized_key = "é" * 9
+    sort_attempts = 0
+    original_sorted = builtins.sorted
+
+    def guarded_sorted(values, *args, **kwargs):
+        nonlocal sort_attempts
+        sort_attempts += 1
+        return original_sorted(values, *args, **kwargs)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(builtins, "sorted", guarded_sorted)
+        with pytest.raises(ValueError):
+            checkpoint._deep_semantic_snapshot(
+                {oversized_key: None},
+                _byte_limit=maximum,
+            )
+    assert sort_attempts == 0
 
 
 def test_deep_snapshot_rejects_abnormal_mapping_without_iterating(monkeypatch):
