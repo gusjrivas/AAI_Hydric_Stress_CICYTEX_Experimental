@@ -22,6 +22,8 @@ execution attestation.
   the sole authority for the five checkpoint payload bytes.
 - Add conservative content/declaration-observed flags, private evidence and an opt-in real
   gate over externally captured inputs.
+- Close `__all__` to intended constants, five public immutable dataclasses and the
+  three public operations; parsers, streaming helpers, imports and sealers stay private.
 
 ## Impact
 

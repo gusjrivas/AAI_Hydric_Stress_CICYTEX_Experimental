@@ -9,6 +9,11 @@
 - [ ] 1.7 RED audit remediation: prove the exact three-function public API and observed-declaration naming.
 - [ ] 1.8 RED audit remediation: prove README identity exclusion and exact PR34/LFS/DAG-edge bindings.
 - [ ] 1.9 RED audit remediation: prove local-only `git cat-file` precheck, environment and timeout controls.
+- [ ] 1.10 RED audit remediation: prove closed `__all__` and exactly three public functions.
+- [ ] 1.11 RED audit remediation: prove live chunk cap coherence and full structural preflight.
+- [ ] 1.12 RED audit remediation: prove factory capability secrecy and exact-class forgery rejection.
+- [ ] 1.13 RED audit remediation: prove the closed role/kind/derived-field matrix.
+- [ ] 1.14 RED audit remediation: prove deep PR34 ancestry validation in the unit verifier.
 
 ## 2. RED tests
 
@@ -17,6 +22,8 @@
 - [ ] 2.3 Add failing tests for checkpoint tree, small blobs, LFS pointers and PR34 binding.
 - [ ] 2.4 Add failing tests for exact caps, privacy, mixed PR34/LFS/edge authorities and canonical evidence.
 - [ ] 2.5 Add failing tests for exact conservative flags and absent productive callers.
+- [ ] 2.6 Add failing tests for public exports, live caps and zero-consumption structural preflight.
+- [ ] 2.7 Add failing tests for forged classes, derived fields and shallow PR34 wrappers.
 
 ## 3. GREEN implementation
 

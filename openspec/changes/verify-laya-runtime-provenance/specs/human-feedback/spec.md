@@ -103,6 +103,39 @@ extra, oversized, malformed or unreachable objects SHALL fail before sealing.
 - **WHEN** the next object, tree entry, path component or DAG visit exceeds a cap
 - **THEN** validation stops without partial evidence or summary
 
+### Requirement: Streaming caps SHALL be live and coherent
+
+The chunk-byte cap SHALL be positive and no greater than the object-byte cap.
+Validation SHALL consult live public caps, including test-lowered values, for every
+object and aggregate decision.
+
+#### Scenario: A live cap is lowered
+
+- **WHEN** a chunk, object or aggregate exceeds the current public cap
+- **THEN** verification fails before accepting excess bytes
+
+### Requirement: Chunk structures SHALL pass complete preflight
+
+Before consuming any chunk container, the verifier SHALL validate the whole outer
+collection, exact order/count, every item shape and identity, and every container
+type.  A malformed later entry SHALL consume no earlier stream.
+
+#### Scenario: The last chunk container is invalid
+
+- **WHEN** every earlier entry is valid but the final container has the wrong structure
+- **THEN** verification fails with zero chunks requested from every entry
+
+### Requirement: Roles SHALL determine repository and Git kind
+
+The plan SHALL derive repository and kind from a closed role matrix.  Tags, commits,
+trees and blobs SHALL occupy only their prescribed roles, and every caller-visible
+derived field SHALL equal the canonical object profile.
+
+#### Scenario: A derived field is forged
+
+- **WHEN** role, repository, kind, object identity, digest or size differs from its canonical matrix row
+- **THEN** plan, envelope and receipt validation fail closed
+
 ### Requirement: Provenance evidence SHALL reject mixed authorities
 
 The system SHALL require one coherent source set, checkpoint set, runtime identity
@@ -118,6 +151,28 @@ immutable evidence or a public summary.
 
 - **WHEN** a DAG edge, role, path, Git object, small-blob digest or LFS oid/size differs from exact PR34 bindings
 - **THEN** no receipt set or provenance evidence is accepted
+
+### Requirement: Factory authority SHALL remain private and exact-class
+
+Envelope, receipt and evidence sealing SHALL retain a private factory capability.
+It SHALL reject subclasses, proxies, uninitialized objects and reconstructed values
+without ever exposing or lending that capability to a caller.
+
+#### Scenario: A nested value is forged
+
+- **WHEN** an envelope, receipt or evidence graph contains a non-exact or factory-less value
+- **THEN** unit verification and summary fail without sealing replacement evidence
+
+### Requirement: Unit verification SHALL revalidate PR34 ancestry
+
+`verify_laya_runtime_provenance_objects` SHALL deeply validate the exact PR34
+checkpoint evidence, deployment graph, runtime identity, five descriptors and
+bindings before stream preflight and again before provenance sealing.
+
+#### Scenario: A shallow checkpoint wrapper recomputes its digest
+
+- **WHEN** any PR34 ancestor or nested binding is forged despite matching surface fields
+- **THEN** no chunk is consumed and no provenance evidence is produced
 
 ### Requirement: Provenance summaries SHALL remain private and conservative
 
@@ -147,6 +202,12 @@ runners, readiness and scripts SHALL have no productive caller.
 
 - **WHEN** callers import the provenance module
 - **THEN** the only public operations are `prepare_laya_runtime_provenance_plan`, `verify_laya_runtime_provenance_objects` and `canonical_laya_runtime_provenance_summary_bytes`
+
+#### Scenario: Public exports are inspected
+
+- **WHEN** `__all__` is evaluated
+- **THEN** it contains only intended constants, five public dataclasses and the three public operations
+- **AND** imports, parsers, stream helpers, factory capability and sealers remain private
 
 ### Requirement: Real provenance evidence SHALL require an opt-in gate
 

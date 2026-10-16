@@ -17,6 +17,21 @@ The only public operations are `prepare_laya_runtime_provenance_plan`,
 `canonical_laya_runtime_provenance_summary_bytes`.  Object parsers, per-object
 stream verification and evidence sealing remain private implementation details.
 
+`__all__` is closed to those functions; the five dataclasses
+`LayaGitObjectSpec`, `LayaRuntimeProvenancePlan`, `LayaGitObjectEnvelope`,
+`VerifiedLayaProvenanceObject` and `LayaRuntimeProvenanceEvidence`; and exactly
+these constants:
+
+- `PROVENANCE_PLAN_SCHEMA`, `PROVENANCE_EVIDENCE_SCHEMA`;
+- `SOURCE_REPOSITORY`, `CHECKPOINT_REPOSITORY`, `SOURCE_COMMIT`,
+  `CHECKPOINT_COMMIT`, `PROVENANCE_OBJECTS`;
+- `MAX_PROVENANCE_OBJECTS`, `MAX_PROVENANCE_OBJECT_BYTES`,
+  `MAX_PROVENANCE_TOTAL_BYTES`, `MAX_PROVENANCE_CHUNK_BYTES`,
+  `MAX_PROVENANCE_CHUNKS`, `MAX_PROVENANCE_TREE_ENTRIES`,
+  `MAX_PROVENANCE_PATH_COMPONENTS`, `MAX_PROVENANCE_DAG_VISITS`.
+
+Imported names and all underscore helpers remain private.
+
 ## Source profile
 
 The source side is fixed to `NandhaKishorM/laya` commit
@@ -50,15 +65,44 @@ manifest proven by PR34.
 ## Bounded validation and canonical evidence
 
 The fixed caps are 16 objects, 64 KiB per object, 1 MiB aggregate object bytes,
-256 entries per tree, eight path components and 64 DAG visits.  Git object framing,
-type and size are checked before parsing.  Trees must be canonical, paths unique
-and selected commit/tag/tree/blob relationships exact.  LFS pointers use a closed
-grammar and declared sizes must equal their checkpoint descriptor bounds.
+256 entries per tree, eight path components and 64 DAG visits.  The live chunk cap
+must be positive and no larger than the 64 KiB object cap; chunk count remains
+bounded.  Tests may lower public caps and validation must consult the live values.
+
+Before consuming any chunk iterator, the verifier validates the complete outer
+collection, exact order and count, every item shape/object identity and every chunk
+container type.  A malformed later container therefore consumes no earlier stream.
+Only after preflight may bounded incremental hashing begin.
+
+Git object framing, type and size are checked before parsing.  Trees must be
+canonical, paths unique and selected commit/tag/tree/blob relationships exact.
+LFS pointers use a closed grammar and declared sizes must equal their checkpoint
+descriptor bounds.
+
+Role determines repository and kind.  The closed kind matrix is:
+
+- tag: `source_tag`;
+- commit: `source_commit`, `checkpoint_commit`;
+- tree: `source_tree`, `checkpoint_tree`, `multilingual_tree`, `encoder_tree`,
+  `tokenizer_tree`;
+- blob: `source_license`, `source_pyproject`, `checkpoint_readme`,
+  `encoder_config`, `weights_lfs`, `laya_config`, `tokenizer_lfs`,
+  `tokenizer_config`.
+
+The five `source_*` roles derive `SOURCE_REPOSITORY`; every remaining role derives
+`CHECKPOINT_REPOSITORY`.  Caller-supplied repository, kind, SHA-1, SHA-256 and size
+must equal the canonical profile row exactly.
 
 All inputs are consumed all-or-nothing.  Missing, duplicate, extra, oversized,
 foreign or unreachable objects fail closed.  Source and checkpoint authority sets,
 PR34 evidence and runtime identity cannot be mixed across revisions.  Exact-class,
 immutable evidence is canonically rebuilt from validated content before summary.
+
+Envelope, receipt and evidence constructors require a private factory capability
+that is never exported or passed to callers.  Exact-class checks reject subclasses,
+proxies and `object.__new__` forgeries.  The unit object-set verifier deeply
+revalidates the full PR34 checkpoint ancestry before preflight and again before
+sealing; a recomputed shallow wrapper cannot lend authority.
 
 ## Claims and privacy
 
