@@ -1272,6 +1272,135 @@ def test_mutation_budget_is_preflighted_before_whiteout_or_addition_changes_stat
     assert mutation_helpers_called == []
 
 
+def test_parent_checks_and_subtree_removal_use_bounded_children_index(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {
+            0: (
+                _entry(runtime_oci_tar, "target", "5"),
+                _entry(runtime_oci_tar, "target/a"),
+                _entry(runtime_oci_tar, "target/b"),
+                _entry(runtime_oci_tar, "unrelated", "5"),
+                _entry(runtime_oci_tar, "unrelated/value"),
+            )
+        },
+    )
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+
+    class NoIterationNodes(dict):
+        def __iter__(self):
+            raise AssertionError("private-full-node-scan")
+
+        def keys(self):
+            raise AssertionError("private-full-node-keys-scan")
+
+        def items(self):
+            raise AssertionError("private-full-node-items-scan")
+
+        def values(self):
+            raise AssertionError("private-full-node-values-scan")
+
+    nodes = NoIterationNodes(_node_map(evidence))
+    with pytest.raises(ValueError, match="parent|path|rootfs|valid") as missing:
+        runtime_oci_rootfs._validate_parent_path("missing/child", nodes)
+    assert "private-full-node-scan" not in str(missing.value)
+    with pytest.raises(ValueError, match="parent|path|rootfs|valid") as non_directory:
+        runtime_oci_rootfs._validate_parent_path("target/a/child", nodes)
+    assert "private-full-node-scan" not in str(non_directory.value)
+
+    class CountingChildren(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.lookups = []
+
+        def get(self, key, default=None):
+            self.lookups.append(key)
+            return super().get(key, default)
+
+        def __iter__(self):
+            raise AssertionError("private-full-index-scan")
+
+    def children_index():
+        return CountingChildren(
+            {
+                "": {"target", "unrelated"},
+                "target": {"target/a", "target/b"},
+                "unrelated": {"unrelated/value"},
+            }
+        )
+
+    successful_nodes = NoIterationNodes(_node_map(evidence))
+    successful_index = children_index()
+    removed = runtime_oci_rootfs._remove_subtree(
+        successful_nodes,
+        "target",
+        children_by_parent=successful_index,
+        max_removals=3,
+    )
+    assert removed == 3
+    assert set(dict.keys(successful_nodes)) == {"unrelated", "unrelated/value"}
+    assert set(successful_index.lookups) <= {"target", "target/a", "target/b", ""}
+
+    bounded_nodes = NoIterationNodes(_node_map(evidence))
+    bounded_index = children_index()
+    before_nodes = dict(dict.items(bounded_nodes))
+    before_index = {parent: set(children) for parent, children in dict.items(bounded_index)}
+    with pytest.raises(ValueError, match="mutation|budget|limit|rootfs"):
+        runtime_oci_rootfs._remove_subtree(
+            bounded_nodes,
+            "target",
+            children_by_parent=bounded_index,
+            max_removals=2,
+        )
+    assert dict.items(bounded_nodes) == before_nodes.items()
+    assert {parent: set(children) for parent, children in dict.items(bounded_index)} == before_index
+    assert set(bounded_index.lookups) <= {"target", "target/a", "target/b", ""}
+
+
+def test_composition_routes_subtree_mutations_through_bounded_index(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {
+            0: (
+                _entry(runtime_oci_tar, "target", "5"),
+                _entry(runtime_oci_tar, "target/a"),
+                _entry(runtime_oci_tar, "target/b"),
+                _entry(runtime_oci_tar, "unrelated", "5"),
+                _entry(runtime_oci_tar, "unrelated/value"),
+            ),
+            1: (_entry(runtime_oci_tar, ".wh.target"),),
+        },
+    )
+    original_remove = runtime_oci_rootfs._remove_subtree
+    calls = []
+
+    def tracked_remove(*args, **kwargs):
+        calls.append(kwargs)
+        return original_remove(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_oci_rootfs, "_remove_subtree", tracked_remove)
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+    assert tuple(node.path for node in evidence.nodes) == (
+        "unrelated",
+        "unrelated/value",
+    )
+    assert calls
+    assert all(
+        type(call.get("children_by_parent")) is dict
+        and type(call.get("max_removals")) is int
+        and call["max_removals"] >= 0
+        for call in calls
+    )
+
+
 def test_budget_failure_stops_before_next_layer_and_never_seals(monkeypatch):
     from human_feedback import runtime_oci_rootfs, runtime_oci_tar
 
@@ -1694,6 +1823,63 @@ def test_rootfs_summary_revalidates_global_namespace_invariants(monkeypatch):
             )
         else:
             accepted.append(tuple(candidate.path for candidate in ordered))
+    assert accepted == []
+
+
+def test_rootfs_summary_rederives_nodes_and_root_metadata_from_tar_plan(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {
+            0: (
+                _entry(runtime_oci_tar, "data", "5"),
+                _entry(runtime_oci_tar, "data/file", size=1, mode=0o640),
+            )
+        },
+        roots={0: _entry(runtime_oci_tar, ".", "5", mode=0o755)},
+    )
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+    node_index = next(
+        index for index, node in enumerate(evidence.nodes) if node.path == "data/file"
+    )
+    node = evidence.nodes[node_index]
+    assert evidence.root_directory is not None
+    mutations = (
+        ("node-size", {"size_bytes": 2}, {}),
+        ("node-mode", {"mode": 0o600}, {}),
+        ("node-source-layer", {"source_layer_position": 1}, {}),
+        ("root-mode", {}, {"mode": 0o700}),
+        ("root-source-layer", {}, {"source_layer_position": 1}),
+    )
+    accepted = []
+    for name, node_changes, root_changes in mutations:
+        nodes = list(evidence.nodes)
+        if node_changes:
+            nodes[node_index] = _forge_with(node, **node_changes)
+        forged_nodes = tuple(nodes)
+        forged_root = (
+            _forge_with(evidence.root_directory, **root_changes)
+            if root_changes
+            else evidence.root_directory
+        )
+        forged = _forge_with(
+            evidence,
+            nodes=forged_nodes,
+            root_directory=forged_root,
+            rootfs_manifest_sha256=runtime_oci_rootfs._manifest_sha256(
+                forged_nodes,
+                forged_root,
+            ),
+        )
+        try:
+            runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(forged)
+        except (TypeError, ValueError):
+            pass
+        else:
+            accepted.append(name)
     assert accepted == []
 
 

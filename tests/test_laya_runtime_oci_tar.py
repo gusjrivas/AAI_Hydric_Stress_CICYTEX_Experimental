@@ -1543,10 +1543,7 @@ def test_non_regular_entry_deep_seal_rejects_nonzero_size(
     )
     forged = _forge(
         module.LayaOciTarEntry,
-        **(
-            {field.name: getattr(valid, field.name) for field in fields(valid)}
-            | {"size_bytes": 1}
-        ),
+        **({field.name: getattr(valid, field.name) for field in fields(valid)} | {"size_bytes": 1}),
     )
     with pytest.raises((TypeError, ValueError), match="entry|size|valid"):
         forged.__post_init__(module._FACTORY_TOKEN)
