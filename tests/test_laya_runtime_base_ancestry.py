@@ -1,9 +1,13 @@
 import ast
+import copy
+import gc
 import hashlib
 import inspect
 import json
 import math
+import pickle
 import traceback
+import weakref
 from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,6 +73,22 @@ TRUE_PR22_CLAIMS = (
     "oci_config_semantics_verified",
     "oci_layer_diff_ids_verified",
 )
+FALSE_PR22_CLAIMS = (
+    "lock_verified",
+    "sbom_verified",
+    "lock_sbom_consistent",
+    "runtime_config_semantics_verified",
+    "checkpoint_manifest_semantics_verified",
+    "checkpoint_bytes_verified",
+    "oci_rootfs_verified",
+    "tar_semantics_verified",
+    "origin_verified",
+    "license_verified",
+    "rootfs_materialized",
+    "runtime_materialized",
+    "executor_available",
+    "inference_executed",
+)
 CONSERVATIVE_FALSE_CLAIMS = (
     "oci_rootfs_verified",
     "tar_semantics_verified",
@@ -81,6 +101,11 @@ CONSERVATIVE_FALSE_CLAIMS = (
     "runtime_materialized",
     "executor_available",
     "inference_executed",
+)
+PR36_ONLY_FALSE_CLAIMS = (
+    "runtime_build_recipe_verified",
+    "build_process_attested",
+    "reproducible_build_verified",
 )
 
 
@@ -167,6 +192,34 @@ def _verified(monkeypatch):
     return module, predecessor, calls, plan, evidence
 
 
+def _bounded_json(module, value):
+    return module._load_laya_base_ancestry_json(
+        json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("ascii")
+    )
+
+
+def _hostile_never_iterated(marker):
+    class Hostile:
+        def __init__(self):
+            self.touched = False
+
+        def __iter__(self):
+            self.touched = True
+            raise AssertionError(marker)
+
+    return Hostile()
+
+
+def _test_object_specs(payloads):
+    return tuple((len(payload), hashlib.sha256(payload).hexdigest()) for payload in payloads)
+
+
 def test_captured_external_objects_are_byte_exact_and_content_addressed():
     assert sorted(path.name for path in FIXTURE_ROOT.iterdir()) == [
         "linux-amd64-config.json",
@@ -208,6 +261,117 @@ def test_captured_profile_is_exact_index_graph_and_four_layer_prefix():
     assert tuple(config["rootfs"]["diff_ids"]) == BASE_DIFF_IDS
 
 
+def test_private_parsers_project_the_exact_graph_instead_of_trusting_hashes():
+    from human_feedback import runtime_base_ancestry as module
+
+    root, manifest, config = _fixture_bytes()
+    assert module._parse_laya_base_index(root) == (
+        MANIFEST_DIGEST,
+        OBJECT_FIXTURES[1][1],
+        "application/vnd.oci.image.manifest.v1+json",
+    )
+    assert module._parse_laya_base_manifest(manifest) == (
+        (
+            CONFIG_DIGEST,
+            OBJECT_FIXTURES[2][1],
+            "application/vnd.oci.image.config.v1+json",
+        ),
+        BASE_LAYERS,
+    )
+    assert module._parse_laya_base_config(config) == BASE_DIFF_IDS
+
+
+def test_aggregate_verifier_uses_all_three_semantic_projections(monkeypatch):
+    module, _predecessor, _calls, plan = _prepared(monkeypatch)
+    observed = []
+    for name in (
+        "_parse_laya_base_index",
+        "_parse_laya_base_manifest",
+        "_parse_laya_base_config",
+    ):
+        original = getattr(module, name)
+
+        def spy(payload, *, _name=name, _original=original):
+            observed.append((_name, payload))
+            return _original(payload)
+
+        monkeypatch.setattr(module, name, spy)
+    evidence = module.verify_laya_runtime_base_ancestry_objects(plan, _streams())
+    assert evidence.base_ancestry_verified is True
+    assert tuple(name for name, _payload in observed) == (
+        "_parse_laya_base_index",
+        "_parse_laya_base_manifest",
+        "_parse_laya_base_config",
+    )
+    assert tuple(payload for _name, payload in observed) == _fixture_bytes()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"x":1,"x":2}',
+        b'{"x":NaN}',
+        b'{"x":Infinity}',
+        b'{"x":1.0}',
+        b'{"x":1} trailing',
+        b'{"x":"\xc3\xa9"}',
+        b"\xff",
+    ],
+)
+def test_private_bounded_json_rejects_duplicate_noncanonical_and_trailing_payloads(
+    payload,
+):
+    from human_feedback import runtime_base_ancestry as module
+
+    with pytest.raises((TypeError, ValueError), match="JSON|duplicate|number|UTF|canonical|valid"):
+        module._load_laya_base_ancestry_json(payload)
+
+
+def test_private_bounded_json_accepts_every_exact_cap():
+    from human_feedback import runtime_base_ancestry as module
+
+    depth_16 = 0
+    for _ in range(15):
+        depth_16 = {"x": depth_16}
+    nodes_512 = [{f"k{key}": key for key in range(30 if item == 0 else 31)} for item in range(16)]
+    accepted = (
+        depth_16,
+        "x" * 4096,
+        list(range(32)),
+        {f"k{index}": index for index in range(64)},
+        nodes_512,
+    )
+    for value in accepted:
+        assert _bounded_json(module, value) == value
+
+
+@pytest.mark.parametrize(
+    "value, marker",
+    [
+        (lambda: _nested_json(16), "depth"),
+        (lambda: "x" * 4097, "string"),
+        (lambda: list(range(33)), "array"),
+        (lambda: {f"k{index}": index for index in range(65)}, "key"),
+        (
+            lambda: [{f"k{key}": key for key in range(31)} for _ in range(16)],
+            "node",
+        ),
+    ],
+)
+def test_private_bounded_json_rejects_each_cap_plus_one(value, marker):
+    from human_feedback import runtime_base_ancestry as module
+
+    with pytest.raises((TypeError, ValueError), match=f"JSON|{marker}|limit|valid"):
+        _bounded_json(module, value())
+
+
+def _nested_json(container_count):
+    value = 0
+    for _ in range(container_count):
+        value = {"x": value}
+    return value
+
+
 def test_module_has_three_operation_pure_public_surface():
     from human_feedback import runtime_base_ancestry as module
 
@@ -223,6 +387,19 @@ def test_module_has_three_operation_pure_public_surface():
         "prepare_laya_runtime_base_ancestry_plan",
         "verify_laya_runtime_base_ancestry_objects",
         "canonical_laya_runtime_base_ancestry_summary_bytes",
+    }
+    assert module.__all__ == (
+        "prepare_laya_runtime_base_ancestry_plan",
+        "verify_laya_runtime_base_ancestry_objects",
+        "canonical_laya_runtime_base_ancestry_summary_bytes",
+    )
+    assert {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_")
+    } == {
+        "LayaRuntimeBaseAncestryPlan",
+        "LayaRuntimeBaseAncestryEvidence",
     }
     imports = {
         alias.name
@@ -377,10 +554,22 @@ def test_summary_is_canonical_minimal_and_does_not_expand_authority(monkeypatch)
     assert type(summary) is bytes
     assert summary.endswith(b"\n") is False
     payload = json.loads(summary)
+    assert set(payload) == {
+        "schema_version",
+        "plan_schema_version",
+        "runtime_identity_schema_version",
+        "runtime_identity_sha256",
+        *TRUE_PR22_CLAIMS,
+        *FALSE_PR22_CLAIMS,
+        "base_ancestry_verified",
+        *PR36_ONLY_FALSE_CLAIMS,
+    }
     assert payload["base_ancestry_verified"] is True
     assert payload["runtime_identity_sha256"] == predecessor.runtime_identity.sha256
-    for claim in CONSERVATIVE_FALSE_CLAIMS:
+    for claim in (*FALSE_PR22_CLAIMS, *PR36_ONLY_FALSE_CLAIMS):
         assert payload[claim] is False
+    for claim in TRUE_PR22_CLAIMS:
+        assert payload[claim] is True
     forbidden = (
         "docker.io",
         "python:3.11",
@@ -406,6 +595,31 @@ def test_summary_is_canonical_minimal_and_does_not_expand_authority(monkeypatch)
         separators=(",", ":"),
         sort_keys=True,
     ).encode("ascii")
+
+
+def test_repr_and_public_errors_do_not_leak_payloads_urls_or_internal_commitments(
+    monkeypatch,
+):
+    module, _predecessor, _calls, plan, evidence = _verified(monkeypatch)
+    private_markers = (
+        "https://private.invalid/registry?token=secret",
+        ROOT_DIGEST,
+        MANIFEST_DIGEST,
+        CONFIG_DIGEST,
+        *BASE_DIFF_IDS,
+    )
+    rendered = repr(plan) + repr(evidence)
+    assert all(marker not in rendered for marker in private_markers)
+    forged = _clone_dataclass(
+        evidence,
+        runtime_identity=SimpleNamespace(
+            schema_version=private_markers[0],
+            sha256="private-runtime-identity-commitment",
+        ),
+    )
+    with pytest.raises((TypeError, ValueError), match="evidence|identity|issued|valid") as captured:
+        module.canonical_laya_runtime_base_ancestry_summary_bytes(forged)
+    _private_error(captured.value, *private_markers, "private-runtime-identity-commitment")
 
 
 @pytest.mark.parametrize("position", range(3))
@@ -475,6 +689,129 @@ def test_chunk_cap_plus_one_stops_before_next_chunk_and_later_objects(monkeypatc
     )
 
 
+def test_private_stream_consumer_accepts_all_streaming_caps_exactly():
+    from human_feedback import runtime_base_ancestry as module
+
+    chunked = b"a" * 64
+    payloads = (chunked, b"b" * 16384, b"c" * 16320)
+    streams = (iter((b"a",) * 64), iter((payloads[1],)), iter((payloads[2],)))
+    assert sum(map(len, payloads)) == 32768
+    assert (
+        module._consume_laya_base_ancestry_object_streams(
+            streams,
+            _test_object_specs(payloads),
+        )
+        == payloads
+    )
+
+
+def test_private_stream_consumer_rejects_chunk_65_without_reading_chunk_66():
+    from human_feedback import runtime_base_ancestry as module
+
+    payloads = (b"a" * 65, b"b", b"c")
+
+    class SixtyFiveChunks:
+        def __init__(self):
+            self.requests = 0
+            self.trailing_touched = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requests += 1
+            if self.requests <= 65:
+                return b"a"
+            self.trailing_touched = True
+            raise AssertionError("private-chunk-66-consumed")
+
+    first = SixtyFiveChunks()
+    later = _hostile_never_iterated("private-later-cap-object-consumed")
+    with pytest.raises((TypeError, ValueError), match="chunk|count|limit|object") as captured:
+        module._consume_laya_base_ancestry_object_streams(
+            (first, later, later),
+            _test_object_specs(payloads),
+        )
+    assert first.requests == 65
+    assert first.trailing_touched is False
+    assert later.touched is False
+    _private_error(captured.value, "private-chunk-66-consumed")
+
+
+def test_private_stream_consumer_rejects_object_cap_plus_one_across_chunks():
+    from human_feedback import runtime_base_ancestry as module
+
+    authorized = b"a" * 16384
+    payloads = (authorized, b"b", b"c")
+    first = iter((b"a" * 8192, b"a" * 8192, b"x"))
+    later = _hostile_never_iterated("private-later-object-cap-consumed")
+    with pytest.raises((TypeError, ValueError), match="object|size|limit") as captured:
+        module._consume_laya_base_ancestry_object_streams(
+            (first, later, later),
+            _test_object_specs(payloads),
+        )
+    assert later.touched is False
+    _private_error(captured.value, "private-later-object-cap-consumed")
+
+
+def test_private_stream_consumer_rejects_aggregate_cap_plus_one():
+    from human_feedback import runtime_base_ancestry as module
+
+    payloads = (b"a" * 16384, b"b" * 16384, b"c")
+    with pytest.raises((TypeError, ValueError), match="aggregate|total|limit|size"):
+        module._consume_laya_base_ancestry_object_streams(
+            tuple(iter((payload,)) for payload in payloads),
+            _test_object_specs(payloads),
+        )
+
+
+def test_exact_payload_followed_by_extra_chunk_is_rejected_at_eof(monkeypatch):
+    module, _predecessor, _calls, plan = _prepared(monkeypatch)
+    root, manifest, config = _fixture_bytes()
+    with pytest.raises((TypeError, ValueError), match="trailing|size|digest|object|stream"):
+        module.verify_laya_runtime_base_ancestry_objects(
+            plan,
+            (iter((root, b"extra")), iter((manifest,)), iter((config,))),
+        )
+
+
+def test_iterator_exception_after_exact_payload_revokes_session(monkeypatch):
+    module, _predecessor, _calls, plan = _prepared(monkeypatch)
+    root, manifest, config = _fixture_bytes()
+
+    def failing_after_payload():
+        yield root
+        raise RuntimeError("private-iterator-failure")
+
+    later = _hostile_never_iterated("private-later-iterator-object-consumed")
+    with pytest.raises((TypeError, ValueError), match="stream|iterator|object|valid") as captured:
+        module.verify_laya_runtime_base_ancestry_objects(
+            plan,
+            (failing_after_payload(), later, later),
+        )
+    assert later.touched is False
+    _private_error(
+        captured.value,
+        "private-iterator-failure",
+        "private-later-iterator-object-consumed",
+    )
+
+
+def test_stream_preflight_rejects_outer_container_before_nested_consumption(monkeypatch):
+    factories = (
+        lambda value: [value, value, value],
+        lambda value: iter((value, value, value)),
+        lambda value: value,
+    )
+    for factory in factories:
+        module, _predecessor, _calls, plan = _prepared(monkeypatch)
+        hostile = _hostile_never_iterated("private-preflight-stream-consumed")
+        candidate = factory(hostile)
+        with pytest.raises((TypeError, ValueError), match="tuple|stream|object|profile|valid"):
+            module.verify_laya_runtime_base_ancestry_objects(plan, candidate)
+        assert hostile.touched is False
+
+
 def test_first_object_failure_never_consumes_later_object_streams(monkeypatch):
     module, _predecessor, _calls, plan = _prepared(monkeypatch)
     root, _manifest, _config = _fixture_bytes()
@@ -497,6 +834,18 @@ def test_first_object_failure_never_consumes_later_object_streams(monkeypatch):
     _private_error(captured.value, "private-later-object-consumed")
 
 
+def test_empty_current_object_stops_before_later_objects(monkeypatch):
+    module, _predecessor, _calls, plan = _prepared(monkeypatch)
+    later = _hostile_never_iterated("private-later-empty-object-consumed")
+    with pytest.raises((TypeError, ValueError), match="empty|object|stream|size|valid") as captured:
+        module.verify_laya_runtime_base_ancestry_objects(
+            plan,
+            (iter(()), later, later),
+        )
+    assert later.touched is False
+    _private_error(captured.value, "private-later-empty-object-consumed")
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -516,6 +865,154 @@ def test_duplicate_nonfinite_trailing_utf8_and_depth_payloads_fail_closed(monkey
             plan,
             (iter((payload,)), iter((manifest,)), iter((config,))),
         )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["absent", "duplicate", "wrong-os", "wrong-arch", "digest", "size", "media", "extra"],
+)
+def test_private_index_projection_rejects_platform_and_edge_mutations(mutation):
+    from human_feedback import runtime_base_ancestry as module
+
+    parsed = json.loads(_fixture_bytes()[0])
+    position = next(
+        index
+        for index, item in enumerate(parsed["manifests"])
+        if item.get("platform") == {"architecture": "amd64", "os": "linux"}
+    )
+    selected = parsed["manifests"][position]
+    if mutation == "absent":
+        parsed["manifests"].pop(position)
+    elif mutation == "duplicate":
+        parsed["manifests"].append(copy.deepcopy(selected))
+    elif mutation == "wrong-os":
+        selected["platform"]["os"] = "windows"
+    elif mutation == "wrong-arch":
+        selected["platform"]["architecture"] = "arm64"
+    elif mutation == "digest":
+        selected["digest"] = "sha256:" + "0" * 64
+    elif mutation == "size":
+        selected["size"] += 1
+    elif mutation == "media":
+        selected["mediaType"] = "application/vnd.docker.distribution.manifest.v2+json"
+    else:
+        parsed["unexpected"] = True
+    payload = json.dumps(parsed, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    with pytest.raises((TypeError, ValueError), match="index|platform|manifest|descriptor|valid"):
+        module._parse_laya_base_index(payload)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "config-digest",
+        "config-size",
+        "config-media",
+        "layer-digest",
+        "layer-size",
+        "layer-media",
+        "layer-reorder",
+        "layer-extra",
+        "layer-zero",
+        "extra",
+    ],
+)
+def test_private_manifest_projection_rejects_edges_and_layer_mutations(mutation):
+    from human_feedback import runtime_base_ancestry as module
+
+    parsed = json.loads(_fixture_bytes()[1])
+    if mutation == "config-digest":
+        parsed["config"]["digest"] = "sha256:" + "0" * 64
+    elif mutation == "config-size":
+        parsed["config"]["size"] += 1
+    elif mutation == "config-media":
+        parsed["config"]["mediaType"] = "application/json"
+    elif mutation == "layer-digest":
+        parsed["layers"][0]["digest"] = "sha256:" + "0" * 64
+    elif mutation == "layer-size":
+        parsed["layers"][0]["size"] += 1
+    elif mutation == "layer-media":
+        parsed["layers"][0]["mediaType"] = "application/octet-stream"
+    elif mutation == "layer-reorder":
+        parsed["layers"][0], parsed["layers"][1] = (
+            parsed["layers"][1],
+            parsed["layers"][0],
+        )
+    elif mutation == "layer-extra":
+        parsed["layers"].append(copy.deepcopy(parsed["layers"][0]))
+    elif mutation == "layer-zero":
+        parsed["layers"] = []
+    else:
+        parsed["unexpected"] = True
+    payload = json.dumps(parsed, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    with pytest.raises((TypeError, ValueError), match="manifest|config|layer|descriptor|valid"):
+        module._parse_laya_base_manifest(payload)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "architecture",
+        "os",
+        "rootfs-type",
+        "diffid",
+        "diffid-reorder",
+        "diffid-extra",
+        "diffid-zero",
+        "extra",
+    ],
+)
+def test_private_config_projection_rejects_platform_and_diffid_mutations(mutation):
+    from human_feedback import runtime_base_ancestry as module
+
+    parsed = json.loads(_fixture_bytes()[2])
+    if mutation == "architecture":
+        parsed["architecture"] = "arm64"
+    elif mutation == "os":
+        parsed["os"] = "windows"
+    elif mutation == "rootfs-type":
+        parsed["rootfs"]["type"] = "not-layers"
+    elif mutation == "diffid":
+        parsed["rootfs"]["diff_ids"][0] = "sha256:" + "0" * 64
+    elif mutation == "diffid-reorder":
+        values = parsed["rootfs"]["diff_ids"]
+        values[0], values[1] = values[1], values[0]
+    elif mutation == "diffid-extra":
+        parsed["rootfs"]["diff_ids"].append(parsed["rootfs"]["diff_ids"][0])
+    elif mutation == "diffid-zero":
+        parsed["rootfs"]["diff_ids"] = []
+    else:
+        parsed["unexpected"] = True
+    payload = json.dumps(parsed, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    with pytest.raises((TypeError, ValueError), match="config|platform|rootfs|DiffID|valid"):
+        module._parse_laya_base_config(payload)
+
+
+def test_private_projections_ignore_annotations_and_history_as_authority():
+    from human_feedback import runtime_base_ancestry as module
+
+    root, manifest, config = map(json.loads, _fixture_bytes())
+    selected = next(
+        item
+        for item in root["manifests"]
+        if item.get("platform") == {"architecture": "amd64", "os": "linux"}
+    )
+    selected["annotations"] = {
+        "org.opencontainers.image.version": "moving-latest",
+        "org.opencontainers.image.source": "https://private.invalid/token",
+    }
+    manifest["annotations"] = {
+        "org.opencontainers.image.base.digest": "sha256:" + "f" * 64,
+        "org.opencontainers.image.version": "mobile-tag",
+    }
+    config["history"] = [{"created_by": "FROM hostile:latest"}]
+
+    def encode(value):
+        return json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+
+    assert module._parse_laya_base_index(encode(root))[0] == MANIFEST_DIGEST
+    assert module._parse_laya_base_manifest(encode(manifest))[0][0] == CONFIG_DIGEST
+    assert module._parse_laya_base_config(encode(config)) == BASE_DIFF_IDS
 
 
 @pytest.mark.parametrize("mutation", ["absent", "duplicate", "wrong", "annotation"])
@@ -662,6 +1159,151 @@ def test_plan_and_evidence_clones_replace_and_unissued_values_never_gain_authori
     plan_clone = _clone_dataclass(plan)
     with pytest.raises((TypeError, ValueError), match="plan|issued|session|valid"):
         module.verify_laya_runtime_base_ancestry_objects(plan_clone, _streams())
+
+
+def test_mutated_issued_plan_fails_before_any_stream_is_consumed(monkeypatch):
+    module, _predecessor, _calls, plan = _prepared(monkeypatch)
+    object.__setattr__(
+        plan,
+        "runtime_identity",
+        SimpleNamespace(schema_version="private-mutated-plan", sha256="0" * 64),
+    )
+    hostile = _hostile_never_iterated("private-mutated-plan-stream-consumed")
+    with pytest.raises(
+        (TypeError, ValueError), match="plan|identity|issued|binding|valid"
+    ) as captured:
+        module.verify_laya_runtime_base_ancestry_objects(
+            plan,
+            (hostile, hostile, hostile),
+        )
+    assert hostile.touched is False
+    _private_error(
+        captured.value,
+        "private-mutated-plan",
+        "private-mutated-plan-stream-consumed",
+    )
+
+
+def test_predecessor_drift_after_plan_issuance_fails_before_streams(monkeypatch):
+    module, predecessor, _calls, plan = _prepared(monkeypatch)
+    predecessor.plan.layer_blobs[0].digest = "sha256:" + "0" * 64
+    hostile = _hostile_never_iterated("private-drifted-predecessor-stream-consumed")
+    with pytest.raises(
+        (TypeError, ValueError), match="PR22|layer|prefix|drift|plan|valid"
+    ) as captured:
+        module.verify_laya_runtime_base_ancestry_objects(
+            plan,
+            (hostile, hostile, hostile),
+        )
+    assert hostile.touched is False
+    _private_error(captured.value, "private-drifted-predecessor-stream-consumed")
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("base_ancestry_verified", False),
+        ("origin_verified", True),
+        (
+            "runtime_identity",
+            SimpleNamespace(schema_version="private", sha256="0" * 64),
+        ),
+        ("plan", None),
+    ],
+)
+def test_mutated_issued_evidence_fails_summary_semantic_revalidation(monkeypatch, field, value):
+    module, _predecessor, _calls, _plan, evidence = _verified(monkeypatch)
+    object.__setattr__(evidence, field, value)
+    with pytest.raises(
+        (TypeError, ValueError), match="evidence|claim|identity|plan|issued|valid"
+    ) as captured:
+        module.canonical_laya_runtime_base_ancestry_summary_bytes(evidence)
+    _private_error(captured.value, "private")
+
+
+def test_copy_deepcopy_pickle_subclass_and_proxy_cannot_replay_evidence(monkeypatch):
+    module, _predecessor, _calls, _plan, evidence = _verified(monkeypatch)
+    candidates = [copy.copy(evidence), copy.deepcopy(evidence)]
+    try:
+        candidates.append(pickle.loads(pickle.dumps(evidence)))
+    except (pickle.PickleError, TypeError, ValueError, AttributeError):
+        pass
+
+    class Derived(type(evidence)):
+        pass
+
+    candidates.extend(
+        (
+            object.__new__(Derived),
+            SimpleNamespace(
+                schema_version=evidence.schema_version,
+                base_ancestry_verified=True,
+            ),
+        )
+    )
+    assert candidates
+    for candidate in candidates:
+        assert candidate is not evidence
+        with pytest.raises((TypeError, ValueError), match="evidence|issued|seal|type|valid"):
+            module.canonical_laya_runtime_base_ancestry_summary_bytes(candidate)
+
+
+def test_copy_pickle_subclass_and_proxy_plans_fail_before_consumption(monkeypatch):
+    module, _predecessor, _calls, plan = _prepared(monkeypatch)
+    candidates = [copy.copy(plan), copy.deepcopy(plan)]
+    try:
+        candidates.append(pickle.loads(pickle.dumps(plan)))
+    except (pickle.PickleError, TypeError, ValueError, AttributeError):
+        pass
+
+    class Derived(type(plan)):
+        pass
+
+    candidates.extend((object.__new__(Derived), SimpleNamespace(plan=plan)))
+    for candidate in candidates:
+        assert candidate is not plan
+        hostile = _hostile_never_iterated("private-forged-plan-stream-consumed")
+        with pytest.raises((TypeError, ValueError), match="plan|issued|type|session|valid"):
+            module.verify_laya_runtime_base_ancestry_objects(
+                candidate,
+                (hostile, hostile, hostile),
+            )
+        assert hostile.touched is False
+
+
+def test_cross_plan_evidence_binding_is_rejected(monkeypatch):
+    module, _predecessor, _calls, _plan, evidence = _verified(monkeypatch)
+    _module, _other_predecessor, _other_calls, other_plan = _prepared(monkeypatch)
+    mixed = _clone_dataclass(evidence, plan=other_plan)
+    with pytest.raises((TypeError, ValueError), match="evidence|plan|session|binding|issued|valid"):
+        module.canonical_laya_runtime_base_ancestry_summary_bytes(mixed)
+
+
+def test_issuance_registries_do_not_retain_plan_or_evidence_after_gc(monkeypatch):
+    module, predecessor, calls, plan, evidence = _verified(monkeypatch)
+    plan_type = type(plan)
+    plan_identity = id(plan)
+    plan_ref = weakref.ref(plan)
+    evidence_ref = weakref.ref(evidence)
+    del evidence, plan, predecessor, calls
+    gc.collect()
+    assert evidence_ref() is None
+    assert plan_ref() is None
+
+    reused = None
+    for _ in range(10000):
+        candidate = object.__new__(plan_type)
+        if id(candidate) == plan_identity:
+            reused = candidate
+            break
+    if reused is not None:
+        hostile = _hostile_never_iterated("private-reused-id-stream-consumed")
+        with pytest.raises((TypeError, ValueError), match="plan|issued|session|valid"):
+            module.verify_laya_runtime_base_ancestry_objects(
+                reused,
+                (hostile, hostile, hostile),
+            )
+        assert hostile.touched is False
 
 
 def test_module_has_no_product_callers_or_lateral_pr35_dependency():
