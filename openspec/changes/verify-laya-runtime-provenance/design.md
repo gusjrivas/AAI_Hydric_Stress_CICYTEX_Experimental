@@ -75,6 +75,18 @@ Both reject forged ancestors before any provenance object stream is consumed.  T
 is a necessary dependency correction to the earlier no-modification assumption; it
 does not add a checkpoint, origin, license, materialization or execution claim.
 
+The checkpoint module's private registry is the sole issuance authority.  It keeps
+strong identity/topology bindings for every accepted plan, receipt, capture
+authority and evidence graph, with weak cleanup tied to object lifetime so stale
+graphs can be released.  `_semantic_capability` is only a caller-visible mirror for
+diagnostics and compatibility: mutation, copying or deletion of that mirror neither
+grants nor revokes registry authority.
+
+Registry revalidation is bounded to 2,048 graph nodes/items, 16 MiB aggregate
+semantic content and depth 64.  Before UTF-8 encoding, it checks string character
+lengths, mapping cardinality and key shapes against remaining budgets.  Oversized
+strings or keys therefore fail without allocating their encoded representation.
+
 ## Bounded validation and canonical evidence
 
 The fixed caps are 16 objects, 64 KiB per object, 1 MiB aggregate object bytes,
@@ -117,6 +129,11 @@ proxies and `object.__new__` forgeries.  The unit object-set verifier deeply
 revalidates the full PR34 checkpoint ancestry before preflight and again before
 sealing; a recomputed shallow wrapper cannot lend authority.  The verifier never
 passes a PR34 or PR35 factory capability to user code.
+
+Checkpoint authority is strong over exact object identities and graph topology:
+clones with identical values remain foreign.  Cleanup is weak and administrative;
+it can discard unreachable registry entries but is never consulted as evidence of
+semantic validity.
 
 ## Claims and privacy
 

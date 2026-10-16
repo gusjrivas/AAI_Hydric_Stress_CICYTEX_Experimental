@@ -98,6 +98,44 @@ payload, origin, license, materialization, executor or inference claim.
 - **WHEN** all visible PR34 values match but the private issuance chain is absent
 - **THEN** checkpoint and provenance validation fail closed
 
+### Requirement: The module registry SHALL be the sole checkpoint authority
+
+PR34 SHALL authorize graphs only through its private module registry with strong
+identity and topology bindings.  `_semantic_capability` SHALL be a non-authoritative
+caller mirror; weak cleanup SHALL only remove unreachable registry state.
+
+#### Scenario: The caller mirror is mutated
+
+- **WHEN** `_semantic_capability` is copied, replaced or deleted on an issued or forged object
+- **THEN** registry authority is neither granted nor revoked by that mirror mutation
+
+#### Scenario: An issued graph is cloned
+
+- **WHEN** a clone reproduces every field and topology but has different object identities
+- **THEN** canonical checkpoint summary and provenance preparation reject the clone
+
+### Requirement: Registry graph validation SHALL have exact budgets
+
+Registry validation SHALL cap graph nodes/items at 2,048, aggregate semantic content
+at 16 MiB and nesting depth at 64.  It SHALL fail closed before traversing or
+encoding beyond any live remaining budget.
+
+#### Scenario: Topology or content exceeds a cap
+
+- **WHEN** the next node, item, semantic byte or nesting level exceeds its budget
+- **THEN** checkpoint summary and provenance preparation fail without object consumption
+
+### Requirement: Strings and keys SHALL be prechecked before UTF-8
+
+Before encoding semantic content, validation SHALL check string character lengths,
+mapping cardinality and key shape against remaining node/item and aggregate limits.
+Unbounded caller text SHALL NOT be encoded merely to discover it exceeds a cap.
+
+#### Scenario: A forged graph contains an oversized key
+
+- **WHEN** key shape or character length already exceeds the remaining budget
+- **THEN** validation fails before requesting its UTF-8 representation
+
 ### Requirement: Checkpoint Apache metadata SHALL remain a declaration
 
 The system SHALL recognize expected Apache metadata only in the exact README blob
