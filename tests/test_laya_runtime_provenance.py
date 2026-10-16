@@ -643,8 +643,8 @@ def test_source_license_parser_accepts_only_canonical_newline_variants():
     official = bz2.decompress(base64.b85decode(APACHE_2_LICENSE_B85))
     inherited_short = b"Apache License\nVersion 2.0, January 2004\n"
 
-    provenance._source_license(official)
     provenance._source_license(official.replace(b"\n", b"\r\n"))
+    provenance._source_license(official)
     provenance._source_license(inherited_short)
 
     invalid = (
