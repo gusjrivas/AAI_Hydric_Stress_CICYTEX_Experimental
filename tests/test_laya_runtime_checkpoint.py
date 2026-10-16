@@ -581,6 +581,22 @@ def test_issued_checkpoint_evidence_rejects_equal_distinct_nested_clone(
         publish(evidence)
 
 
+def test_issued_checkpoint_topology_retains_original_manifest_authority(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    deployment = evidence.deployment_evidence
+    original = deployment.checkpoint_manifest
+    references_while_attached = sys.getrefcount(original)
+    cloned = _clone_all_slots(original)
+    object.__setattr__(deployment, "checkpoint_manifest", cloned)
+
+    # The issuance seal must retain the exact original node while evidence is alive.
+    # Otherwise its id can be recycled and identity-only topology checks become unsafe.
+    assert sys.getrefcount(original) >= references_while_attached
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+
+
 def test_deep_snapshot_rejects_oversized_artifact_before_hashing(monkeypatch):
     checkpoint = _core()
     from human_feedback import runtime_deployment_metadata
@@ -606,6 +622,32 @@ def test_deep_snapshot_rejects_oversized_artifact_before_hashing(monkeypatch):
     monkeypatch.setattr(checkpoint.hashlib, "new", bounded_hash)
     with pytest.raises(ValueError):
         checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    assert oversized_hash_attempts == 0
+
+
+@pytest.mark.parametrize("leaf_kind", ("bytes", "text"))
+def test_deep_snapshot_enforces_aggregate_leaf_byte_budget(monkeypatch, leaf_kind):
+    checkpoint = _core()
+    maximum = checkpoint.MAX_SEMANTIC_SNAPSHOT_BYTES
+    leaf_size = 1024 * 1024
+    leaf = b"x" * leaf_size if leaf_kind == "bytes" else "x" * leaf_size
+    graph = (leaf,) * (maximum // leaf_size + 1)
+    oversized_hash_attempts = 0
+    hashed_bytes = 0
+    original_new = checkpoint.hashlib.new
+
+    def bounded_hash(name, payload=b"", *args, **kwargs):
+        nonlocal hashed_bytes, oversized_hash_attempts
+        if type(payload) is bytes:
+            if hashed_bytes + len(payload) > maximum:
+                oversized_hash_attempts += 1
+                raise AssertionError("aggregate byte budget reached the hash function")
+            hashed_bytes += len(payload)
+        return original_new(name, payload, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint.hashlib, "new", bounded_hash)
+    with pytest.raises(ValueError):
+        checkpoint._deep_semantic_snapshot(graph)
     assert oversized_hash_attempts == 0
 
 
