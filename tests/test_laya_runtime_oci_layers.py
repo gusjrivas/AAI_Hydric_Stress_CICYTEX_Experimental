@@ -1,9 +1,11 @@
 import ast
+import gc
 import gzip
 import hashlib
 import inspect
 import os
 import traceback
+import weakref
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -195,6 +197,146 @@ def _forged_dataclass(value, **changes):
             changes.get(field.name, getattr(value, field.name)),
         )
     return forged
+
+
+def _clone_all_slots(value):
+    """Copy private slots too; copied state must never copy issued authority."""
+
+    clone = object.__new__(type(value))
+    for cls in type(value).__mro__:
+        for name in getattr(cls, "__slots__", ()):
+            if name not in {"__dict__", "__weakref__"} and hasattr(value, name):
+                object.__setattr__(clone, name, getattr(value, name))
+    return clone
+
+
+def _issued_layer_evidence(monkeypatch):
+    """Issue PR22 values through its real planner, byte verifier, and sealers.
+
+    The predecessor boundary is identity-scoped because this test owns only the
+    PR22 contract.  Layer bytes are nevertheless consumed and rehashed by the
+    public PR22 verifier; no forged PR22 receipt or evidence is accepted as an
+    oracle.
+    """
+
+    from human_feedback import runtime_oci_config
+    from human_feedback import runtime_oci_layers as module
+
+    identity = SimpleNamespace(
+        schema_version="laya-runtime-identity-ref-v1",
+        sha256="1" * 64,
+    )
+    payloads = tuple(f"issued-layer-{position:02d}".encode("ascii") for position in range(10))
+    compressed = tuple(gzip.compress(payload, mtime=0) for payload in payloads)
+    digests = tuple("sha256:" + hashlib.sha256(value).hexdigest() for value in compressed)
+    diff_ids = tuple("sha256:" + hashlib.sha256(value).hexdigest() for value in payloads)
+    controls = (
+        SimpleNamespace(role="manifest", digest="sha256:" + "a" * 64),
+        SimpleNamespace(role="config", digest="sha256:" + "b" * 64),
+    )
+    layers = tuple(
+        SimpleNamespace(
+            role=f"layer-{position:02d}",
+            digest=digests[position],
+            path=f"blobs/sha256/{digests[position][7:]}",
+            media_type="application/vnd.oci.image.layer.v1.tar+gzip",
+            size_bytes=len(compressed[position]),
+        )
+        for position in range(10)
+    )
+    layout_plan = SimpleNamespace(blobs=(*controls, *layers), runtime_identity=identity)
+    compressed_receipts = tuple(
+        SimpleNamespace(plan=layout_plan, blob=blob, blob_bytes_verified=True)
+        for blob in layout_plan.blobs
+    )
+    layout_evidence = SimpleNamespace(
+        plan=layout_plan,
+        receipts=compressed_receipts,
+        runtime_identity=identity,
+    )
+    config = SimpleNamespace(declared_diff_ids=diff_ids)
+    config_evidence = object.__new__(runtime_oci_config.LayaRuntimeOciConfigEvidence)
+    values = {
+        "schema_version": "laya-runtime-oci-config-evidence-v1",
+        "layout_evidence": layout_evidence,
+        "config_receipt": compressed_receipts[1],
+        "config": config,
+        "runtime_identity": identity,
+    }
+    for field in fields(runtime_oci_config.LayaRuntimeOciConfigEvidence):
+        object.__setattr__(
+            config_evidence,
+            field.name,
+            values.get(field.name, field.default),
+        )
+
+    canonical_calls = []
+
+    def canonical_config(candidate):
+        canonical_calls.append(candidate)
+        if candidate is not config_evidence:
+            raise ValueError("invalid predecessor config evidence") from None
+        return b'{"schema_version":"laya-runtime-oci-config-evidence-v1"}'
+
+    monkeypatch.setattr(
+        module,
+        "canonical_laya_runtime_oci_config_summary_bytes",
+        canonical_config,
+    )
+    plan = module.prepare_laya_oci_layer_diff_id_plan(config_evidence)
+    by_digest = dict(zip(digests, compressed, strict=True))
+
+    def verify_compressed(candidate_plan, digest, chunks):
+        assert candidate_plan is layout_plan
+        captured = b"".join(chunks)
+        assert captured == by_digest[digest]
+        assert "sha256:" + hashlib.sha256(captured).hexdigest() == digest
+        position = digests.index(digest)
+        return compressed_receipts[position + 2]
+
+    monkeypatch.setattr(
+        module.runtime_oci_layout,
+        "verify_laya_oci_blob_chunks",
+        verify_compressed,
+    )
+    receipts = tuple(
+        module.verify_laya_oci_layer_diff_id_chunks(plan, digest, iter((payload,)))
+        for digest, payload in zip(digests, compressed, strict=True)
+    )
+    authority = module._seal_laya_oci_layer_diff_ids_capture_authority(
+        plan,
+        receipts,
+        layers_captured_from_same_root=True,
+        inventory_captured_from_same_root=True,
+        final_fd_sweep_verified=True,
+        descriptors_closed_before_seal=True,
+    )
+    evidence = module._seal_laya_runtime_oci_layer_diff_ids_evidence(authority)
+    module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(evidence)
+    return SimpleNamespace(
+        module=module,
+        plan=plan,
+        receipts=receipts,
+        authority=authority,
+        evidence=evidence,
+        config_evidence=config_evidence,
+        canonical_calls=canonical_calls,
+    )
+
+
+def _assert_rejected_before_stream(module, plan, digest):
+    class HostileStream:
+        touched = False
+
+        def __iter__(self):
+            self.touched = True
+            raise AssertionError("private-forged-plan-stream-consumed")
+
+    stream = HostileStream()
+    with pytest.raises((TypeError, ValueError), match="plan|issued|seal|valid") as captured:
+        module.verify_laya_oci_layer_diff_id_chunks(plan, digest, stream)
+    assert stream.touched is False
+    _private_error(captured.value, "private-forged-plan-stream-consumed")
 
 
 def test_layer_diff_id_plan_module_has_a_pure_minimal_public_surface():
@@ -896,3 +1038,159 @@ def test_layer_aggregate_evidence_and_summary_reject_unsealed_values_privately()
 
     with pytest.raises((TypeError, ValueError), match="authority|seal|valid"):
         module._seal_laya_runtime_oci_layer_diff_ids_evidence(None)
+
+
+def test_pr22_authority_requires_genuinely_issued_instances(monkeypatch):
+    issued = _issued_layer_evidence(monkeypatch)
+    module = issued.module
+    digest = issued.plan.layer_blobs[0].digest
+
+    plan_candidates = (
+        _forged_dataclass(issued.plan),
+        _clone_all_slots(issued.plan),
+    )
+
+    class PlanSubclass(type(issued.plan)):
+        pass
+
+    for candidate in (*plan_candidates, object.__new__(PlanSubclass)):
+        _assert_rejected_before_stream(module, candidate, digest)
+    with pytest.raises((TypeError, ValueError), match="factory|seal|issued|valid"):
+        replace(issued.plan)
+
+    receipt_clones = (
+        _forged_dataclass(issued.receipts[0]),
+        _clone_all_slots(issued.receipts[0]),
+    )
+    for clone in receipt_clones:
+        mixed = (clone, *issued.receipts[1:])
+        with pytest.raises((TypeError, ValueError), match="receipt|issued|seal|valid"):
+            module._seal_laya_oci_layer_diff_ids_capture_authority(
+                issued.plan,
+                mixed,
+                layers_captured_from_same_root=True,
+                inventory_captured_from_same_root=True,
+                final_fd_sweep_verified=True,
+                descriptors_closed_before_seal=True,
+            )
+    with pytest.raises((TypeError, ValueError), match="factory|seal|issued|valid"):
+        replace(issued.receipts[0])
+
+    authority_clones = (
+        _forged_dataclass(issued.authority),
+        _clone_all_slots(issued.authority),
+    )
+    for clone in authority_clones:
+        with pytest.raises((TypeError, ValueError), match="authority|issued|seal|valid"):
+            module._seal_laya_runtime_oci_layer_diff_ids_evidence(clone)
+
+    evidence_clones = (
+        _forged_dataclass(issued.evidence),
+        _clone_all_slots(issued.evidence),
+    )
+
+    class EvidenceSubclass(type(issued.evidence)):
+        pass
+
+    for clone in (*evidence_clones, object.__new__(EvidenceSubclass)):
+        with pytest.raises((TypeError, ValueError), match="evidence|issued|seal|valid"):
+            module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(clone)
+    with pytest.raises((TypeError, ValueError), match="factory|seal|issued|valid"):
+        replace(issued.evidence)
+
+
+def test_pr22_rejects_post_issue_mutation_before_consuming_stream(monkeypatch):
+    issued = _issued_layer_evidence(monkeypatch)
+    module = issued.module
+    digest = issued.plan.layer_blobs[0].digest
+    issued.plan.layer_blobs[0].size_bytes += 1
+
+    _assert_rejected_before_stream(module, issued.plan, digest)
+    with pytest.raises((TypeError, ValueError), match="authority|plan|issued|valid"):
+        module._seal_laya_oci_layer_diff_ids_capture_authority(
+            issued.plan,
+            issued.receipts,
+            layers_captured_from_same_root=True,
+            inventory_captured_from_same_root=True,
+            final_fd_sweep_verified=True,
+            descriptors_closed_before_seal=True,
+        )
+    with pytest.raises((TypeError, ValueError), match="evidence|issued|valid"):
+        module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(issued.evidence)
+
+
+def test_pr22_rejects_mutated_receipt_and_evidence_after_issue(monkeypatch):
+    issued = _issued_layer_evidence(monkeypatch)
+    module = issued.module
+    object.__setattr__(
+        issued.receipts[0],
+        "uncompressed_size_bytes",
+        issued.receipts[0].uncompressed_size_bytes + 1,
+    )
+    with pytest.raises((TypeError, ValueError), match="receipt|issued|authority|valid"):
+        module._seal_laya_oci_layer_diff_ids_capture_authority(
+            issued.plan,
+            issued.receipts,
+            layers_captured_from_same_root=True,
+            inventory_captured_from_same_root=True,
+            final_fd_sweep_verified=True,
+            descriptors_closed_before_seal=True,
+        )
+    with pytest.raises((TypeError, ValueError), match="evidence|receipt|issued|valid"):
+        module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(issued.evidence)
+
+    fresh = _issued_layer_evidence(monkeypatch)
+    object.__setattr__(
+        fresh.evidence,
+        "runtime_identity",
+        SimpleNamespace(**vars(fresh.evidence.runtime_identity)),
+    )
+    with pytest.raises((TypeError, ValueError), match="evidence|issued|valid"):
+        fresh.module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(fresh.evidence)
+
+
+def test_pr22_rejects_cross_plan_receipt_replay_and_identity_clone(monkeypatch):
+    first = _issued_layer_evidence(monkeypatch)
+    second = _issued_layer_evidence(monkeypatch)
+    module = second.module
+
+    cross_plan = (first.receipts[0], *second.receipts[1:])
+    replay_clone = (_clone_all_slots(second.receipts[0]), *second.receipts[1:])
+    for receipts in (cross_plan, replay_clone):
+        with pytest.raises((TypeError, ValueError), match="receipt|plan|issued|valid"):
+            module._seal_laya_oci_layer_diff_ids_capture_authority(
+                second.plan,
+                receipts,
+                layers_captured_from_same_root=True,
+                inventory_captured_from_same_root=True,
+                final_fd_sweep_verified=True,
+                descriptors_closed_before_seal=True,
+            )
+
+
+def test_pr22_issuance_registry_is_liveness_safe_and_never_lends_authority(monkeypatch):
+    issued = _issued_layer_evidence(monkeypatch)
+    module = issued.module
+    stale_clone = _clone_all_slots(issued.evidence)
+    references = tuple(
+        weakref.ref(value)
+        for value in (
+            issued.plan,
+            issued.receipts[0],
+            issued.authority,
+            issued.evidence,
+        )
+    )
+
+    for _ in range(2):
+        with pytest.raises((TypeError, ValueError), match="evidence|issued|seal|valid"):
+            module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(stale_clone)
+
+    del stale_clone
+    del issued
+    gc.collect()
+    assert all(reference() is None for reference in references)
+    unissued = object.__new__(module.LayaRuntimeOciLayerDiffIdsEvidence)
+    for _ in range(2):
+        with pytest.raises((TypeError, ValueError), match="evidence|issued|seal|valid"):
+            module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(unissued)
