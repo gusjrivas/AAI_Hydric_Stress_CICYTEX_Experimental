@@ -562,7 +562,9 @@ def test_object_verifier_rejects_wrong_type_size_sha1_sha256_and_stream_shape():
     bad_plan = SimpleNamespace()
     for value in (None, bad_plan, object()):
         with pytest.raises((TypeError, ValueError)):
-            provenance.verify_laya_runtime_provenance_object_chunks(value, "1" * 40, iter((b"x",)))
+            provenance._verify_laya_runtime_provenance_object_chunks(
+                value, "1" * 40, iter((b"x",))
+            )
     assert provenance.MAX_PROVENANCE_CHUNK_BYTES == provenance.MAX_PROVENANCE_OBJECT_BYTES
     assert provenance.MAX_PROVENANCE_CHUNKS == 64
 
@@ -1024,7 +1026,7 @@ def test_unit_verifier_revalidates_exact_pr34_ancestry_before_issuing_receipt(
 
     monkeypatch.setattr(provenance, "_deep_validate_checkpoint_evidence", validate)
     with pytest.raises(ValueError) as caught:
-        provenance.verify_laya_runtime_provenance_object_chunks(
+        provenance._verify_laya_runtime_provenance_object_chunks(
             adulterated_plan, adulterated_plan.objects[0].sha1, packets[0][3]
         )
     _private_error(caught.value, "private-ancestor-marker")
@@ -1089,7 +1091,6 @@ def test_public_surface_is_closed():
         "VerifiedLayaProvenanceObject",
         "LayaRuntimeProvenanceEvidence",
         "prepare_laya_runtime_provenance_plan",
-        "verify_laya_runtime_provenance_object_chunks",
         "verify_laya_runtime_provenance_objects",
         "canonical_laya_runtime_provenance_summary_bytes",
     }
@@ -1105,7 +1106,7 @@ def test_live_chunk_cap_never_exceeds_object_cap(monkeypatch):
     plan, packets, _ = _synthetic_profile(monkeypatch, provenance)
     monkeypatch.setattr(provenance, "MAX_PROVENANCE_CHUNK_BYTES", 1)
     with pytest.raises(ValueError):
-        provenance.verify_laya_runtime_provenance_object_chunks(
+        provenance._verify_laya_runtime_provenance_object_chunks(
             plan, plan.objects[0].sha1, packets[0][3]
         )
 
