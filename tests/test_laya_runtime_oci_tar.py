@@ -1470,20 +1470,15 @@ def test_entry_and_receipt_deep_seals_reject_forged_paths_duplicates_and_totals(
     )
     receipt.__post_init__(module._FACTORY_TOKEN)
 
+    entry_values = {field.name: getattr(entry, field.name) for field in fields(entry)}
     invalid_entries = (
         _forge(
             type(entry),
-            path="../private-forged-entry",
-            typeflag="0",
-            size_bytes=7,
-            link_target=None,
+            **(entry_values | {"path": "../private-forged-entry"}),
         ),
         _forge(
             type(entry),
-            path="data/result.txt",
-            typeflag="0",
-            size_bytes=7,
-            link_target="private-forged-link",
+            **(entry_values | {"link_target": "private-forged-link"}),
         ),
     )
     for invalid in invalid_entries:
@@ -1539,12 +1534,19 @@ def test_non_regular_entry_deep_seal_rejects_nonzero_size(
 ):
     from human_feedback import runtime_oci_tar as module
 
-    forged = _forge(
-        module.LayaOciTarEntry,
+    valid = module.LayaOciTarEntry(
         path="data/private-nonregular",
         typeflag=typeflag,
-        size_bytes=1,
+        size_bytes=0,
         link_target=link_target,
+        _factory_token=module._FACTORY_TOKEN,
+    )
+    forged = _forge(
+        module.LayaOciTarEntry,
+        **(
+            {field.name: getattr(valid, field.name) for field in fields(valid)}
+            | {"size_bytes": 1}
+        ),
     )
     with pytest.raises((TypeError, ValueError), match="entry|size|valid"):
         forged.__post_init__(module._FACTORY_TOKEN)
