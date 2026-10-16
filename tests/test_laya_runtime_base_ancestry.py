@@ -6,6 +6,7 @@ import inspect
 import json
 import math
 import pickle
+import threading
 import traceback
 import weakref
 from dataclasses import fields, replace
@@ -1181,6 +1182,77 @@ def test_success_consumes_plan_once_and_replay_fails_before_stream_consumption(m
         module.verify_laya_runtime_base_ancestry_objects(plan, (hostile(), hostile(), hostile()))
     assert touched is False
     _private_error(captured.value, "private-replay-consumed")
+
+
+def test_concurrent_consumers_claim_one_plan_exactly_once_before_streams(monkeypatch):
+    from human_feedback import runtime_base_ancestry as module
+
+    _module, _predecessor, _calls, plan = _prepared(monkeypatch)
+    original_record = module._ISSUED_PLANS[id(plan)]
+    check_barrier = threading.Barrier(2)
+
+    class CoordinatedRecord:
+        reference = original_record.reference
+        semantics = original_record.semantics
+
+        @property
+        def active(self):
+            observed = original_record.active
+            try:
+                check_barrier.wait(timeout=1.0)
+            except threading.BrokenBarrierError:
+                pass
+            return observed
+
+        @active.setter
+        def active(self, value):
+            original_record.active = value
+
+    monkeypatch.setitem(module._ISSUED_PLANS, id(plan), CoordinatedRecord())
+    payloads = _fixture_bytes()
+    streams_consumed = [False, False]
+    outcomes = [None, None]
+
+    def streams(position):
+        def tracked(payload):
+            streams_consumed[position] = True
+            yield payload
+
+        return tuple(tracked(payload) for payload in payloads)
+
+    def consume(position):
+        try:
+            outcomes[position] = module.verify_laya_runtime_base_ancestry_objects(
+                plan,
+                streams(position),
+            )
+        except Exception as error:  # the losing public call is the expected outcome
+            outcomes[position] = error
+
+    workers = tuple(
+        threading.Thread(target=consume, args=(position,), daemon=True) for position in range(2)
+    )
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=5.0)
+    assert all(not worker.is_alive() for worker in workers)
+
+    winners = [
+        position
+        for position, outcome in enumerate(outcomes)
+        if type(outcome) is module.LayaRuntimeBaseAncestryEvidence
+    ]
+    losers = [
+        position
+        for position, outcome in enumerate(outcomes)
+        if isinstance(outcome, (TypeError, ValueError))
+    ]
+    assert len(winners) == 1
+    assert len(losers) == 1
+    assert streams_consumed[winners[0]] is True
+    assert streams_consumed[losers[0]] is False
+    _private_error(outcomes[losers[0]], "private-concurrent-plan-stream")
 
 
 def test_failed_session_is_revoked_and_cannot_be_reused(monkeypatch):
