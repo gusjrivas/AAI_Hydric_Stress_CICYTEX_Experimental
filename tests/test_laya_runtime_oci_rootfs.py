@@ -1,4 +1,5 @@
 import ast
+import inspect
 import json
 import traceback
 from dataclasses import FrozenInstanceError, fields, replace
@@ -26,14 +27,17 @@ def _forge(cls, **values):
     return forged
 
 
-def _synthetic_pr22_evidence():
+def _synthetic_pr22_evidence(*, identity_sha256="1" * 64):
     from human_feedback.runtime_oci_layers import (
         LayaOciLayerDiffIdPlan,
         LayaRuntimeOciLayerDiffIdsEvidence,
         VerifiedLayaOciLayerDiffId,
     )
 
-    identity = SimpleNamespace(schema_version="laya-runtime-identity-ref-v1", sha256="1" * 64)
+    identity = SimpleNamespace(
+        schema_version="laya-runtime-identity-ref-v1",
+        sha256=identity_sha256,
+    )
     config = SimpleNamespace(runtime_identity=identity)
     layout = SimpleNamespace(runtime_identity=identity)
     layout_plan = SimpleNamespace(runtime_identity=identity)
@@ -108,7 +112,18 @@ def _synthetic_pr22_evidence():
     return _forge(LayaRuntimeOciLayerDiffIdsEvidence, **values)
 
 
-def _entry(module, path, typeflag="0", size=0, link_target=None, *, mode=None):
+def _entry(
+    module,
+    path,
+    typeflag="0",
+    size=0,
+    link_target=None,
+    *,
+    mode=None,
+    uid=0,
+    gid=0,
+    mtime=0,
+):
     required = {"mode", "uid", "gid", "mtime"}
     assert required <= {field.name for field in fields(module.LayaOciTarEntry)}
     return module.LayaOciTarEntry(
@@ -117,17 +132,23 @@ def _entry(module, path, typeflag="0", size=0, link_target=None, *, mode=None):
         size_bytes=size,
         link_target=link_target,
         mode=(0o755 if typeflag == "5" else 0o644) if mode is None else mode,
-        uid=0,
-        gid=0,
-        mtime=0,
+        uid=uid,
+        gid=gid,
+        mtime=mtime,
         _factory_token=module._FACTORY_TOKEN,
     )
 
 
-def _tar_evidence(monkeypatch, layer_entries, *, roots=None):
+def _tar_evidence(
+    monkeypatch,
+    layer_entries,
+    *,
+    roots=None,
+    identity_sha256="1" * 64,
+):
     from human_feedback import runtime_oci_layers, runtime_oci_tar
 
-    layer_evidence = _synthetic_pr22_evidence()
+    layer_evidence = _synthetic_pr22_evidence(identity_sha256=identity_sha256)
     current_validator = runtime_oci_layers.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes
     accepted = set(getattr(current_validator, "_rootfs_test_accepted", ()))
     accepted.add(id(layer_evidence))
@@ -258,6 +279,77 @@ def test_rootfs_plan_binds_exact_deep_validated_tar_evidence(monkeypatch):
     ):
         with pytest.raises((TypeError, ValueError), match="tar|evidence|valid"):
             runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(invalid)
+
+
+def test_tar_receipt_root_metadata_extension_does_not_expand_constructor_authority(
+    monkeypatch,
+):
+    from human_feedback import runtime_oci_tar
+
+    tar_evidence = _tar_evidence(monkeypatch, {})
+    receipt = tar_evidence.receipts[0]
+    signature = inspect.signature(runtime_oci_tar.VerifiedLayaOciTarLayer)
+    assert tuple(signature.parameters)[:6] == (
+        "plan",
+        "layer_receipt",
+        "layer_position",
+        "entries",
+        "payload_size_bytes",
+        "tar_size_bytes",
+    )
+    assert signature.parameters["root_directory"].default is None
+    claim_names = {
+        "tar_semantics_verified",
+        "oci_rootfs_verified",
+        "rootfs_materialized",
+        "origin_verified",
+    }
+    receipt_fields = {field.name: field for field in fields(receipt)}
+    assert all(receipt_fields[name].init is False for name in claim_names)
+
+    constructor_values = {
+        name: getattr(receipt, name)
+        for name in (
+            "plan",
+            "layer_receipt",
+            "layer_position",
+            "entries",
+            "payload_size_bytes",
+            "tar_size_bytes",
+            "root_directory",
+        )
+    }
+    with pytest.raises((TypeError, ValueError), match="factory|seal|token"):
+        runtime_oci_tar.VerifiedLayaOciTarLayer(**constructor_values)
+    with pytest.raises((TypeError, ValueError), match="factory|seal|token"):
+        runtime_oci_tar.VerifiedLayaOciTarLayer(
+            **constructor_values,
+            _factory_token=object(),
+        )
+
+
+def test_tar_summary_rejects_root_marker_inside_ordinary_entries(monkeypatch):
+    from human_feedback import runtime_oci_tar
+
+    tar_evidence = _tar_evidence(monkeypatch, {})
+    receipt = tar_evidence.receipts[0]
+    root_marker = _entry(runtime_oci_tar, ".", "5")
+    accepted = []
+    for root_directory in (None, root_marker):
+        forged_receipt = _forge_with(
+            receipt,
+            entries=(root_marker,),
+            root_directory=root_directory,
+        )
+        receipts = (forged_receipt,) + tar_evidence.receipts[1:]
+        forged_evidence = _forge_with(tar_evidence, receipts=receipts)
+        try:
+            runtime_oci_tar.canonical_laya_runtime_oci_tar_semantics_summary_bytes(forged_evidence)
+        except (TypeError, ValueError):
+            pass
+        else:
+            accepted.append(root_directory)
+    assert accepted == []
 
 
 @pytest.mark.parametrize(
@@ -495,6 +587,86 @@ def test_cross_layer_file_directory_replacement_removes_incompatible_descendants
     assert result.nodes[0].typeflag == "0"
 
 
+def test_later_directory_refreshes_metadata_without_removing_lower_children(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {
+            0: (
+                _entry(
+                    runtime_oci_tar,
+                    "tree",
+                    "5",
+                    mode=0o755,
+                    uid=10,
+                    gid=20,
+                    mtime=30,
+                ),
+                _entry(runtime_oci_tar, "tree/child", size=1),
+            ),
+            4: (
+                _entry(
+                    runtime_oci_tar,
+                    "tree",
+                    "5",
+                    mode=0o700,
+                    uid=40,
+                    gid=50,
+                    mtime=60,
+                ),
+            ),
+        },
+    )
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+    nodes = _node_map(evidence)
+
+    assert set(nodes) == {"tree", "tree/child"}
+    assert (
+        nodes["tree"].mode,
+        nodes["tree"].uid,
+        nodes["tree"].gid,
+        nodes["tree"].mtime,
+        nodes["tree"].source_layer_position,
+    ) == (0o700, 40, 50, 60, 4)
+    assert nodes["tree/child"].source_layer_position == 0
+
+
+def test_entries_and_whiteouts_below_safe_symlink_ancestors_fail_atomically(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    reached_sealer = []
+    for descendant in ("alias/new", "alias/.wh.lower"):
+        tar_evidence = _tar_evidence(
+            monkeypatch,
+            {
+                0: (
+                    _entry(runtime_oci_tar, "target", "5"),
+                    _entry(runtime_oci_tar, "target/lower", size=1),
+                    _entry(runtime_oci_tar, "alias", "2", link_target="target"),
+                ),
+                1: (_entry(runtime_oci_tar, descendant),),
+            },
+        )
+        sealed = []
+        monkeypatch.setattr(
+            runtime_oci_rootfs,
+            "_seal_laya_runtime_oci_rootfs_evidence",
+            lambda *args, **kwargs: sealed.append((args, kwargs)),
+        )
+
+        with pytest.raises(ValueError, match="symlink|ancestor|rootfs|path|valid") as captured:
+            runtime_oci_rootfs.compose_laya_oci_rootfs(
+                runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+            )
+        if sealed:
+            reached_sealer.append(descendant)
+        _private_error(captured.value, descendant, "target/lower")
+    assert reached_sealer == []
+
+
 def test_dangling_symlink_leaf_is_preserved_but_cannot_be_traversed_outside_root(monkeypatch):
     from human_feedback import runtime_oci_rootfs, runtime_oci_tar
 
@@ -529,6 +701,37 @@ def test_dangling_symlink_leaf_is_preserved_but_cannot_be_traversed_outside_root
     _private_error(captured.value, "../../outside")
 
 
+def test_symlink_expansion_cannot_exceed_effective_path_component_budget(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    components = [f"d{position}" for position in range(32)]
+    directories = tuple(
+        _entry(runtime_oci_tar, "/".join(components[: position + 1]), "5")
+        for position in range(len(components))
+    )
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {
+            0: directories
+            + (_entry(runtime_oci_tar, "alias", "2", link_target="/".join(components)),),
+            1: (_entry(runtime_oci_tar, "alias/child"),),
+        },
+    )
+    sealed = []
+    monkeypatch.setattr(
+        runtime_oci_rootfs,
+        "_seal_laya_runtime_oci_rootfs_evidence",
+        lambda *args, **kwargs: sealed.append((args, kwargs)),
+    )
+
+    with pytest.raises(ValueError, match="path|component|budget|rootfs|valid") as captured:
+        runtime_oci_rootfs.compose_laya_oci_rootfs(
+            runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+        )
+    assert sealed == []
+    _private_error(captured.value, "/".join(components))
+
+
 @pytest.mark.parametrize("target", ["missing", "directory"])
 def test_hardlinks_must_resolve_to_effective_regular_files(monkeypatch, target):
     from human_feedback import runtime_oci_rootfs, runtime_oci_tar
@@ -543,6 +746,84 @@ def test_hardlinks_must_resolve_to_effective_regular_files(monkeypatch, target):
     _private_error(captured.value, target)
 
 
+def test_hardlinks_use_final_layer_state_for_forward_targets_and_chains(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    forward_entries = (
+        _entry(runtime_oci_tar, "forward", "1", link_target="deep/target"),
+        _entry(runtime_oci_tar, "deep", "5"),
+        _entry(runtime_oci_tar, "deep/target", size=1),
+    )
+    outcomes = {}
+    for name, entries in (
+        ("forward", forward_entries),
+        ("forward-reversed", tuple(reversed(forward_entries))),
+    ):
+        tar_evidence = _tar_evidence(monkeypatch, {0: entries})
+        try:
+            evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+                runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+            )
+        except ValueError:
+            continue
+        outcomes[name] = tuple(
+            (node.path, node.typeflag, node.link_target) for node in evidence.nodes
+        )
+
+    chained = _tar_evidence(
+        monkeypatch,
+        {
+            0: (
+                _entry(runtime_oci_tar, "chain-a", "1", link_target="chain-b"),
+                _entry(runtime_oci_tar, "chain-b", "1", link_target="target"),
+                _entry(runtime_oci_tar, "target", size=1),
+            )
+        },
+    )
+    try:
+        chained_evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+            runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(chained)
+        )
+    except ValueError:
+        pass
+    else:
+        outcomes["chain"] = tuple(
+            (node.path, node.typeflag, node.link_target) for node in chained_evidence.nodes
+        )
+
+    assert set(outcomes) == {"forward", "forward-reversed", "chain"}
+    assert outcomes["forward"] == outcomes["forward-reversed"]
+    assert ("forward", "1", "deep/target") in outcomes["forward"]
+    assert ("chain-a", "1", "chain-b") in outcomes["chain"]
+    assert ("chain-b", "1", "target") in outcomes["chain"]
+
+
+def test_hardlink_final_state_rejects_dangling_targets_and_cycles_atomically(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    hostile_layers = (
+        (_entry(runtime_oci_tar, "hard", "1", link_target="private-missing"),),
+        (
+            _entry(runtime_oci_tar, "cycle-a", "1", link_target="cycle-b"),
+            _entry(runtime_oci_tar, "cycle-b", "1", link_target="cycle-a"),
+        ),
+    )
+    for entries in hostile_layers:
+        tar_evidence = _tar_evidence(monkeypatch, {0: entries})
+        sealed = []
+        monkeypatch.setattr(
+            runtime_oci_rootfs,
+            "_seal_laya_runtime_oci_rootfs_evidence",
+            lambda *args, **kwargs: sealed.append((args, kwargs)),
+        )
+        with pytest.raises(ValueError, match="hardlink|cycle|target|rootfs|valid") as captured:
+            runtime_oci_rootfs.compose_laya_oci_rootfs(
+                runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+            )
+        assert sealed == []
+        _private_error(captured.value, "private-missing")
+
+
 def test_root_directory_metadata_is_composed_by_layer_order(monkeypatch):
     from human_feedback import runtime_oci_rootfs, runtime_oci_tar
 
@@ -555,6 +836,92 @@ def test_root_directory_metadata_is_composed_by_layer_order(monkeypatch):
     assert evidence.root_directory is not first
     assert evidence.root_directory.source_layer_position == 7
     assert evidence.root_directory.mode == 0o750
+
+
+def test_tar_width_metadata_limits_are_public_and_reject_invalid_values(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    limits = {
+        "mode": ("MAX_OCI_ROOTFS_MODE", int("7" * 7, 8)),
+        "uid": ("MAX_OCI_ROOTFS_UID", int("7" * 7, 8)),
+        "gid": ("MAX_OCI_ROOTFS_GID", int("7" * 7, 8)),
+        "mtime": ("MAX_OCI_ROOTFS_MTIME", int("7" * 11, 8)),
+    }
+    for constant_name, expected in limits.values():
+        assert getattr(runtime_oci_rootfs, constant_name) == expected
+
+    accepted_tar_metadata = []
+    for path, typeflag in (("entry", "0"), (".", "5")):
+        for field_name, (_, maximum) in limits.items():
+            for invalid in (maximum + 1, True, -1):
+                try:
+                    _entry(
+                        runtime_oci_tar,
+                        path,
+                        typeflag,
+                        **{field_name: invalid},
+                    )
+                except (TypeError, ValueError):
+                    continue
+                accepted_tar_metadata.append((path, field_name, invalid))
+    assert accepted_tar_metadata == []
+
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {0: (_entry(runtime_oci_tar, "entry"),)},
+        roots={0: _entry(runtime_oci_tar, ".", "5")},
+    )
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+    node = evidence.nodes[0]
+    root_directory = evidence.root_directory
+    assert root_directory is not None
+    accepted_rootfs_metadata = []
+    for value in (node, root_directory):
+        for field_name, (_, maximum) in limits.items():
+            for invalid in (maximum + 1, True, -1):
+                try:
+                    type(value)(
+                        **(_field_values(value) | {field_name: invalid}),
+                        _factory_token=runtime_oci_rootfs._FACTORY_TOKEN,
+                    )
+                except (TypeError, ValueError):
+                    continue
+                accepted_rootfs_metadata.append((type(value).__name__, field_name, invalid))
+    assert accepted_rootfs_metadata == []
+
+
+def test_rootfs_manifest_commitment_changes_with_effective_metadata(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    def commitment(**metadata):
+        tar_evidence = _tar_evidence(
+            monkeypatch,
+            {0: (_entry(runtime_oci_tar, "entry", **metadata),)},
+        )
+        return runtime_oci_rootfs.compose_laya_oci_rootfs(
+            runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+        ).rootfs_manifest_sha256
+
+    baseline = commitment()
+    assert {
+        commitment(mode=0o600),
+        commitment(uid=1),
+        commitment(gid=1),
+        commitment(mtime=1),
+    }.isdisjoint({baseline})
+    assert (
+        len(
+            {
+                commitment(mode=0o600),
+                commitment(uid=1),
+                commitment(gid=1),
+                commitment(mtime=1),
+            }
+        )
+        == 4
+    )
 
 
 def test_rootfs_budgets_are_public_positive_and_enforced_all_or_nothing(monkeypatch):
@@ -735,6 +1102,60 @@ def test_subtree_whiteout_charges_every_insert_and_removed_node(monkeypatch):
         runtime_oci_rootfs.compose_laya_oci_rootfs(plan)
 
 
+def test_mutation_budget_is_preflighted_before_whiteout_or_addition_changes_state(
+    monkeypatch,
+):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    layer_variants = (
+        (_entry(runtime_oci_tar, "tree/.wh.a"),),
+        (_entry(runtime_oci_tar, "tree/a", size=2),),
+    )
+    mutations_applied = []
+    for upper_entries in layer_variants:
+        tar_evidence = _tar_evidence(
+            monkeypatch,
+            {
+                0: (
+                    _entry(runtime_oci_tar, "tree", "5"),
+                    _entry(runtime_oci_tar, "tree/a", size=1),
+                ),
+                1: upper_entries,
+            },
+        )
+        nodes = {}
+        setup_counters = {
+            "entries": 0,
+            "whiteouts": 0,
+            "metadata": 0,
+            "mutations": 0,
+        }
+        monkeypatch.setattr(runtime_oci_rootfs, "MAX_OCI_ROOTFS_MUTATIONS", 100)
+        runtime_oci_rootfs._apply_rootfs_layer(
+            nodes,
+            tar_evidence.receipts[0],
+            setup_counters,
+        )
+        before = dict(nodes)
+        counters = {
+            "entries": 0,
+            "whiteouts": 0,
+            "metadata": 0,
+            "mutations": 1,
+        }
+        monkeypatch.setattr(runtime_oci_rootfs, "MAX_OCI_ROOTFS_MUTATIONS", 1)
+
+        with pytest.raises(ValueError, match="mutation|budget|limit|rootfs"):
+            runtime_oci_rootfs._apply_rootfs_layer(
+                nodes,
+                tar_evidence.receipts[1],
+                counters,
+            )
+        if nodes != before or counters["mutations"] != 1:
+            mutations_applied.append(upper_entries[0].path)
+    assert mutations_applied == []
+
+
 def test_budget_failure_stops_before_next_layer_and_never_seals(monkeypatch):
     from human_feedback import runtime_oci_rootfs, runtime_oci_tar
 
@@ -752,9 +1173,7 @@ def test_budget_failure_stops_before_next_layer_and_never_seals(monkeypatch):
     sealed = []
 
     def tracked_apply(*args, **kwargs):
-        receipt = next(
-            value for value in args if type(value) is type(tar_evidence.receipts[0])
-        )
+        receipt = next(value for value in args if type(value) is type(tar_evidence.receipts[0]))
         applied.append(receipt.layer_position)
         return original_apply(*args, **kwargs)
 
@@ -809,6 +1228,50 @@ def test_rootfs_evidence_is_sealed_private_and_only_elevates_rootfs(monkeypatch)
         replace(evidence, rootfs_manifest_sha256="0" * 64)
     with pytest.raises(FrozenInstanceError):
         evidence.nodes = ()
+
+
+def test_rootfs_summary_binds_plan_schema_and_runtime_identity_without_private_data(
+    monkeypatch,
+):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    private_path = "private/runtime/model.bin"
+
+    def compose(identity_sha256):
+        tar_evidence = _tar_evidence(
+            monkeypatch,
+            {
+                0: (
+                    _entry(runtime_oci_tar, "private", "5"),
+                    _entry(runtime_oci_tar, "private/runtime", "5"),
+                    _entry(runtime_oci_tar, private_path, size=1),
+                )
+            },
+            identity_sha256=identity_sha256,
+        )
+        evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+            runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+        )
+        return evidence, runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(
+            evidence
+        )
+
+    first, first_bytes = compose("1" * 64)
+    second, second_bytes = compose("2" * 64)
+    first_summary = json.loads(first_bytes)
+    second_summary = json.loads(second_bytes)
+
+    assert first_summary["plan_schema_version"] == first.plan.schema_version
+    assert first_summary["runtime_identity_sha256"] == first.runtime_identity.sha256
+    assert second_summary["runtime_identity_sha256"] == second.runtime_identity.sha256
+    assert first_bytes != second_bytes
+    forbidden = (
+        private_path,
+        first.rootfs_manifest_sha256,
+        first.tar_evidence.plan.layer_receipts[0].layer_blob.digest,
+    )
+    for marker in forbidden:
+        assert marker.encode() not in first_bytes
 
 
 def test_rootfs_plan_nodes_and_evidence_require_factory_seals(monkeypatch):
@@ -873,9 +1336,7 @@ def test_rootfs_exact_types_reject_fully_populated_subclasses(monkeypatch):
     for name, value in _field_values(evidence).items():
         object.__setattr__(subclass_evidence, name, value)
     with pytest.raises((TypeError, ValueError), match="evidence|type|seal|valid"):
-        runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(
-            subclass_evidence
-        )
+        runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(subclass_evidence)
 
 
 @pytest.mark.parametrize(
@@ -917,6 +1378,129 @@ def test_rootfs_summary_deep_rejects_forged_nodes(
     _private_error(captured.value, "private-node", "private-forged-target")
 
 
+def test_rootfs_nodes_and_summary_enforce_tar_string_and_exact_type_limits(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    tar_evidence = _tar_evidence(
+        monkeypatch,
+        {
+            0: (
+                _entry(runtime_oci_tar, "data", "5"),
+                _entry(runtime_oci_tar, "data/link", "2", link_target="../missing"),
+            )
+        },
+    )
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+    node_index = next(
+        index for index, node in enumerate(evidence.nodes) if node.path == "data/link"
+    )
+    node = evidence.nodes[node_index]
+    mutations = (
+        {"path": "p" * (runtime_oci_tar.MAX_OCI_TAR_PATH_BYTES + 1)},
+        {
+            "path": "/".join(
+                "p" for _ in range(runtime_oci_rootfs.MAX_OCI_ROOTFS_PATH_COMPONENTS + 1)
+            )
+        },
+        {"path": "private\x01path"},
+        {"link_target": "l" * (runtime_oci_tar.MAX_OCI_TAR_LINK_BYTES + 1)},
+        {"link_target": "private\x01target"},
+        {"link_target": ""},
+        {"size_bytes": True},
+        {"source_layer_position": True},
+    )
+    accepted_direct = []
+    accepted_summary = []
+    for changes in mutations:
+        try:
+            type(node)(
+                **(_field_values(node) | changes),
+                _factory_token=runtime_oci_rootfs._FACTORY_TOKEN,
+            )
+        except (TypeError, ValueError):
+            pass
+        else:
+            accepted_direct.append(changes)
+
+        forged_node = _forge_with(node, **changes)
+        nodes = list(evidence.nodes)
+        nodes[node_index] = forged_node
+        forged_nodes = tuple(nodes)
+        forged_evidence = _forge_with(
+            evidence,
+            nodes=forged_nodes,
+            rootfs_manifest_sha256=runtime_oci_rootfs._manifest_sha256(
+                forged_nodes,
+                evidence.root_directory,
+            ),
+        )
+        try:
+            runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(forged_evidence)
+        except (TypeError, ValueError):
+            pass
+        else:
+            accepted_summary.append(changes)
+
+    assert accepted_direct == []
+    assert accepted_summary == []
+
+
+def test_rootfs_summary_revalidates_global_namespace_invariants(monkeypatch):
+    from human_feedback import runtime_oci_rootfs, runtime_oci_tar
+
+    tar_evidence = _tar_evidence(monkeypatch, {0: (_entry(runtime_oci_tar, "seed"),)})
+    evidence = runtime_oci_rootfs.compose_laya_oci_rootfs(
+        runtime_oci_rootfs.prepare_laya_oci_rootfs_plan(tar_evidence)
+    )
+    node_type = type(evidence.nodes[0])
+
+    def node(path, typeflag="0", link_target=None):
+        return node_type(
+            path=path,
+            typeflag=typeflag,
+            size_bytes=0,
+            link_target=link_target,
+            mode=0o755 if typeflag == "5" else 0o644,
+            uid=0,
+            gid=0,
+            mtime=0,
+            source_layer_position=0,
+            _factory_token=runtime_oci_rootfs._FACTORY_TOKEN,
+        )
+
+    hostile_namespaces = (
+        (node("a"), node("a/b")),
+        (node("hard", "1", "private-missing-target"),),
+        (node("dir", "5"), node("hard", "1", "dir")),
+        (node("escape", "2", "../../private-outside"),),
+        (node("cycle-a", "2", "cycle-b"), node("cycle-b", "2", "cycle-a")),
+    )
+    accepted = []
+    for hostile_nodes in hostile_namespaces:
+        ordered = tuple(sorted(hostile_nodes, key=lambda candidate: candidate.path))
+        forged = _forge_with(
+            evidence,
+            nodes=ordered,
+            rootfs_manifest_sha256=runtime_oci_rootfs._manifest_sha256(
+                ordered,
+                evidence.root_directory,
+            ),
+        )
+        try:
+            runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(forged)
+        except (TypeError, ValueError) as error:
+            _private_error(
+                error,
+                "private-missing-target",
+                "private-outside",
+            )
+        else:
+            accepted.append(tuple(candidate.path for candidate in ordered))
+    assert accepted == []
+
+
 def test_rootfs_evidence_inherits_every_tar_claim_and_only_elevates_rootfs(monkeypatch):
     from human_feedback import runtime_oci_rootfs
 
@@ -942,9 +1526,10 @@ def test_rootfs_evidence_inherits_every_tar_claim_and_only_elevates_rootfs(monke
         claim: (True if claim == "oci_rootfs_verified" else getattr(tar_evidence, claim))
         for claim in tar_claims
     }
-    assert sum(value is True for value in expected_claims.values()) == sum(
-        getattr(tar_evidence, claim) is True for claim in tar_claims
-    ) + 1
+    assert (
+        sum(value is True for value in expected_claims.values())
+        == sum(getattr(tar_evidence, claim) is True for claim in tar_claims) + 1
+    )
     for claim, expected in expected_claims.items():
         assert getattr(evidence, claim) is expected
 
