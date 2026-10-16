@@ -35,6 +35,13 @@ MAX_PROVENANCE_DAG_VISITS = 64
 _FACTORY_TOKEN = object()
 _ITERATOR_EOF = object()
 _SAFE_TREE_MODES = frozenset({"100644", "100755", "040000", "40000"})
+_APACHE_2_SHORT_DECLARATION = b"Apache License\nVersion 2.0, January 2004\n"
+_APACHE_2_OFFICIAL_HEADER = (
+    b"                                 Apache License\n"
+    b"                           Version 2.0, January 2004\n"
+    b"                        http://www.apache.org/licenses/\n"
+)
+_APACHE_2_OFFICIAL_SHA256 = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
 
 __all__ = (
     "PROVENANCE_PLAN_SCHEMA",
@@ -554,8 +561,16 @@ def _parse_lfs_pointer_bytes(payload: object) -> _LfsPointer:
 def _source_license(payload: object) -> None:
     if type(payload) is not bytes or len(payload) > MAX_PROVENANCE_OBJECT_BYTES:
         raise ValueError("invalid source declaration")
-    text = payload.decode("utf-8", errors="strict")
-    if "Apache License\nVersion 2.0, January 2004\n" not in text:
+    payload.decode("utf-8", errors="strict")
+    non_crlf = payload.replace(b"\r\n", b"")
+    if b"\r" in non_crlf or (b"\r\n" in payload and b"\n" in non_crlf):
+        raise ValueError("invalid source declaration")
+    normalized = payload.replace(b"\r\n", b"\n")
+    is_short_declaration = normalized == _APACHE_2_SHORT_DECLARATION
+    is_official_license = normalized.startswith(_APACHE_2_OFFICIAL_HEADER) and (
+        hashlib.sha256(normalized).hexdigest() == _APACHE_2_OFFICIAL_SHA256
+    )
+    if not (is_short_declaration or is_official_license):
         raise ValueError("source declaration is absent")
 
 
