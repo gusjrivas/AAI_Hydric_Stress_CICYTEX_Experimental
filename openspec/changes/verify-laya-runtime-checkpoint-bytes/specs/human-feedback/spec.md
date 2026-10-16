@@ -34,22 +34,26 @@ the inherited deployment claims.
 - **WHEN** the private authority receives an invalid receipt graph
 - **THEN** no evidence or public success summary is produced
 
-### Requirement: Filesystem capture SHALL preserve one secure root view
+### Requirement: Filesystem capture SHALL bind the exact checkpoint root
 
 The Linux adapter SHALL reject filesystem root `/` before any open.  The supplied
 checkpoint root SHALL denote the exact contents of the checkpoint manifest's
 `multilingual` subfolder: the five declared files and their declared intermediate
 directories are immediate descendants of that root, not descendants of an
 additional `multilingual/` directory.  The adapter SHALL require that exact closed
-regular-file inventory, inspect only the bounded declared adjacency/depth, stream
-through secure descriptors, detect replacement of the supplied root path or any
-ancestor in addition to descriptor-local path/inode/size mutation, close every
-descriptor before sealing and fail closed on unsupported hosts.
+regular-file inventory and inspect only the bounded declared adjacency/depth.
 
 #### Scenario: Root scope is unsafe or ambiguous
 
 - **WHEN** root is `/`, points above the manifest `multilingual` contents, contains an unexpected adjacent directory, or exceeds the declared inventory depth/count
 - **THEN** capture fails before opening `/` as a capture root or recursively descending into the unexpected subtree
+
+### Requirement: Filesystem capture SHALL preserve one secure root view
+
+The Linux adapter SHALL stream through secure descriptors, detect replacement of
+the supplied root path or any ancestor in addition to descriptor-local
+path/inode/size mutation, close every descriptor before sealing and fail closed on
+unsupported hosts.
 
 #### Scenario: The filesystem changes during capture
 
