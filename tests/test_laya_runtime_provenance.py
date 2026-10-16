@@ -928,6 +928,26 @@ def test_exact_class_clones_cannot_self_assert_provenance_without_verified_bytes
         provenance.canonical_laya_runtime_provenance_summary_bytes(forged_evidence)
     _private_error(summarized.value)
 
+    def clone_private_slots(instance, **changes):
+        clone = _forge_exact(instance, **changes)
+        for name in ("_factory_capability", "_semantic_capability"):
+            if hasattr(instance, name):
+                object.__setattr__(clone, name, getattr(instance, name))
+        return clone
+
+    replayed_receipts = tuple(
+        clone_private_slots(
+            receipt,
+            envelope=clone_private_slots(receipt.envelope),
+        )
+        for receipt in evidence.receipts
+    )
+    replayed_evidence = clone_private_slots(evidence, receipts=replayed_receipts)
+    with pytest.raises(ValueError):
+        provenance._seal_laya_runtime_provenance_evidence(plan, replayed_receipts)
+    with pytest.raises(ValueError):
+        provenance.canonical_laya_runtime_provenance_summary_bytes(replayed_evidence)
+
 
 @pytest.mark.parametrize(
     ("role", "changes"),
