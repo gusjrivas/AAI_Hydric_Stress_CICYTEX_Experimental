@@ -556,6 +556,91 @@ def test_issued_checkpoint_evidence_rejects_deep_artifact_content_mutation(monke
     _private_error(caught.value, "private-mutated-artifact-content")
 
 
+@pytest.mark.parametrize("nested_name", ("checkpoint_manifest", "snapshot"))
+@pytest.mark.parametrize("consumer", ("checkpoint_summary", "provenance_prepare"))
+def test_issued_checkpoint_evidence_rejects_equal_distinct_nested_clone(
+    monkeypatch, nested_name, consumer
+):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    original = getattr(evidence.deployment_evidence, nested_name)
+    cloned = _clone_all_slots(original)
+    assert cloned == original
+    assert cloned is not original
+    object.__setattr__(evidence.deployment_evidence, nested_name, cloned)
+
+    if consumer == "checkpoint_summary":
+        publish = checkpoint.canonical_laya_runtime_checkpoint_summary_bytes
+    else:
+        from human_feedback.runtime_provenance import (
+            prepare_laya_runtime_provenance_plan,
+        )
+
+        publish = prepare_laya_runtime_provenance_plan
+    with pytest.raises(ValueError):
+        publish(evidence)
+
+
+def test_deep_snapshot_rejects_oversized_artifact_before_hashing(monkeypatch):
+    checkpoint = _core()
+    from human_feedback import runtime_deployment_metadata
+
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    artifact = next(
+        item
+        for item in evidence.deployment_evidence.snapshot.artifacts
+        if item.spec.kind == "checkpoint_manifest"
+    )
+    maximum = runtime_deployment_metadata.MAX_CHECKPOINT_MANIFEST_BYTES
+    object.__setattr__(artifact, "content", b"x" * (maximum + 1))
+    original_new = checkpoint.hashlib.new
+    oversized_hash_attempts = 0
+
+    def bounded_hash(name, payload=b"", *args, **kwargs):
+        nonlocal oversized_hash_attempts
+        if type(payload) is bytes and len(payload) > maximum:
+            oversized_hash_attempts += 1
+            raise AssertionError("oversized artifact reached the hash function")
+        return original_new(name, payload, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint.hashlib, "new", bounded_hash)
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    assert oversized_hash_attempts == 0
+
+
+def test_deep_snapshot_rejects_abnormal_mapping_without_iterating(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+
+    class HostileMapping(dict):
+        requested = 0
+
+        def __iter__(self):
+            self.requested += 1
+            raise AssertionError("abnormal mapping was traversed")
+
+        def items(self):
+            self.requested += 1
+            raise AssertionError("abnormal mapping items were traversed")
+
+    hostile = HostileMapping()
+    object.__setattr__(evidence.deployment_evidence.runtime_config, "environment", hostile)
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    assert hostile.requested == 0
+
+
+def test_deep_snapshot_rejects_oversized_exact_sequence(monkeypatch):
+    checkpoint = _core()
+    evidence = _legitimate_checkpoint_evidence(monkeypatch)
+    oversized = (("KEY", "VALUE"),) * 2049
+    object.__setattr__(evidence.deployment_evidence.runtime_config, "environment", oversized)
+
+    with pytest.raises(ValueError):
+        checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+
+
 def test_private_authority_rejects_caller_receipts_and_public_finalizers_do_not_exist():
     checkpoint = _core()
     plan = _plan()
