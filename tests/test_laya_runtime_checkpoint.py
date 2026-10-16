@@ -1,0 +1,347 @@
+import ast
+import inspect
+import json
+import os
+import sys
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from tests.test_laya_runtime_deployment_metadata import CHECKPOINT_FILES, _validate
+
+PLAN_SCHEMA = "laya-runtime-checkpoint-plan-v1"
+EVIDENCE_SCHEMA = "laya-runtime-checkpoint-evidence-v1"
+REAL_CHECKPOINT_GATE_ENV = "LAYA_RUNTIME_CHECKPOINT_ROOT"
+TRUE_FLAGS = (
+    "artifact_integrity_verified",
+    "runtime_config_semantics_verified",
+    "checkpoint_manifest_semantics_verified",
+    "checkpoint_bytes_verified",
+)
+FALSE_FLAGS = (
+    "lock_verified",
+    "sbom_verified",
+    "lock_sbom_consistent",
+    "oci_bytes_verified",
+    "oci_manifest_semantics_verified",
+    "runtime_materialized",
+    "origin_verified",
+    "executor_available",
+    "inference_executed",
+)
+
+
+def _core():
+    import human_feedback.runtime_checkpoint as checkpoint
+
+    return checkpoint
+
+
+def _plan():
+    return _core().prepare_laya_runtime_checkpoint_plan(_validate())
+
+
+def _private_error(exc: BaseException, *markers: str) -> None:
+    rendered = "\n".join((str(exc), repr(exc), repr(exc.__cause__), repr(exc.__context__)))
+    assert exc.__cause__ is None
+    assert exc.__suppress_context__ is True
+    assert all(marker not in rendered for marker in markers)
+
+
+def _forge_exact(instance, **changes):
+    forged = object.__new__(type(instance))
+    for field in fields(instance):
+        object.__setattr__(
+            forged, field.name, changes.get(field.name, getattr(instance, field.name))
+        )
+    return forged
+
+
+def test_checkpoint_plan_is_exact_identity_bound_and_private():
+    checkpoint = _core()
+    deployment = _validate()
+    plan = checkpoint.prepare_laya_runtime_checkpoint_plan(deployment)
+
+    assert type(plan) is checkpoint.LayaRuntimeCheckpointPlan
+    assert plan.schema_version == PLAN_SCHEMA
+    assert plan.deployment_evidence is deployment
+    assert plan.runtime_identity is deployment.runtime_identity
+    assert type(plan.files) is tuple
+    assert tuple(item.role for item in plan.files) == tuple(
+        item["role"] for item in CHECKPOINT_FILES
+    )
+    assert tuple(item.path for item in plan.files) == tuple(
+        item["path"] for item in CHECKPOINT_FILES
+    )
+    assert tuple(item.sha256 for item in plan.files) == tuple(
+        item["sha256"] for item in CHECKPOINT_FILES
+    )
+    assert tuple(item.size_bytes for item in plan.files) == tuple(
+        item["size_bytes"] for item in CHECKPOINT_FILES
+    )
+    private_values = tuple(
+        value for item in CHECKPOINT_FILES for value in (item["path"], item["sha256"])
+    )
+    assert all(value not in repr(plan) for value in private_values)
+
+
+def test_checkpoint_plan_and_descriptor_graph_are_frozen_slotted_and_factory_sealed():
+    checkpoint = _core()
+    plan = _plan()
+    assert is_dataclass(plan) and plan.__dataclass_params__.frozen
+    assert "__dict__" not in vars(type(plan))
+    with pytest.raises((TypeError, ValueError)):
+        checkpoint.LayaRuntimeCheckpointPlan(
+            schema_version=plan.schema_version,
+            deployment_evidence=plan.deployment_evidence,
+            runtime_identity=plan.runtime_identity,
+            files=plan.files,
+        )
+    with pytest.raises((TypeError, ValueError)):
+        replace(plan, files=tuple(reversed(plan.files)))
+    for descriptor in plan.files:
+        assert is_dataclass(descriptor) and descriptor.__dataclass_params__.frozen
+        assert "__dict__" not in vars(type(descriptor))
+        for field in fields(descriptor):
+            if field.init:
+                with pytest.raises(FrozenInstanceError):
+                    setattr(descriptor, field.name, getattr(descriptor, field.name))
+        with pytest.raises((TypeError, ValueError)):
+            replace(descriptor, size_bytes=descriptor.size_bytes + 1)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [None, SimpleNamespace(), object.__new__(type(_validate()))],
+)
+def test_prepare_rejects_proxy_or_unsealed_deployment_evidence(bad):
+    with pytest.raises((TypeError, ValueError)):
+        _core().prepare_laya_runtime_checkpoint_plan(bad)
+
+
+@pytest.mark.parametrize("bad_value", [False, 1, None])
+def test_prepare_deeply_revalidates_inherited_deployment_claims(bad_value):
+    deployment = _validate()
+    corrupt = _forge_exact(deployment, artifact_integrity_verified=bad_value)
+    with pytest.raises((TypeError, ValueError)):
+        _core().prepare_laya_runtime_checkpoint_plan(corrupt)
+
+
+def test_stream_authorization_rejects_unknown_or_malformed_digest_before_consuming():
+    checkpoint = _core()
+    plan = _plan()
+
+    class Hostile:
+        requested = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.requested += 1
+            raise AssertionError("private-stream-sentinel")
+
+    for digest in ("0" * 64, "A" * 64, "sha256:" + "a" * 64, "short"):
+        chunks = Hostile()
+        with pytest.raises((TypeError, ValueError)):
+            checkpoint.verify_laya_checkpoint_file_chunks(plan, digest, chunks)
+        assert chunks.requested == 0
+
+
+@pytest.mark.parametrize("chunk", [b"", bytearray(b"x"), memoryview(b"x"), "x", 1])
+def test_stream_rejects_empty_or_non_exact_bytes_chunks(chunk):
+    checkpoint = _core()
+    plan = _plan()
+    with pytest.raises((TypeError, ValueError)):
+        checkpoint.verify_laya_checkpoint_file_chunks(plan, plan.files[-1].sha256, iter((chunk,)))
+
+
+def test_stream_is_bounded_and_stops_at_expected_size_plus_one():
+    checkpoint = _core()
+    plan = _plan()
+    descriptor = plan.files[-1]
+    assert checkpoint.MAX_CHECKPOINT_CHUNK_BYTES == 1024 * 1024
+    assert checkpoint.MAX_CHECKPOINT_CHUNKS == 1024
+
+    requested = 0
+
+    def chunks():
+        nonlocal requested
+        requested += 1
+        yield b"x" * descriptor.size_bytes
+        requested += 1
+        yield b"y"
+        requested += 1
+        raise AssertionError("must stop at expected plus one")
+
+    with pytest.raises(ValueError):
+        checkpoint.verify_laya_checkpoint_file_chunks(plan, descriptor.sha256, chunks())
+    assert requested == 2
+
+
+@pytest.mark.parametrize("terminator", [b"\n", b"\r\n", b""])
+def test_git_lfs_pointer_is_rejected_even_when_declared_bytes_match_shape(terminator):
+    checkpoint = _core()
+    plan = _plan()
+    descriptor = plan.files[-1]
+    pointer = (
+        b"version https://git-lfs.github.com/spec/v1\n"
+        b"oid sha256:" + b"a" * 64 + b"\nsize 524" + terminator
+    )
+    requested = 0
+
+    def chunks():
+        nonlocal requested
+        requested += 1
+        yield pointer
+        requested += 1
+        raise AssertionError("an LFS pointer must fail before another request")
+
+    with pytest.raises(ValueError) as caught:
+        checkpoint.verify_laya_checkpoint_file_chunks(plan, descriptor.sha256, chunks())
+    assert requested == 1
+    _private_error(caught.value, pointer.decode("ascii"))
+
+
+def test_chunk_count_cap_and_exact_size_digest_mismatch_are_independent():
+    checkpoint = _core()
+    plan = _plan()
+    descriptor = plan.files[-1]
+    requested = 0
+
+    def too_many():
+        nonlocal requested
+        while requested <= checkpoint.MAX_CHECKPOINT_CHUNKS:
+            requested += 1
+            yield b"x"
+        raise AssertionError("chunk cap must stop the stream")
+
+    with pytest.raises(ValueError):
+        checkpoint.verify_laya_checkpoint_file_chunks(plan, descriptor.sha256, too_many())
+    assert requested == checkpoint.MAX_CHECKPOINT_CHUNKS + 1
+
+    with pytest.raises(ValueError):
+        checkpoint.verify_laya_checkpoint_file_chunks(
+            plan,
+            descriptor.sha256,
+            iter((b"x" * descriptor.size_bytes,)),
+        )
+
+
+def test_stream_errors_are_private_and_do_not_retain_payload_or_iterator_context():
+    checkpoint = _core()
+    plan = _plan()
+    marker = "private-checkpoint-stream-marker"
+
+    def chunks():
+        yield marker.encode("ascii")
+        raise RuntimeError(marker)
+
+    with pytest.raises(ValueError) as caught:
+        checkpoint.verify_laya_checkpoint_file_chunks(plan, plan.files[-1].sha256, chunks())
+    _private_error(caught.value, marker)
+
+
+def test_core_implementation_is_streaming_and_pure():
+    checkpoint = _core()
+    source = Path(checkpoint.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imports = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        (node.module or "").split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+    }
+    assert not imports & {"os", "pathlib", "subprocess", "socket", "requests", "urllib"}
+    verify = inspect.getsource(checkpoint._verify_laya_checkpoint_file_chunks)
+    verify_tree = ast.parse(verify)
+    forbidden_calls = {"join", "list", "tuple", "bytearray", "read", "open"}
+    assert (
+        not {
+            node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+            for node in ast.walk(verify_tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, (ast.Attribute, ast.Name))
+        }
+        & forbidden_calls
+    )
+
+
+def test_receipt_and_evidence_public_contract_is_deeply_sealed_and_conservative():
+    checkpoint = _core()
+    receipt_type = checkpoint.VerifiedLayaCheckpointFile
+    evidence_type = checkpoint.LayaRuntimeCheckpointEvidence
+    for cls in (receipt_type, evidence_type):
+        assert is_dataclass(cls) and cls.__dataclass_params__.frozen
+        assert "__dict__" not in vars(cls)
+    assert all(not field.init for field in fields(receipt_type) if field.name.endswith("verified"))
+    assert all(
+        not field.init for field in fields(evidence_type) if field.name in TRUE_FLAGS + FALSE_FLAGS
+    )
+    with pytest.raises((TypeError, ValueError)):
+        receipt_type()
+    with pytest.raises((TypeError, ValueError)):
+        evidence_type()
+
+
+def test_private_authority_rejects_caller_receipts_and_public_finalizers_do_not_exist():
+    checkpoint = _core()
+    plan = _plan()
+    assert not hasattr(checkpoint, "finalize_laya_runtime_checkpoint_evidence")
+    assert not hasattr(checkpoint, "checkpoint_receipt_from_digest")
+    for receipts in ((), [], (SimpleNamespace(),), tuple(plan.files)):
+        with pytest.raises((TypeError, ValueError)):
+            checkpoint._seal_laya_checkpoint_capture_authority(plan, receipts)
+    for value in (plan, (), SimpleNamespace()):
+        with pytest.raises((TypeError, ValueError)):
+            checkpoint._seal_laya_runtime_checkpoint_evidence(value)
+
+
+def test_summary_rejects_non_evidence_and_never_publishes_file_identity():
+    checkpoint = _core()
+    for value in (None, _plan(), SimpleNamespace()):
+        with pytest.raises((TypeError, ValueError)):
+            checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(value)
+    source = Path(checkpoint.__file__).read_text(encoding="utf-8")
+    assert (
+        '"path"' not in source[source.find("def canonical_laya_runtime_checkpoint_summary_bytes") :]
+    )
+    assert (
+        '"sha256"'
+        not in source[source.find("def canonical_laya_runtime_checkpoint_summary_bytes") :]
+    )
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or not os.environ.get(REAL_CHECKPOINT_GATE_ENV),
+    reason="real checkpoint bytes are an explicit Linux release gate",
+)
+def test_opt_in_real_checkpoint_bytes_produce_all_or_nothing_conservative_evidence():
+    checkpoint = _core()
+    from human_feedback.adapters.filesystem_checkpoint import (
+        capture_and_verify_laya_runtime_checkpoint,
+    )
+
+    deployment = _validate()
+    root = Path(os.environ[REAL_CHECKPOINT_GATE_ENV])
+    evidence = capture_and_verify_laya_runtime_checkpoint(deployment, root)
+    assert type(evidence) is checkpoint.LayaRuntimeCheckpointEvidence
+    assert evidence.runtime_identity is deployment.runtime_identity
+    assert tuple(receipt.file for receipt in evidence.receipts) == evidence.plan.files
+    assert all(
+        type(receipt) is checkpoint.VerifiedLayaCheckpointFile for receipt in evidence.receipts
+    )
+    assert all(getattr(evidence, flag) is True for flag in TRUE_FLAGS)
+    assert all(getattr(evidence, flag) is False for flag in FALSE_FLAGS)
+    summary = checkpoint.canonical_laya_runtime_checkpoint_summary_bytes(evidence)
+    decoded = json.loads(summary)
+    assert decoded["schema_version"] == EVIDENCE_SCHEMA
+    assert decoded["runtime_identity_sha256"] == deployment.runtime_identity.sha256
+    for item in CHECKPOINT_FILES:
+        assert item["path"].encode() not in summary
+        assert item["sha256"].encode() not in summary
