@@ -386,10 +386,11 @@ def _parse_commit(payload: object) -> _GitCommit:
     if type(payload) is not bytes or not payload or len(payload) > MAX_PROVENANCE_OBJECT_BYTES:
         raise ValueError("invalid commit payload")
     text = payload.decode("utf-8", errors="strict")
-    if "\x00" in text or "\r" in text or not text.endswith("\n") or "\n\n" not in text:
+    if "\x00" in text or "\r" in text or "\n\n" not in text:
         raise ValueError("invalid commit encoding")
     header, message = text.split("\n\n", 1)
-    if not message or not message.endswith("\n"):
+    message_without_optional_lf = message[:-1] if message.endswith("\n") else message
+    if not message_without_optional_lf:
         raise ValueError("invalid commit message")
     lines = header.split("\n")
     if not lines or not lines[0].startswith("tree "):
