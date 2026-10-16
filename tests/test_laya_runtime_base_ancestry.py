@@ -142,41 +142,125 @@ def _clone_dataclass(value, **changes):
     return clone
 
 
+def _canonical_json(value) -> bytes:
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("ascii")
+
+
+def _canonical_json_padded_to(value, padding, target_size) -> bytes:
+    padding.clear()
+    for position in range(8):
+        payload = _canonical_json(value)
+        if len(payload) == target_size:
+            return payload
+        assert len(payload) < target_size
+        key = f"padding-{position}"
+        padding[key] = ""
+        payload = _canonical_json(value)
+        assert len(payload) <= target_size
+        padding[key] = "x" * min(4096, target_size - len(payload))
+    payload = _canonical_json(value)
+    assert len(payload) == target_size
+    return payload
+
+
 def _exact_pr22_evidence(monkeypatch):
-    """Reuse PR22's isolation helper and make its ten-position profile exact.
+    """Issue PR22 evidence and bind PR36 to a small content-addressed OCI graph."""
 
-    The predecessor's own canonical summary remains the authority oracle.  This
-    helper does not construct PR36 plan, receipt, authority or evidence values.
-    """
+    from human_feedback import runtime_base_ancestry, runtime_oci_layers
+    from tests.test_laya_runtime_oci_layers import _issued_layer_evidence
 
-    from human_feedback import runtime_oci_layers
-    from tests.test_laya_runtime_oci_tar import _synthetic_pr22_evidence
-
-    evidence = _synthetic_pr22_evidence()
+    evidence = _issued_layer_evidence(monkeypatch).evidence
     plan = evidence.plan
-    for position, (digest, size, media_type) in enumerate(BASE_LAYERS):
-        blob = plan.layer_blobs[position]
-        blob.digest = digest
-        blob.size_bytes = size
-        blob.media_type = media_type
-    child_diff_ids = (*BASE_DIFF_IDS, *plan.declared_diff_ids[len(BASE_DIFF_IDS) :])
-    object.__setattr__(plan, "declared_diff_ids", child_diff_ids)
-    for position, receipt in enumerate(evidence.receipts):
-        object.__setattr__(receipt, "declared_diff_id", child_diff_ids[position])
-        object.__setattr__(receipt, "computed_diff_id", child_diff_ids[position])
+    base_layers = tuple(
+        (blob.digest, blob.size_bytes, blob.media_type) for blob in plan.layer_blobs[:4]
+    )
+    base_diff_ids = plan.declared_diff_ids[:4]
+
+    config_padding = {}
+    config_value = {
+        "architecture": "amd64",
+        "config": config_padding,
+        "created": "1970-01-01T00:00:00Z",
+        "history": [{"comment": "synthetic issued profile"}],
+        "os": "linux",
+        "rootfs": {"type": "layers", "diff_ids": list(base_diff_ids)},
+    }
+    config_payload = _canonical_json_padded_to(config_value, config_padding, 5295)
+    config_digest = hashlib.sha256(config_payload).hexdigest()
+
+    manifest_padding = {}
+    manifest_value = {
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {
+            "digest": "sha256:" + config_digest,
+            "size": len(config_payload),
+            "mediaType": "application/vnd.oci.image.config.v1+json",
+        },
+        "layers": [
+            {"digest": digest, "size": size, "mediaType": media_type}
+            for digest, size, media_type in base_layers
+        ],
+        "annotations": manifest_padding,
+    }
+    manifest_payload = _canonical_json_padded_to(manifest_value, manifest_padding, 1752)
+    manifest_digest = hashlib.sha256(manifest_payload).hexdigest()
+
+    selected = {
+        "digest": "sha256:" + manifest_digest,
+        "size": len(manifest_payload),
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "platform": {"architecture": "amd64", "os": "linux"},
+        "annotations": {},
+    }
+    decoys = [
+        {
+            "digest": f"sha256:{position + 1:064x}",
+            "size": 1,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "platform": {"architecture": f"other-{position:02d}", "os": "linux"},
+        }
+        for position in range(13)
+    ]
+    index_payload = _canonical_json(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [selected, *decoys],
+        }
+    )
+    object_payloads = (index_payload, manifest_payload, config_payload)
+    object_specs = tuple(
+        (len(payload), hashlib.sha256(payload).hexdigest()) for payload in object_payloads
+    )
+
+    monkeypatch.setattr(runtime_base_ancestry, "_BASE_LAYERS", base_layers)
+    monkeypatch.setattr(runtime_base_ancestry, "_BASE_DIFF_IDS", base_diff_ids)
+    monkeypatch.setattr(runtime_base_ancestry, "_ROOT_DIGEST", object_specs[0][1])
+    monkeypatch.setattr(runtime_base_ancestry, "_MANIFEST_DIGEST", manifest_digest)
+    monkeypatch.setattr(runtime_base_ancestry, "_CONFIG_DIGEST", config_digest)
+    monkeypatch.setattr(runtime_base_ancestry, "_OBJECT_SPECS", object_specs)
+    monkeypatch.setitem(globals(), "_fixture_bytes", lambda: object_payloads)
 
     calls = []
+    canonical_predecessor = (
+        runtime_oci_layers.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes
+    )
 
-    def predecessor_oracle(candidate):
+    def observe_predecessor(candidate):
         calls.append(candidate)
-        if candidate is not evidence:
-            raise ValueError("invalid PR22 issued evidence") from None
-        return b'{"schema_version":"laya-runtime-oci-layer-diff-ids-evidence-v1"}\n'
+        return canonical_predecessor(candidate)
 
     monkeypatch.setattr(
         runtime_oci_layers,
         "canonical_laya_runtime_oci_layer_diff_ids_summary_bytes",
-        predecessor_oracle,
+        observe_predecessor,
     )
     return evidence, calls
 
