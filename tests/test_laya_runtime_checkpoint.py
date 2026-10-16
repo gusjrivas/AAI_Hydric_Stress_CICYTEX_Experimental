@@ -208,7 +208,9 @@ def test_git_lfs_pointer_is_rejected_even_when_declared_bytes_match_shape(termin
 def test_chunk_count_cap_and_exact_size_digest_mismatch_are_independent():
     checkpoint = _core()
     plan = _plan()
-    descriptor = plan.files[-1]
+    chunk_descriptor = plan.files[0]
+    digest_descriptor = plan.files[-1]
+    assert chunk_descriptor.size_bytes > checkpoint.MAX_CHECKPOINT_CHUNKS
     requested = 0
 
     def too_many():
@@ -219,14 +221,14 @@ def test_chunk_count_cap_and_exact_size_digest_mismatch_are_independent():
         raise AssertionError("chunk cap must stop the stream")
 
     with pytest.raises(ValueError):
-        checkpoint.verify_laya_checkpoint_file_chunks(plan, descriptor.sha256, too_many())
+        checkpoint.verify_laya_checkpoint_file_chunks(plan, chunk_descriptor.sha256, too_many())
     assert requested == checkpoint.MAX_CHECKPOINT_CHUNKS + 1
 
     with pytest.raises(ValueError):
         checkpoint.verify_laya_checkpoint_file_chunks(
             plan,
-            descriptor.sha256,
-            iter((b"x" * descriptor.size_bytes,)),
+            digest_descriptor.sha256,
+            iter((b"x" * digest_descriptor.size_bytes,)),
         )
 
 
