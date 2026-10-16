@@ -1194,3 +1194,80 @@ def test_pr22_issuance_registry_is_liveness_safe_and_never_lends_authority(monke
     for _ in range(2):
         with pytest.raises((TypeError, ValueError), match="evidence|issued|seal|valid"):
             module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(unissued)
+
+
+def test_pr22_module_registries_cleanup_and_guard_against_stale_id_records(monkeypatch):
+    from human_feedback import runtime_oci_layers as module
+
+    registry_names = (
+        "_ISSUED_PLANS",
+        "_ISSUED_RECEIPTS",
+        "_ISSUED_AUTHORITIES",
+        "_ISSUED_EVIDENCE",
+    )
+    registries = {name: getattr(module, name) for name in registry_names}
+    assert all(type(registry) is dict for registry in registries.values())
+    gc.collect()
+    baseline = {name: len(registry) for name, registry in registries.items()}
+
+    first = _issued_layer_evidence(monkeypatch)
+    first_objects = {
+        "_ISSUED_PLANS": (first.plan,),
+        "_ISSUED_RECEIPTS": first.receipts,
+        "_ISSUED_AUTHORITIES": (first.authority,),
+        "_ISSUED_EVIDENCE": (first.evidence,),
+    }
+    for name, values in first_objects.items():
+        registry = registries[name]
+        assert len(registry) == baseline[name] + len(values)
+        for value in values:
+            record = registry[id(value)]
+            assert type(record.reference) is weakref.ReferenceType
+            assert record.reference() is value
+    del name, registry, values, value, record
+
+    second = _issued_layer_evidence(monkeypatch)
+    evidence_registry = registries["_ISSUED_EVIDENCE"]
+    first_identity = id(first.evidence)
+    first_reference = weakref.ref(first.evidence)
+    expired_record = evidence_registry[first_identity]
+    replacement_record = evidence_registry[id(second.evidence)]
+
+    # Simulate id reuse: the expired object's callback must only remove its own
+    # exact weakref record, never a newer record now stored under the same key.
+    evidence_registry[first_identity] = replacement_record
+    del first_objects
+    del first
+    gc.collect()
+    assert first_reference() is None
+    assert expired_record.reference() is None
+    assert evidence_registry[first_identity] is replacement_record
+    evidence_registry.pop(first_identity)
+    del expired_record
+
+    # A record whose weakref resolves to another object cannot authorize an
+    # equal exact-class clone merely because the dict key matches its id.
+    alien = _clone_all_slots(second.evidence)
+    alien_identity = id(alien)
+    evidence_registry[alien_identity] = replacement_record
+    try:
+        with pytest.raises((TypeError, ValueError), match="evidence|issued|seal|valid"):
+            module.canonical_laya_runtime_oci_layer_diff_ids_summary_bytes(alien)
+    finally:
+        if evidence_registry.get(alien_identity) is replacement_record:
+            evidence_registry.pop(alien_identity)
+
+    second_references = tuple(
+        weakref.ref(value)
+        for value in (
+            second.plan,
+            *second.receipts,
+            second.authority,
+            second.evidence,
+        )
+    )
+    del alien
+    del second
+    gc.collect()
+    assert all(reference() is None for reference in second_references)
+    assert {name: len(registry) for name, registry in registries.items()} == baseline
