@@ -14,6 +14,7 @@
 - [ ] 1.12 RED audit remediation: prove factory capability secrecy and exact-class forgery rejection.
 - [ ] 1.13 RED audit remediation: prove the closed role/kind/derived-field matrix.
 - [ ] 1.14 RED audit remediation: prove deep PR34 ancestry validation in the unit verifier.
+- [ ] 1.15 P0 audit remediation: prove PR34 plan/receipt/capture-authority/evidence issuance, not shape alone.
 
 ## 2. RED tests
 
@@ -24,12 +25,15 @@
 - [ ] 2.5 Add failing tests for exact conservative flags and absent productive callers.
 - [ ] 2.6 Add failing tests for public exports, live caps and zero-consumption structural preflight.
 - [ ] 2.7 Add failing tests for forged classes, derived fields and shallow PR34 wrappers.
+- [ ] 2.8 Add failing tests for `object.__new__`, field/slot clones and shape-only PR34 graphs before object consumption.
 
 ## 3. GREEN implementation
 
 - [ ] 3.1 Implement the pure bounded Git object validator without adapters or I/O.
 - [ ] 3.2 Implement exact source and checkpoint provenance plans and evidence.
 - [ ] 3.3 Implement deep canonical revalidation and privacy-safe summary.
+- [ ] 3.4 Narrowly harden PR34 issuance so its canonical summary rejects unissued checkpoint graphs.
+- [ ] 3.5 Require that issuance proof in provenance plan preparation and object-set verification.
 
 ## 4. Gates
 
@@ -44,4 +48,3 @@
 - [ ] 5.1 Design secure repository capture separately from the pure core.
 - [ ] 5.2 Perform origin/authenticity attestation and legal license review separately.
 - [ ] 5.3 Materialize or execute Laya only after their own TDD evidence gates.
-

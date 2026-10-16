@@ -75,6 +75,29 @@ descriptor but SHALL NOT independently prove checkpoint payload bytes.
 - **WHEN** oid, size, role, path, revision or runtime identity differs
 - **THEN** no provenance evidence is sealed
 
+### Requirement: PR34 authority SHALL require verified issuance
+
+PR35 SHALL accept only checkpoint plans, receipts, capture authority and evidence
+issued by PR34's verified streaming path and private sealers.  Matching classes,
+fields, slots, shapes or recomputed digests alone SHALL convey no authority.
+
+#### Scenario: A checkpoint graph is cloned structurally
+
+- **WHEN** `object.__new__`, copied fields/slots or a shape-only wrapper forges any PR34 node
+- **THEN** canonical checkpoint summary and provenance plan preparation fail
+- **AND** no provenance object chunk is consumed
+
+### Requirement: PR34 issuance SHALL be narrowly hardened
+
+The checkpoint module SHALL retain private issuance evidence across plan, receipts,
+capture authority and final evidence.  This dependency hardening SHALL add no new
+payload, origin, license, materialization, executor or inference claim.
+
+#### Scenario: Structure matches without issuance
+
+- **WHEN** all visible PR34 values match but the private issuance chain is absent
+- **THEN** checkpoint and provenance validation fail closed
+
 ### Requirement: Checkpoint Apache metadata SHALL remain a declaration
 
 The system SHALL recognize expected Apache metadata only in the exact README blob
@@ -167,7 +190,8 @@ without ever exposing or lending that capability to a caller.
 
 `verify_laya_runtime_provenance_objects` SHALL deeply validate the exact PR34
 checkpoint evidence, deployment graph, runtime identity, five descriptors and
-bindings before stream preflight and again before provenance sealing.
+bindings plus the issued plan/receipt/capture chain before stream preflight and
+again before provenance sealing.
 
 #### Scenario: A shallow checkpoint wrapper recomputes its digest
 
@@ -228,4 +252,3 @@ enforce a fixed subprocess timeout.
 
 - **WHEN** precheck cannot prove a required object exists locally
 - **THEN** the helper fails without lazy fetch, replacement lookup or terminal prompt
-

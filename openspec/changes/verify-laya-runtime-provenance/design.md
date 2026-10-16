@@ -62,6 +62,19 @@ receipts nor re-hashes payloads.  It rejects a checkpoint DAG, pointer or descri
 that does not bind exactly to the same runtime identity, revision and five-file
 manifest proven by PR34.
 
+## Inherited checkpoint issuance prerequisite
+
+PR35 accepts only checkpoint plans, per-file receipts, capture authority and final
+evidence issued by PR34's verified streaming path and private sealers.  Exact-class
+instances created with `object.__new__`, copied fields/slots or shape-only wrappers
+have no authority, even when their visible values and recomputed digest match.
+
+This P0 requires narrow hardening in `runtime_checkpoint`: its canonical summary and
+the provenance plan preparer must prove the issuance chain, not merely structure.
+Both reject forged ancestors before any provenance object stream is consumed.  This
+is a necessary dependency correction to the earlier no-modification assumption; it
+does not add a checkpoint, origin, license, materialization or execution claim.
+
 ## Bounded validation and canonical evidence
 
 The fixed caps are 16 objects, 64 KiB per object, 1 MiB aggregate object bytes,
@@ -102,7 +115,8 @@ Envelope, receipt and evidence constructors require a private factory capability
 that is never exported or passed to callers.  Exact-class checks reject subclasses,
 proxies and `object.__new__` forgeries.  The unit object-set verifier deeply
 revalidates the full PR34 checkpoint ancestry before preflight and again before
-sealing; a recomputed shallow wrapper cannot lend authority.
+sealing; a recomputed shallow wrapper cannot lend authority.  The verifier never
+passes a PR34 or PR35 factory capability to user code.
 
 ## Claims and privacy
 
@@ -143,4 +157,3 @@ checkpoint tree/LFS links, PR34 binding, caps, privacy, mix-and-match rejection 
 conservative flags.  GREEN will implement only the pure validator.  A later slice
 may design secure capture; origin attestation, legal review and execution require
 separate contracts.
-

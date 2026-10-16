@@ -20,6 +20,8 @@ execution attestation.
   small-file or Git LFS pointer links and README Apache metadata.
 - Bind checkpoint Git metadata to exact PR34 checkpoint evidence.  PR34 remains
   the sole authority for the five checkpoint payload bytes.
+- Accept only PR34 plans, receipts, capture authority and evidence issued by the
+  verified streaming path and private sealers; structural lookalikes carry no authority.
 - Add conservative content/declaration-observed flags, private evidence and an opt-in real
   gate over externally captured inputs.
 - Close `__all__` to intended constants, five public immutable dataclasses and the
@@ -31,7 +33,8 @@ execution attestation.
   to `prepare_laya_runtime_provenance_plan`,
   `verify_laya_runtime_provenance_objects` and
   `canonical_laya_runtime_provenance_summary_bytes`.
+- Narrow hardening of PR34 issuance is a required dependency so factory-less or
+  shape-only checkpoint graphs cannot cross the provenance boundary.
 - No filesystem adapter, network, clone, fetch, download or productive caller.
 - No legal conclusion, signature/authenticity proof, runtime materialization,
   executor or inference claim.
-
