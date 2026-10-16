@@ -7,6 +7,7 @@ WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
 JOB_NAME = "laya-oci-tar-contract"
 FOCAL_TESTS = (
     "tests/test_laya_runtime_oci_tar.py",
+    "tests/test_laya_runtime_oci_rootfs.py",
     "tests/test_laya_runtime_oci_layers.py",
     "tests/test_laya_runtime_oci_layout_filesystem.py",
 )

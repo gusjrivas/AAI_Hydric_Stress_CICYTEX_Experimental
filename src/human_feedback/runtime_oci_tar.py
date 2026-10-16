@@ -19,6 +19,10 @@ MAX_OCI_TAR_PAX_BYTES = 1_024 * 1_024
 MAX_OCI_TAR_ENTRY_PAYLOAD_BYTES = 2 * 1_024 * 1_024 * 1_024
 MAX_OCI_TAR_PAYLOAD_BYTES = 3 * 1_024 * 1_024 * 1_024
 MAX_OCI_TAR_BYTES = MAX_OCI_TAR_PAYLOAD_BYTES + (MAX_OCI_TAR_ENTRIES + 2) * 512
+MAX_OCI_TAR_MODE = int("7" * 7, 8)
+MAX_OCI_TAR_UID = int("7" * 7, 8)
+MAX_OCI_TAR_GID = int("7" * 7, 8)
+MAX_OCI_TAR_MTIME = int("7" * 11, 8)
 
 _BLOCK_BYTES = 512
 _FACTORY_TOKEN = object()
@@ -132,6 +136,10 @@ class LayaOciTarEntry:
     size_bytes: int
     link_target: str | None = field(repr=False)
     _factory_token: InitVar[object]
+    mode: int = field(default=0, repr=False, kw_only=True)
+    uid: int = field(default=0, repr=False, kw_only=True)
+    gid: int = field(default=0, repr=False, kw_only=True)
+    mtime: int = field(default=0, repr=False, kw_only=True)
 
     def __post_init__(self, _factory_token: object) -> None:
         if _factory_token is not _FACTORY_TOKEN:
@@ -143,9 +151,21 @@ class LayaOciTarEntry:
             or (self.typeflag in ("1", "2", "5") and self.size_bytes != 0)
             or (self.typeflag in ("1", "2")) != (type(self.link_target) is str)
             or (self.typeflag not in ("1", "2") and self.link_target is not None)
+            or any(
+                type(value) is not int or not 0 <= value <= maximum
+                for value, maximum in (
+                    (self.mode, MAX_OCI_TAR_MODE),
+                    (self.uid, MAX_OCI_TAR_UID),
+                    (self.gid, MAX_OCI_TAR_GID),
+                    (self.mtime, MAX_OCI_TAR_MTIME),
+                )
+            )
         ):
             raise ValueError("OCI TAR entry binding is invalid")
-        if _normalize_entry_path(self.path) != self.path:
+        if self.path == ".":
+            if self.typeflag != "5" or self.size_bytes != 0 or self.link_target is not None:
+                raise ValueError("OCI TAR root directory metadata is invalid")
+        elif _normalize_entry_path(self.path) != self.path:
             raise ValueError("OCI TAR entry path is invalid")
         if self.link_target is not None:
             _validate_link_target(self.link_target)
@@ -205,6 +225,7 @@ class VerifiedLayaOciTarLayer:
     payload_size_bytes: int = field(repr=False)
     tar_size_bytes: int = field(repr=False)
     _factory_token: InitVar[object]
+    root_directory: LayaOciTarEntry | None = field(default=None, repr=False, kw_only=True)
     tar_semantics_verified: bool = field(default=True, init=False)
     oci_rootfs_verified: bool = field(default=False, init=False)
     rootfs_materialized: bool = field(default=False, init=False)
@@ -244,6 +265,9 @@ class VerifiedLayaOciTarLayer:
             or type(self.entries) is not tuple
             or len(self.entries) > MAX_OCI_TAR_ENTRIES
             or any(type(entry) is not LayaOciTarEntry for entry in self.entries)
+            or (
+                self.root_directory is not None and type(self.root_directory) is not LayaOciTarEntry
+            )
             or type(self.payload_size_bytes) is not int
             or not 0 <= self.payload_size_bytes <= MAX_OCI_TAR_PAYLOAD_BYTES
             or type(self.tar_size_bytes) is not int
@@ -255,9 +279,20 @@ class VerifiedLayaOciTarLayer:
         ):
             raise ValueError("OCI TAR receipt binding is invalid")
         paths: set[str] = set()
+        if self.root_directory is not None:
+            self.root_directory.__post_init__(_FACTORY_TOKEN)
+            if (
+                self.root_directory.path != "."
+                or self.root_directory.typeflag != "5"
+                or self.root_directory.size_bytes != 0
+                or self.root_directory.link_target is not None
+            ):
+                raise ValueError("OCI TAR root directory metadata is invalid")
         payload_size = 0
         for entry in self.entries:
             entry.__post_init__(_FACTORY_TOKEN)
+            if entry.path == ".":
+                raise ValueError("OCI TAR root marker cannot be an ordinary entry")
             if entry.path in paths:
                 raise ValueError("OCI TAR receipt has duplicate entry paths")
             paths.add(entry.path)
@@ -562,6 +597,7 @@ class _TarParser:
         self.gnu_longname: str | None = None
         self.gnu_longlink: str | None = None
         self.global_metadata_pending = False
+        self.root_directory: LayaOciTarEntry | None = None
 
     def feed(self, chunk: bytes) -> None:
         self.chunk_count += 1
@@ -655,8 +691,10 @@ class _TarParser:
                 raise ValueError("OCI TAR GNU extended header fields are invalid")
         else:
             raise ValueError("OCI TAR header profile is invalid")
-        for start, end in ((100, 108), (108, 116), (116, 124), (136, 148)):
-            _parse_octal(header[start:end])
+        mode = _parse_octal(header[100:108])
+        uid = _parse_octal(header[108:116])
+        gid = _parse_octal(header[116:124])
+        mtime = _parse_octal(header[136:148])
         header_size = _parse_octal(header[124:136])
         raw_typeflag = header[156:157]
         if raw_typeflag not in (b"\0", b"0", b"1", b"2", b"5", b"g", b"x", b"L", b"K"):
@@ -710,6 +748,20 @@ class _TarParser:
                 or self.gnu_longlink is not None
             ):
                 raise ValueError("OCI TAR root directory marker is invalid")
+            root_directory = LayaOciTarEntry(
+                path=".",
+                typeflag="5",
+                size_bytes=0,
+                link_target=None,
+                mode=mode,
+                uid=uid,
+                gid=gid,
+                mtime=mtime,
+                _factory_token=_FACTORY_TOKEN,
+            )
+            if self.root_directory is not None and self.root_directory != root_directory:
+                raise ValueError("OCI TAR root directory metadata is invalid")
+            self.root_directory = root_directory
             self.payload_remaining = 0
             self.padding_remaining = 0
             self.global_metadata_pending = False
@@ -736,6 +788,10 @@ class _TarParser:
             typeflag=typeflag,
             size_bytes=size,
             link_target=link_target,
+            mode=mode,
+            uid=uid,
+            gid=gid,
+            mtime=mtime,
             _factory_token=_FACTORY_TOKEN,
         )
         self.paths.add(path)
@@ -772,7 +828,9 @@ class _TarParser:
         if not size:
             self._complete_payload()
 
-    def finish(self) -> tuple[tuple[LayaOciTarEntry, ...], int, int]:
+    def finish(
+        self,
+    ) -> tuple[tuple[LayaOciTarEntry, ...], int, int, LayaOciTarEntry | None]:
         self._advance()
         if (
             self.buffer
@@ -787,7 +845,12 @@ class _TarParser:
             or self.global_metadata_pending
         ):
             raise ValueError("OCI TAR stream is truncated or lacks termination")
-        return tuple(self.entries), self.payload_size, self.total_bytes
+        return (
+            tuple(self.entries),
+            self.payload_size,
+            self.total_bytes,
+            self.root_directory,
+        )
 
 
 def _authorize_plan_and_digest(
@@ -864,7 +927,7 @@ def verify_laya_oci_tar_semantics_chunks(
             compressed_chunks,
             parser.feed,
         )
-        entries, payload_size, tar_size = parser.finish()
+        entries, payload_size, tar_size, root_directory = parser.finish()
         return VerifiedLayaOciTarLayer(
             plan=authorized_plan,
             layer_receipt=layer_receipt,
@@ -872,6 +935,7 @@ def verify_laya_oci_tar_semantics_chunks(
             entries=entries,
             payload_size_bytes=payload_size,
             tar_size_bytes=tar_size,
+            root_directory=root_directory,
             _factory_token=_FACTORY_TOKEN,
         )
     except Exception:
@@ -899,7 +963,7 @@ def _verify_laya_oci_tar_semantics_chunks_with_budget(
             parser.feed,
             max_uncompressed_bytes=max_uncompressed_bytes,
         )
-        entries, payload_size, tar_size = parser.finish()
+        entries, payload_size, tar_size, root_directory = parser.finish()
         return VerifiedLayaOciTarLayer(
             plan=authorized_plan,
             layer_receipt=layer_receipt,
@@ -907,6 +971,7 @@ def _verify_laya_oci_tar_semantics_chunks_with_budget(
             entries=entries,
             payload_size_bytes=payload_size,
             tar_size_bytes=tar_size,
+            root_directory=root_directory,
             _factory_token=_FACTORY_TOKEN,
         )
     except Exception:
