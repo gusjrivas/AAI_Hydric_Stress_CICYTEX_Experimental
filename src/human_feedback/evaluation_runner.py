@@ -42,6 +42,7 @@ class _AcceptedBatchReceipt:
     item_count: int
     request_sha256: str
     response_sha256: str
+    canonical_response: bytes = field(repr=False)
     runtime_identity: object
     model_identity: object
     inference_port: object
@@ -210,6 +211,7 @@ def _accepted_batch(
         item_count=len(records),
         request_sha256=hashlib.sha256(request).hexdigest(),
         response_sha256=hashlib.sha256(canonical_response).hexdigest(),
+        canonical_response=canonical_response,
         runtime_identity=runtime_identity,
         model_identity=model_identity,
         inference_port=inference_port,
@@ -279,22 +281,34 @@ def _run_human_loso_mechanical_fixture(
             _raise_private_failure()
         state = _state_for(protocol)
         owner = threading.get_ident()
-        with state.condition:
-            while state.owner_thread is not None:
-                if state.owner_thread == owner:
+        while not acquired:
+            with state.condition:
+                while state.owner_thread is not None:
+                    if state.owner_thread == owner:
+                        _raise_private_failure()
+                    state.condition.wait()
+
+            # Waiting releases the condition and another execution may fail or
+            # external code may tamper with the parent graph.  Deep validation
+            # deliberately happens without holding the per-run condition.
+            _run_protocol._require_issued_human_loso_execution_protocol(protocol)
+
+            with state.condition:
+                if state.owner_thread is not None:
+                    continue
+                if state.protocol_ref() is not protocol:
                     _raise_private_failure()
-                state.condition.wait()
-            _bind_state(
-                state,
-                inference_port=inference_port,
-                runtime_identity=runtime_identity,
-                model_identity=model_identity,
-                fold_count=len(protocol._plan.folds),
-            )
-            if state.result is not None:
-                return state.result
-            state.owner_thread = owner
-            acquired = True
+                _bind_state(
+                    state,
+                    inference_port=inference_port,
+                    runtime_identity=runtime_identity,
+                    model_identity=model_identity,
+                    fold_count=len(protocol._plan.folds),
+                )
+                if state.result is not None:
+                    return state.result
+                state.owner_thread = owner
+                acquired = True
 
         result = _execute_mechanical_state_machine(
             protocol=protocol,
@@ -318,3 +332,86 @@ def _run_human_loso_mechanical_fixture(
     if failed or result is None:
         _raise_private_failure()
     return result
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _sealed_human_loso_mechanical_batches(
+    protocol: object,
+) -> tuple[_AcceptedBatchReceipt, ...]:
+    """Return validated private batch receipts for a completed mechanical run."""
+
+    sealed: tuple[_AcceptedBatchReceipt, ...] | None = None
+    try:
+        issued = _run_protocol._require_issued_human_loso_execution_protocol(protocol)
+        key = id(issued)
+        with _STATES_LOCK:
+            state = _STATES.get(key)
+            if state is None or state.protocol_ref() is not issued:
+                raise ValueError
+
+        from human_feedback import loso_offline_adapter as adapter
+
+        with state.condition:
+            result = state.result
+            if (
+                state.owner_thread is not None
+                or type(result) is not _HumanLosoMechanicalRunEvidence
+                or result.mechanical_execution_verified is not True
+                or result.scientific_execution_completed is not False
+                or result.calibration_fitted is not False
+                or result.gold_blind_execution_attested is not False
+                or result.scientifically_sufficient is not False
+                or result.eligible_for_shadow_review is not False
+                or result.production_enablement_authorized is not False
+                or state.inference_port is None
+                or state.runtime_identity is None
+                or state.model_identity is None
+                or len(state.folds) != len(issued._plan.folds)
+            ):
+                raise ValueError
+            receipts: list[_AcceptedBatchReceipt] = []
+            for fold_index, fold in enumerate(issued._plan.folds):
+                progress = state.folds[fold_index]
+                expected = (
+                    ("calibration", progress.calibration_receipt, len(fold.calibration_records)),
+                    ("test", progress.test_receipt, len(fold.test_records)),
+                )
+                if not progress.outer_test_released:
+                    raise ValueError
+                for phase, receipt, count in expected:
+                    if (
+                        type(receipt) is not _AcceptedBatchReceipt
+                        or receipt.phase != phase
+                        or type(receipt.fold_index) is not int
+                        or receipt.fold_index != fold_index
+                        or type(receipt.item_count) is not int
+                        or receipt.item_count != count
+                        or not _is_sha256(receipt.request_sha256)
+                        or not _is_sha256(receipt.response_sha256)
+                        or type(receipt.canonical_response) is not bytes
+                        or hashlib.sha256(receipt.canonical_response).hexdigest()
+                        != receipt.response_sha256
+                        or receipt.runtime_identity is not state.runtime_identity
+                        or receipt.model_identity is not state.model_identity
+                        or receipt.inference_port is not state.inference_port
+                        or adapter.validate_laya_loso_offline_response(
+                            receipt.canonical_response,
+                            expected_count=receipt.item_count,
+                        )
+                        != receipt.canonical_response
+                    ):
+                        raise ValueError
+                    receipts.append(receipt)
+            sealed = tuple(receipts)
+    except Exception:
+        pass
+    if sealed is None:
+        _raise_private_failure()
+    return sealed
