@@ -129,9 +129,7 @@ def test_export_rejects_changes_to_projected_engine_files(damage):
 
     expected = verifier._capture_installation_tar(_chunks(_tar()))
     with pytest.raises(ValueError, match="recapture"):
-        verifier._verify_exported_installation(
-            _chunks(_tar(projection_damage=damage)), expected
-        )
+        verifier._verify_exported_installation(_chunks(_tar(projection_damage=damage)), expected)
 
 
 def test_export_normalizes_only_projected_file_mtime():
@@ -139,9 +137,7 @@ def test_export_normalizes_only_projected_file_mtime():
 
     expected = verifier._capture_installation_tar(_chunks(_tar()))
     assert (
-        verifier._verify_exported_installation(
-            _chunks(_tar(projection_damage="mtime")), expected
-        )
+        verifier._verify_exported_installation(_chunks(_tar(projection_damage="mtime")), expected)
         == expected.commitment_sha256
     )
 
@@ -164,9 +160,7 @@ def test_fourth_root_owned_projected_file_is_not_permitted():
         verifier._capture_installation_tar(_chunks(_tar(extra="etc/fourth")))
     expected = verifier._capture_installation_tar(_chunks(_tar()))
     with pytest.raises(ValueError, match="recapture"):
-        verifier._verify_exported_installation(
-            _chunks(_tar(extra="etc/fourth")), expected
-        )
+        verifier._verify_exported_installation(_chunks(_tar(extra="etc/fourth")), expected)
 
 
 @pytest.mark.parametrize("damage", ["truncated", "tail", "checksum", "duplicate"])
