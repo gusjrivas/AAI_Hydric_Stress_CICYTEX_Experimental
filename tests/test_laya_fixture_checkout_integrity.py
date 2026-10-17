@@ -16,6 +16,18 @@ FIXTURES = {
         3_166,
         "7e46eb4f9e10b81e550b2587d1b12d50e0e9d746e346077e860e702ce169d9f0",
     ),
+    "/tests/fixtures/laya/runtime_base_ancestry/root.json": (
+        9_131,
+        "840e180ebcc6e5c8efab209c43f5e40fd2af98cb49db5c7103c90539c56bb30e",
+    ),
+    "/tests/fixtures/laya/runtime_base_ancestry/linux-amd64-manifest.json": (
+        1_752,
+        "efc99f05ec45381aac55e2803c9a0245ea5b8c74965264498338e24e4bf66cc7",
+    ),
+    "/tests/fixtures/laya/runtime_base_ancestry/linux-amd64-config.json": (
+        5_295,
+        "80abb94774d660831663290fe0b208b3e067b88647902f0f9e1d3a331a997afd",
+    ),
 }
 
 

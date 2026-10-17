@@ -107,6 +107,35 @@ jobs:
       - name: Test runtime provenance contract
         run: python -m pytest tests/test_laya_runtime_provenance.py
 
+  laya-runtime-supply-convergence-contract:
+    needs:
+      - laya-runtime-base-ancestry-contract
+      - laya-runtime-provenance-contract
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Test runtime supply convergence contract
+        run: >-
+          python -m pytest
+          tests/test_laya_runtime_supply_convergence_contract.py
+          tests/test_laya_runtime_supply_convergence_security.py
+          tests/test_laya_runtime_supply_convergence_privacy.py
+
   experiment-v4-container:
     runs-on: ubuntu-latest
     steps:
