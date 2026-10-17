@@ -168,6 +168,7 @@ class _HijackResponse:
         )
         self.payload = bytearray(payload)
         self.fragment = fragment
+        self.closed = False
 
     def getheader(self, name, default=None):
         return self.headers.get(name, default)
@@ -179,6 +180,9 @@ class _HijackResponse:
         return result
 
     read1 = read
+
+    def close(self):
+        self.closed = True
 
 
 class _HijackSocket:
@@ -237,9 +241,12 @@ def _hijack_transport(monkeypatch, response, *, expired=False):
     from human_feedback.adapters import local_docker_engine as module
 
     class Watchdog:
+        instances = []
+
         def __init__(self, _connection, _deadline):
             self.expired = expired
             self.cancelled = False
+            self.instances.append(self)
 
         def cancel(self):
             self.cancelled = True
@@ -248,7 +255,7 @@ def _hijack_transport(monkeypatch, response, *, expired=False):
     _HijackConnection.response = response
     monkeypatch.setattr(module, "_UnixSocketHTTPConnection", _HijackConnection)
     monkeypatch.setattr(module, "_DeadlineWatchdog", Watchdog)
-    return module, module._LocalUnixTransport()
+    return module, module._LocalUnixTransport(), Watchdog
 
 
 def _created_engine(*, transport=None):
@@ -413,7 +420,7 @@ def test_attach_transport_upgrades_writes_eof_and_decodes_fragmented_frames(monk
     stdout = b"canonical response"
     stderr = b"bounded warning"
     response = _HijackResponse(_frame(1, stdout) + _frame(2, stderr), fragment=1)
-    module, transport = _hijack_transport(monkeypatch, response)
+    module, transport, _watchdog_type = _hijack_transport(monkeypatch, response)
     path = f"/v1.44/containers/{CONTAINER_ID}/attach?" "stream=1&stdin=1&stdout=1&stderr=1"
 
     with transport.open_attach(
@@ -471,7 +478,7 @@ def test_attach_transport_rejects_nonexact_upgrade_before_private_input(
     monkeypatch, status, headers
 ):
     response = _HijackResponse(b"", status=status, headers=headers)
-    module, transport = _hijack_transport(monkeypatch, response)
+    module, transport, watchdog_type = _hijack_transport(monkeypatch, response)
 
     with pytest.raises(module.LocalDockerEngineError):
         transport.open_attach(
@@ -485,6 +492,62 @@ def test_attach_transport_rejects_nonexact_upgrade_before_private_input(
     connection = _HijackConnection.instances[0]
     assert connection.sent == []
     assert connection.closed is True
+    assert response.closed is True
+    assert watchdog_type.instances[0].cancelled is True
+
+
+def test_attach_transport_closes_manual_response_when_header_parsing_fails(monkeypatch):
+    from human_feedback.adapters import local_docker_engine as module
+
+    real_connection_type = module._UnixSocketHTTPConnection
+    responses = []
+
+    class BrokenResponse:
+        def __init__(self, _socket):
+            self.closed = False
+            responses.append(self)
+
+        def begin(self):
+            raise OSError("PRIVATE-ATTACH-HEADER-CANARY")
+
+        def close(self):
+            self.closed = True
+
+    class BeginFailureConnection(_HijackConnection):
+        instances = []
+
+        def begin_hijacked_response(self):
+            return real_connection_type.begin_hijacked_response(self)
+
+    class Watchdog:
+        instances = []
+
+        def __init__(self, _connection, _deadline):
+            self.expired = False
+            self.cancelled = False
+            self.instances.append(self)
+
+        def cancel(self):
+            self.cancelled = True
+
+    monkeypatch.setattr(module, "_UnixSocketHTTPConnection", BeginFailureConnection)
+    monkeypatch.setattr(module, "_DeadlineWatchdog", Watchdog)
+    monkeypatch.setattr(module.http.client, "HTTPResponse", BrokenResponse)
+
+    with pytest.raises(module.LocalDockerEngineError) as caught:
+        module._LocalUnixTransport().open_attach(
+            f"/v1.44/containers/{CONTAINER_ID}/attach?" "stream=1&stdin=1&stdout=1&stderr=1",
+            stdin_limit=64 * 1024,
+            stdout_limit=64 * 1024,
+            stderr_limit=8 * 1024,
+            timeout=300.0,
+        )
+
+    assert "PRIVATE-ATTACH-HEADER-CANARY" not in str(caught.value)
+    assert len(responses) == 1 and responses[0].closed is True
+    assert BeginFailureConnection.instances[0].sent == []
+    assert BeginFailureConnection.instances[0].closed is True
+    assert Watchdog.instances[0].cancelled is True
 
 
 @pytest.mark.parametrize(
@@ -499,7 +562,7 @@ def test_attach_transport_rejects_nonexact_upgrade_before_private_input(
 )
 def test_attach_transport_closes_on_malformed_or_oversized_frames(monkeypatch, payload):
     response = _HijackResponse(payload, fragment=2)
-    module, transport = _hijack_transport(monkeypatch, response)
+    module, transport, _watchdog_type = _hijack_transport(monkeypatch, response)
 
     with pytest.raises(module.LocalDockerEngineError):
         with transport.open_attach(
@@ -517,7 +580,7 @@ def test_attach_transport_closes_on_malformed_or_oversized_frames(monkeypatch, p
 
 def test_attach_transport_deadline_closes_without_writing_private_input(monkeypatch):
     response = _HijackResponse(_frame(1, RESPONSE))
-    module, transport = _hijack_transport(monkeypatch, response, expired=True)
+    module, transport, _watchdog_type = _hijack_transport(monkeypatch, response, expired=True)
 
     with pytest.raises(module.LocalDockerEngineError):
         with transport.open_attach(
