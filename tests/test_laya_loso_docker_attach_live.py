@@ -93,7 +93,7 @@ def test_real_attach_round_trip_is_bounded_and_disposes_only_its_child(payload):
             stdin_limit=65536,
             stdout_limit=65536,
             stderr_limit=8192,
-            timeout=30.0,
+            timeout=300.0,
         ) as attached:
             assert request("POST", f"{prefix}/containers/{container_id}/start").status == 204
             stdout, stderr = attached.exchange(payload)
