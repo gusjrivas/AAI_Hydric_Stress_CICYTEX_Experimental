@@ -11,11 +11,13 @@ resultado podría depender de decisiones tomadas después de inspeccionarlo.
 
 - Se agrega un verificador puro, basado en bytes, para un manifest cerrado.
 - El manifest queda ligado por digest al corpus privado y al plan LOSO.
-- Se verifican por contenido cinco artefactos externos: muestreo, guía de
-  anotación, adjudicación, desidentificación y cadena de custodia.
+- Se verifican por contenido seis artefactos externos: muestreo, guía de
+  anotación, adjudicación, desidentificación, cadena de custodia y protocolo del
+  baseline.
 - Se fijan pisos de cohorte y acuerdo nominal pre-adjudicación.
-- Se fijan macro-F1, baseline, delta pareado, bootstrap y Holm, junto con los
-  umbrales legacy vigentes, sin ejecutar ni evaluar modelos.
+- Se fijan labels/zero-division de macro-F1, estimandos global/por sitio, baseline,
+  márgenes, intervalos/decisiones, bootstrap y la familia Holm ordenada, junto con
+  los umbrales legacy vigentes, sin ejecutar ni evaluar modelos.
 - El summary público no contiene texto ni identificadores privados.
 
 ## Fuera de alcance

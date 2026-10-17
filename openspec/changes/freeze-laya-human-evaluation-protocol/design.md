@@ -11,17 +11,20 @@ custodia declaradas hayan ocurrido en el mundo real.
 
 El schema `laya-human-evaluation-preregistration-v1` rechaza campos faltantes,
 adicionales o duplicados, números no finitos y coerciones booleano/número. Liga
-`corpus_id`, `evaluation_corpus_sha256` y `loso_plan_sha256` con los objetos ya
-validados. `required_sites` conserva el orden canónico CICYTEX, Melchor Romero y
-Pergamino.
+`corpus_id`, `evaluation_corpus_sha256`, `loso_plan_sha256` y el
+`loso_assignment_sha256` exacto con los objetos ya validados. `required_sites`
+conserva el orden canónico CICYTEX, Melchor Romero y Pergamino.
 
 ## Artefactos externos
 
 Se requieren exactamente los roles `sampling_protocol`, `annotation_guide`,
-`adjudication_protocol`, `deidentification_protocol` y `custody_record`. Cada
-entrada fija `artifact_id`, `size_bytes` y SHA-256. El verificador recalcula
+`adjudication_protocol`, `deidentification_protocol`, `custody_record` y
+`baseline_protocol`. Cada entrada fija `artifact_id`, `size_bytes` y SHA-256. El
+verificador recalcula
 tamaño y digest sobre los bytes; además contrasta los digests e identificadores
-que ya declara el corpus. No se serializa el contenido en repr, errores o summary.
+que ya declaran el corpus o el análisis. El baseline queda ligado por
+`baseline_protocol_id` y `baseline_protocol_sha256`, no sólo por un nombre lógico.
+No se serializa el contenido en repr, errores o summary.
 
 ## Cohorte preregistrada
 
@@ -40,11 +43,15 @@ autoridad del estudio, el estado científico real permanece
 
 ## Análisis congelado
 
-La métrica primaria es macro-F1 y el comparador es el baseline determinístico
-legacy sobre los mismos folds. Se fija un delta mínimo pareado de 0,05 y bootstrap
-percentil estratificado por sitio cuya unidad de remuestreo es el grupo dentro del
-sitio, con 10.000 réplicas, 95 %, semilla declarada, corrección Holm y alpha
-familiar 0,05. También se copian
+La métrica primaria es macro-F1 calculada sobre las cinco etiquetas canónicas, con
+zero-division igual a cero. El estimando primario es la media de igual peso entre
+sitios del delta macro-F1 Laya menos baseline; el estimando por sitio es ese delta
+dentro de cada sitio. Se fijan superioridad global mínima 0,05 y no inferioridad
+por sitio mínima -0,02. El bootstrap es percentil bilateral estratificado por
+sitio cuya unidad de remuestreo es el grupo dentro del sitio, con 10.000 réplicas,
+95 % y semilla declarada. Las decisiones usan el límite inferior del intervalo.
+Holm/0,05 opera sobre una familia ordenada cerrada: global, CICYTEX, Melchor Romero
+y Pergamino. También se copian
 sin reinterpretar los diez umbrales de `laya-readiness-policy-v1`; quedan como
 criterios preregistrados, no como autoridad de readiness.
 

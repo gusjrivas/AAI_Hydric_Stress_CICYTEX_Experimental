@@ -28,6 +28,13 @@ ROLES = (
     "adjudication_protocol",
     "deidentification_protocol",
     "custody_record",
+    "baseline_protocol",
+)
+HOLM_HYPOTHESIS_FAMILY = (
+    "global_equal_site_macro_f1_superiority",
+    "cicytex_macro_f1_noninferiority",
+    "melchor-romero_macro_f1_noninferiority",
+    "pergamino_macro_f1_noninferiority",
 )
 LEGACY_THRESHOLDS = {
     "minimum_decision_confidence": 0.85,
@@ -141,6 +148,7 @@ def _inputs(tmp_path: Path, *, records=None, mutate=None):
         "adjudication_protocol": corpus.adjudication_protocol_id,
         "deidentification_protocol": corpus.deidentification_protocol_id,
         "custody_record": "custody-record-v1",
+        "baseline_protocol": "deterministic-rule-baseline-protocol-v1",
     }
     preregistration = {
         "schema_version": "laya-human-evaluation-preregistration-v1",
@@ -149,6 +157,7 @@ def _inputs(tmp_path: Path, *, records=None, mutate=None):
         "corpus_id": corpus.corpus_id,
         "evaluation_corpus_sha256": evaluation_corpus_digest(corpus),
         "loso_plan_sha256": loso_evaluation_plan_digest(plan),
+        "loso_assignment_sha256": plan.assignment_sha256,
         "required_sites": list(SITES),
         "cohort": {
             "minimum_total_examples": 60,
@@ -161,15 +170,26 @@ def _inputs(tmp_path: Path, *, records=None, mutate=None):
         "analysis": {
             "primary_metric": "macro_f1",
             "baseline_id": "deterministic-rule-baseline-v1",
+            "baseline_protocol_id": artifact_ids["baseline_protocol"],
+            "baseline_protocol_sha256": hashlib.sha256(payloads["baseline_protocol"]).hexdigest(),
             "comparison_design": "same_loso_folds_paired_delta",
+            "primary_estimand": "equal_site_mean_macro_f1_laya_minus_baseline",
+            "site_estimand": "site_macro_f1_laya_minus_baseline",
             "minimum_paired_macro_f1_delta": 0.05,
+            "minimum_site_paired_macro_f1_delta": -0.02,
             "bootstrap_method": "stratified_cluster_percentile",
             "bootstrap_unit": "group_within_site",
+            "bootstrap_interval": "two_sided_percentile",
             "bootstrap_replicates": 10000,
             "bootstrap_confidence_level": 0.95,
             "bootstrap_seed": 20261017,
+            "primary_interval_decision_rule": ("lower_bound_gte_minimum_paired_delta"),
+            "site_interval_decision_rule": "lower_bound_gte_minimum_site_delta",
+            "macro_f1_labels": list(CATEGORIES),
+            "macro_f1_zero_division": 0,
             "multiplicity_correction": "holm",
             "familywise_alpha": 0.05,
+            "holm_hypothesis_family": list(HOLM_HYPOTHESIS_FAMILY),
             "legacy_policy_id": "laya-readiness-policy-v1",
             "legacy_thresholds": LEGACY_THRESHOLDS,
         },
@@ -199,6 +219,7 @@ def test_verified_protocol_binds_corpus_plan_artifacts_cohort_and_analysis(tmp_p
     assert protocol.schema_version == "laya-human-evaluation-preregistration-v1"
     assert protocol.corpus is corpus
     assert protocol.plan is plan
+    assert protocol.loso_assignment_sha256 == plan.assignment_sha256
     assert protocol.external_artifacts_verified is True
     assert protocol.cohort_constraints_satisfied is True
     assert protocol.pre_adjudication_alpha_nominal == pytest.approx(1.0)
@@ -219,9 +240,26 @@ def test_summary_and_evidence_digest_are_canonical_public_and_deterministic(tmp_
     assert decoded["analysis"]["legacy_thresholds"] == LEGACY_THRESHOLDS
     assert decoded["analysis"]["bootstrap_replicates"] == 10000
     assert decoded["analysis"]["minimum_paired_macro_f1_delta"] == 0.05
+    assert decoded["analysis"]["minimum_site_paired_macro_f1_delta"] == -0.02
+    assert decoded["analysis"]["primary_estimand"] == (
+        "equal_site_mean_macro_f1_laya_minus_baseline"
+    )
+    assert decoded["analysis"]["site_estimand"] == "site_macro_f1_laya_minus_baseline"
     assert decoded["analysis"]["bootstrap_method"] == "stratified_cluster_percentile"
     assert decoded["analysis"]["bootstrap_unit"] == "group_within_site"
+    assert decoded["analysis"]["bootstrap_interval"] == "two_sided_percentile"
+    assert decoded["analysis"]["primary_interval_decision_rule"] == (
+        "lower_bound_gte_minimum_paired_delta"
+    )
+    assert decoded["analysis"]["site_interval_decision_rule"] == (
+        "lower_bound_gte_minimum_site_delta"
+    )
+    assert decoded["analysis"]["macro_f1_labels"] == list(CATEGORIES)
+    assert decoded["analysis"]["macro_f1_zero_division"] == 0
+    assert decoded["analysis"]["holm_hypothesis_family"] == list(HOLM_HYPOTHESIS_FAMILY)
     assert decoded["analysis"]["multiplicity_correction"] == "holm"
+    assert decoded["loso_assignment_sha256"] == plan.assignment_sha256
+    assert [item["role"] for item in decoded["external_artifacts"]] == list(ROLES)
     assert decoded["scientifically_sufficient"] is False
     assert (
         human_evaluation_preregistration_evidence_digest(protocol)
@@ -248,6 +286,10 @@ def test_summary_and_evidence_digest_are_canonical_public_and_deterministic(tmp_
         (lambda raw: raw.__delitem__("analysis"), "fields|schema"),
         (lambda raw: raw.update({"evaluation_corpus_sha256": "0" * 64}), "corpus|digest"),
         (lambda raw: raw.update({"loso_plan_sha256": "0" * 64}), "plan|digest"),
+        (
+            lambda raw: raw.update({"loso_assignment_sha256": "0" * 64}),
+            "plan|assignment|digest",
+        ),
         (
             lambda raw: raw.update({"frozen_at": "2026-10-16T23:59:59Z"}),
             "frozen|corpus|time",
@@ -284,6 +326,32 @@ def test_summary_and_evidence_digest_are_canonical_public_and_deterministic(tmp_
             lambda raw: raw["analysis"].update({"bootstrap_unit": "individual_example"}),
             "bootstrap|unit",
         ),
+        (
+            lambda raw: raw["cohort"].update({"maximum_site_imbalance_ratio": 0.99}),
+            "cohort|imbalance",
+        ),
+        (
+            lambda raw: raw["cohort"].update({"minimum_pre_adjudication_alpha_nominal": 1.01}),
+            "cohort|agreement|alpha",
+        ),
+        (lambda raw: raw["cohort"].update({"unexpected": 1}), "cohort|fields|schema"),
+        (
+            lambda raw: raw["cohort"].__delitem__("minimum_groups_per_site"),
+            "cohort|fields|schema",
+        ),
+        (lambda raw: raw["analysis"].update({"unexpected": 1}), "analysis|fields|schema"),
+        (
+            lambda raw: raw["analysis"].__delitem__("site_estimand"),
+            "analysis|fields|schema",
+        ),
+        (
+            lambda raw: raw["external_artifacts"][0].update({"unexpected": 1}),
+            "artifact|fields|schema",
+        ),
+        (
+            lambda raw: raw["external_artifacts"][0].__delitem__("artifact_id"),
+            "artifact|fields|schema",
+        ),
     ),
 )
 def test_manifest_and_cohort_fail_closed(tmp_path: Path, mutation, message: str):
@@ -295,9 +363,121 @@ def test_manifest_and_cohort_fail_closed(tmp_path: Path, mutation, message: str)
     assert all(str(record["comment"]) not in str(error.value) for record in records)
 
 
+@pytest.mark.parametrize(
+    "field, invalid",
+    (
+        ("primary_estimand", "record_weighted_macro_f1"),
+        ("site_estimand", "pooled_macro_f1"),
+        ("minimum_site_paired_macro_f1_delta", -0.01),
+        ("bootstrap_interval", "one_sided_percentile"),
+        ("primary_interval_decision_rule", "point_estimate_gte_delta"),
+        ("site_interval_decision_rule", "point_estimate_gte_site_delta"),
+        ("macro_f1_labels", list(reversed(CATEGORIES))),
+        ("macro_f1_zero_division", 1),
+        ("holm_hypothesis_family", list(reversed(HOLM_HYPOTHESIS_FAMILY))),
+        ("baseline_protocol_id", "post-hoc-baseline-protocol"),
+        ("baseline_protocol_sha256", "0" * 64),
+    ),
+)
+def test_frozen_analysis_constants_cannot_be_mutated(tmp_path: Path, field: str, invalid: object):
+    raw, corpus, plan, artifacts, _ = _inputs(
+        tmp_path, mutate=lambda value: value["analysis"].update({field: invalid})
+    )
+    with pytest.raises(ValueError, match="analysis|estimand|delta|interval|macro|Holm|baseline"):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda raw: raw["cohort"].update({"minimum_total_examples": True}),
+        lambda raw: raw["analysis"].update({"bootstrap_replicates": True}),
+        lambda raw: raw["analysis"].update({"minimum_paired_macro_f1_delta": True}),
+        lambda raw: raw["analysis"].update({"macro_f1_zero_division": False}),
+        lambda raw: raw["external_artifacts"][0].update({"size_bytes": True}),
+    ),
+)
+def test_boolean_values_are_never_accepted_as_numbers(tmp_path: Path, mutation):
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path, mutate=mutation)
+    with pytest.raises(ValueError, match="number|integer|size|delta|zero division"):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+@pytest.mark.parametrize("token", ("NaN", "Infinity", "-Infinity"))
+def test_non_finite_json_numbers_are_rejected(tmp_path: Path, token: str):
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path)
+    poisoned = raw.replace(
+        b'"bootstrap_confidence_level":0.95', f'"bootstrap_confidence_level":{token}'.encode()
+    )
+    with pytest.raises(ValueError, match="non-finite|JSON|number"):
+        verify_human_evaluation_preregistration(
+            poisoned, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+def test_duplicate_json_keys_are_rejected(tmp_path: Path):
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path)
+    poisoned = raw.replace(b"{", b'{"protocol_id":"duplicate",', 1)
+    with pytest.raises(ValueError, match="duplicate"):
+        verify_human_evaluation_preregistration(
+            poisoned, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+@pytest.mark.parametrize("declared_change", ("missing", "duplicate"))
+def test_declared_external_roles_must_be_exact_and_unique(tmp_path: Path, declared_change: str):
+    def mutate(raw):
+        if declared_change == "missing":
+            raw["external_artifacts"].pop()
+        else:
+            raw["external_artifacts"][-1] = deepcopy(raw["external_artifacts"][0])
+
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path, mutate=mutate)
+    with pytest.raises(ValueError, match="artifact|role|exact|unique"):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+@pytest.mark.parametrize("supplied_change", ("missing", "duplicate"))
+def test_supplied_external_roles_must_be_exact_and_unique(tmp_path: Path, supplied_change: str):
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path)
+    supplied = artifacts[:-1] if supplied_change == "missing" else (*artifacts[:-1], artifacts[0])
+    with pytest.raises(ValueError, match="artifact|role|exact|unique"):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=supplied
+        )
+
+
 def test_pre_adjudication_nominal_alpha_is_enforced(tmp_path: Path):
     raw, corpus, plan, artifacts, _ = _inputs(tmp_path, records=_records(disagree=True))
     with pytest.raises(ValueError, match="alpha|agreement"):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+def test_observed_site_imbalance_is_enforced(tmp_path: Path):
+    records = _records()
+    moved = next(record for record in records if record["site_id"] == "pergamino")
+    moved["site_id"] = "cicytex"
+    moved["group_id"] = "private-group-cicytex-extra"
+
+    def tighten(raw):
+        raw["cohort"].update(
+            {
+                "minimum_examples_per_site": 19,
+                "minimum_examples_per_site_category": 3,
+                "maximum_site_imbalance_ratio": 1.05,
+            }
+        )
+
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path, records=records, mutate=tighten)
+    with pytest.raises(ValueError, match="imbalance"):
         verify_human_evaluation_preregistration(
             raw, corpus=corpus, plan=plan, external_artifacts=artifacts
         )

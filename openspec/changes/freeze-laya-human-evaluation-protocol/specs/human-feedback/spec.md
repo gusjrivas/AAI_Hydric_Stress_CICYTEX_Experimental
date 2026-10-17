@@ -4,7 +4,8 @@
 
 El sistema MUST aceptar únicamente un manifest cerrado cuyos digests coincidan
 con un `EvaluationCorpus` y un `LosoEvaluationPlan` ya validados. El plan MUST
-pertenecer al mismo corpus y conservar los tres sitios requeridos.
+pertenecer al mismo corpus, conservar los tres sitios requeridos y coincidir en
+su `assignment_sha256` exacto.
 
 #### Scenario: binding íntegro
 
@@ -20,9 +21,10 @@ pertenecer al mismo corpus y conservar los tres sitios requeridos.
 
 ### Requirement: Artefactos externos verificados por bytes
 
-El sistema MUST requerir exactamente los cinco roles contratados y comprobar
+El sistema MUST requerir exactamente los seis roles contratados, incluido
+`baseline_protocol`, y comprobar
 `size_bytes` y SHA-256 contra el contenido recibido, el manifest y las referencias
-del corpus.
+del corpus o del protocolo de análisis.
 
 #### Scenario: artefacto alterado
 
@@ -33,10 +35,13 @@ del corpus.
 ### Requirement: Cohorte y análisis fijados antes de resultados
 
 El sistema MUST validar pisos preregistrados de N, sitio, grupo, celda y alpha
-nominal pre-adjudicación, y MUST fijar macro-F1, baseline legacy en idénticos
-folds, delta pareado mínimo 0,05, bootstrap percentil estratificado con unidad
-`group_within_site` y 10.000/95 %/semilla, Holm/0,05 y los umbrales legacy
-vigentes. El verificador NO DEBE elegir N ni afirmar suficiencia de potencia.
+nominal pre-adjudicación. MUST fijar labels canónicas y zero-division cero para
+macro-F1; estimando global de igual peso entre sitios y estimando por sitio;
+baseline legacy en idénticos folds; márgenes 0,05 global y -0,02 por sitio;
+bootstrap percentil bilateral estratificado con unidad `group_within_site` y
+10.000/95 %/semilla; reglas por límite inferior; familia Holm ordenada global,
+CICYTEX, Melchor Romero y Pergamino; y los umbrales legacy vigentes. El
+verificador NO DEBE elegir N ni afirmar suficiencia de potencia.
 
 #### Scenario: cohorte insuficiente
 
