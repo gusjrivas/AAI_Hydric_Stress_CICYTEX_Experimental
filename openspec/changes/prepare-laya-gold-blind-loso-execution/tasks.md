@@ -18,11 +18,25 @@ corpus/holdout execution, positive scientific authority or publication.
 
 ## 2. Runner and closed adapter
 
-- [ ] 2.1 RED/GREEN zero-consume scientific preflight and gold-blind port.
-- [ ] 2.2 RED/GREEN per-fold state machine, phase release, exact coverage and resume.
+- [x] 2.1 RED/GREEN zero-consume scientific preflight and gold-blind port.
+- [x] 2.2 RED/GREEN per-fold state machine, phase release, exact coverage and resume.
 - [ ] 2.3 RED/GREEN separately versioned fixed offline stdin/stdout adapter.
 - [ ] 2.4 RED/GREEN lease/cleanup/fault/privacy/concurrency and private receipts.
 - [ ] 2.5 Mechanical-only integration verification with fixed synthetic fixtures.
+
+Pure preparation only: runner RED `78d5da8` -> GREEN `ca73a1a`; byte-codec RED
+`84cac8e` -> GREEN `9352903`. Review-driven runner RED `3648f99` -> GREEN
+`751c586` preserves canonical outputs and revalidates waiting executions;
+RED `0f5688d` -> GREEN `a024619` binds sealed receipts to independent private
+identity/digest commitments. Bounded pure suite: 180 passed. Independent final
+runner review on `a024619`: GO, no P0/P1/P2, runner 18 passed, Ruff/Black/diff PASS.
+Public preflight remains zero-consume BLOCKED; private fixture seams do not issue
+scientific authority. Rounded probability ties retain the approved semantics.
+
+The executable Docker adapter is NOT accepted by these pure gates. Fixed-program
+RED `db5dacf` and engine/attach RED through `23ca881` intentionally remain failing
+until their implementation after dependency 1.3. This includes a realistic
+HTTPResponse 101 buffered-frame regression, not only transport mocks.
 
 ## 3. Technical acceptance
 
