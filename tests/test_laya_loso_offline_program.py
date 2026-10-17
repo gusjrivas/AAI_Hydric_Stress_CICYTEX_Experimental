@@ -195,8 +195,23 @@ def test_program_uses_one_closed_feedback_question_and_projects_only_approved_fi
         "state_tokens_dropped": 0,
         "truncated": False,
     }
-    rendered = stdout.decode("utf-8")
-    assert all(key not in rendered for key in ("routing", "model", "confidence", "action"))
+    assert set(prediction["probabilities"]) == set(CATEGORIES)
+    projected_keys = (
+        set(response)
+        | set(prediction)
+        | set(prediction["probabilities"])
+        | set(prediction["usage"])
+    )
+    assert {
+        "model",
+        "routing",
+        "confidence",
+        "answer_confidence",
+        "action",
+        "input_tokens",
+        "output_tokens",
+        "truncated_questions",
+    }.isdisjoint(projected_keys)
 
 
 @pytest.mark.parametrize(
