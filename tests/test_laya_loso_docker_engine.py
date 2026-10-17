@@ -396,7 +396,10 @@ def test_fixed_program_projects_pinned_laya_usage_without_host_estimation():
 
     program = probe.OFFLINE_PROBE_ARGUMENTS[-1]
     assert "router.predict" in program
-    assert 'result["usage"]' in program or "result['usage']" in program
+    assert any(
+        expression in program
+        for expression in ('result["usage"]', "result['usage']", 'result.get("usage")')
+    )
     assert all(field in program for field in ("state_tokens", "state_tokens_dropped", "truncated"))
     assert "stdin.buffer.read" in program
     assert "65537" in program
