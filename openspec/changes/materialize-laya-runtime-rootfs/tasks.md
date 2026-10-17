@@ -2,12 +2,12 @@
 
 - [x] 1.1 Freeze the honest non-root materialization boundary and claim profile.
 - [x] 1.2 Record a failing pure-contract test before implementation (`2 failed`, missing module).
-- [ ] 1.3 Add exact PR33 + issued PR37 binding, anti-forgery and privacy tests.
+- [x] 1.3 Add exact PR33 + issued PR37 binding, anti-forgery and privacy tests.
 
 ## 2. Pure authority
 
 - [ ] 2.1 Implement the I/O-free plan and sealed evidence contract.
-- [ ] 2.2 Prove that only `rootfs_materialized` is newly elevated.
+- [x] 2.2 Prove that only `rootfs_materialized` is newly elevated.
 
 ## 3. Secure Linux adapter
 
