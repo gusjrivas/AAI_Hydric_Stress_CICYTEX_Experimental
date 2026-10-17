@@ -3,6 +3,8 @@
 import os
 import stat
 import sys
+import hashlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -90,3 +92,61 @@ def test_atomic_publication_preserves_staging_inode(tmp_path):
     finally:
         os.close(descriptor)
         os.close(parent_fd)
+
+
+def _node(path, *, kind="0", size=0, layer=0, target=None):
+    return SimpleNamespace(
+        path=path, typeflag=kind, size_bytes=size, source_layer_position=layer,
+        link_target=target, mode=0o644, uid=0, gid=0, mtime=0,
+    )
+
+
+def test_writer_only_keeps_final_regular_payloads_and_handles_short_writes(tmp_path, monkeypatch):
+    descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    nodes = (_node("data", kind="5"), _node("data/value", size=6, layer=1), _node("empty"))
+    writer = adapter._RootfsWriter(descriptor, nodes)
+    native_write = os.write
+    monkeypatch.setattr(adapter.os, "write", lambda fd, data: native_write(fd, data[:2]))
+    try:
+        obsolete = writer.sink(0)
+        obsolete.start(_node("data/value", size=3))
+        obsolete.chunk(b"old")
+        obsolete.end()
+        obsolete.start(nodes[2])
+        obsolete.end()
+        final = writer.sink(1)
+        final.start(nodes[1])
+        final.chunk(b"abcdef")
+        final.end()
+        assert writer.finish_regulars() == {
+            "data/value": hashlib.sha256(b"abcdef").hexdigest(),
+            "empty": hashlib.sha256(b"").hexdigest(),
+        }
+        assert (tmp_path / "data/value").read_bytes() == b"abcdef"
+        assert stat.S_IMODE((tmp_path / "data/value").stat().st_mode) == 0o600
+    finally:
+        writer.close()
+        os.close(descriptor)
+
+
+@pytest.mark.parametrize("case", ("missing", "truncated", "overflow", "duplicate", "zero-write"))
+def test_writer_refuses_incomplete_or_invalid_payloads(tmp_path, monkeypatch, case):
+    descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    node = _node("value", size=3)
+    writer = adapter._RootfsWriter(descriptor, (node,))
+    sink = writer.sink(0)
+    try:
+        with pytest.raises(adapter.RootfsMaterializationError):
+            if case == "missing":
+                writer.finish_regulars()
+            else:
+                sink.start(node)
+                if case == "zero-write":
+                    monkeypatch.setattr(adapter.os, "write", lambda *_args: 0)
+                sink.chunk(b"abcd" if case == "overflow" else b"ab" if case == "truncated" else b"abc")
+                sink.end()
+                if case == "duplicate":
+                    sink.start(node)
+    finally:
+        writer.close()
+        os.close(descriptor)
