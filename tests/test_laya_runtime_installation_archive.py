@@ -185,6 +185,90 @@ def test_hardlink_archive_mode_preserves_terminal_owner_execute_bit():
     assert entries["bin/tool-alias"].mode == 0o700
 
 
+def test_ustar_splittable_long_path_uses_one_header_and_verifier_equivalent():
+    from human_feedback.adapters import runtime_installation_archive as module
+    from human_feedback.adapters.runtime_installation_verifier import (
+        _capture_installation_tar,
+    )
+
+    parent = "a" * 80
+    path = parent + "/" + "b" * 40
+    entry = module._InstallationEntry(path, "directory", 0o700)
+    encoded, header_count = module._encoded_header(entry)
+    parent_encoded, parent_header_count = module._encoded_header(
+        module._InstallationEntry(parent, "directory", 0o700)
+    )
+
+    assert len(path.encode("utf-8")) > 100
+    assert len(encoded) == 512
+    assert header_count == 1
+    assert parent_header_count == 1
+    observed = _capture_installation_tar((parent_encoded + encoded + b"\0" * 1024,))
+    assert observed.records == (
+        (parent, "5", 0o700, 65532, 65532, 0, ()),
+        (path, "5", 0o700, 65532, 65532, 0, ()),
+    )
+
+
+def test_gnu_fallback_is_bounded_and_counts_longname_and_longlink_headers():
+    from human_feedback import runtime_oci_tar
+    from human_feedback.adapters import runtime_installation_archive as module
+    from human_feedback.adapters.runtime_installation_verifier import (
+        _capture_installation_tar,
+    )
+
+    long_path = "p" * 513
+    long_target = "t" * 513
+    entry = module._InstallationEntry(
+        long_path,
+        "symlink",
+        0o600,
+        link_target=long_target,
+    )
+    encoded, header_count = module._encoded_header(entry)
+
+    assert header_count == 3
+    observed = _capture_installation_tar((encoded + b"\0" * 1024,))
+    assert observed.records == ((long_path, "2", 0o777, 65532, 65532, 0, (long_target,)),)
+
+    bounded = module._InstallationEntry(
+        "p" * runtime_oci_tar.MAX_OCI_TAR_PATH_BYTES,
+        "symlink",
+        0o600,
+        link_target="t" * runtime_oci_tar.MAX_OCI_TAR_LINK_BYTES,
+    )
+    _, bounded_header_count = module._encoded_header(bounded)
+    assert bounded_header_count == 3
+
+    oversized_path = module._InstallationEntry(
+        "p" * (runtime_oci_tar.MAX_OCI_TAR_PATH_BYTES + 1),
+        "symlink",
+        0o600,
+        link_target="target",
+    )
+    oversized_link = module._InstallationEntry(
+        "path",
+        "symlink",
+        0o600,
+        link_target="t" * (runtime_oci_tar.MAX_OCI_TAR_LINK_BYTES + 1),
+    )
+    for oversized in (oversized_path, oversized_link):
+        with pytest.raises(module.RuntimeInstallationArchiveError):
+            module._encoded_header(oversized)
+
+
+def test_physical_header_budget_counts_gnu_extensions_before_writing(monkeypatch):
+    from human_feedback.adapters import runtime_installation_archive as module
+
+    entries = (
+        module._InstallationEntry("short", "directory", 0o700),
+        module._InstallationEntry("x" * 513, "directory", 0o700),
+    )
+    monkeypatch.setattr(module, "MAX_INSTALLATION_ENTRIES", len(entries))
+    with pytest.raises(module.RuntimeInstallationArchiveError):
+        module._archive_size(entries)
+
+
 def test_payload_bound_fails_before_first_archive_byte(monkeypatch, tmp_path):
     from human_feedback.adapters import runtime_installation_archive as module
 
