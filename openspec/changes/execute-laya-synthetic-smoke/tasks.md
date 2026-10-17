@@ -11,8 +11,11 @@
 PR40 executable `4e9b84a` has fresh real PASS 1/1 (856.97 seconds) and CI
 `39025053332` 16/16. While its documentation-only closing HEAD is checked,
 independent architecture review permits unit-only preparation for 2.1/2.2 in this
-isolated unpublished branch. No daemon, network, real inference, positive issuer
-or productive caller is permitted before 1.5. After PR40 merge, rebase to the exact
+isolated unpublished branch. Architecture review also permits fake-transport
+unit preparation of the closed synthetic engine profile in 2.3, using a fresh
+engine/nonce that never registers the parent image as owned. Its cleanup must
+touch only its exact child/intents. No daemon, network, real inference, positive
+issuer or productive caller is permitted before 1.5. After PR40 merge, rebase to the exact
 merge commit and repeat focal/static gates before proceeding.
 
 - [x] 2.1 RED/GREEN runtime image lease and disposal concurrency (isolated unit scope).
