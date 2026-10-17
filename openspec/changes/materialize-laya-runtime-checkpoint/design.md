@@ -18,6 +18,13 @@ Acquire a descriptor-bound lease that serializes against PR39 disposal. Export
 only its exact verified tree using descriptor-relative traversal, never following
 symlinks. Stream regular contents and rederive the PR39 commitment. Normalize
 archive ownership to container UID/GID 65532, preserving the declared host profile.
+Prefer one-header USTAR prefix/name encoding. Use GNU longname/longlink only when
+USTAR cannot represent an entry; never introduce PAX. Preflight the physical
+header count, including GNU metadata headers but not their payload blocks, against
+the parser's unchanged 65,536-header limit before writing the first archive byte.
+Paths/link targets remain limited to 4,096 UTF-8 bytes. The real rootfs has 56,114
+nodes; GNU-only encoding needs 68,163 headers, while the preferred encoding needs
+56,118 before checkpoint additions. Logical node count alone is not a TAR budget.
 
 Recapture the five checkpoint files through the secure checkpoint adapter and
 stream them into the NEW image under the fixed path
@@ -90,3 +97,12 @@ First implement pure contracts, then resource leases, bounded artifact assembly,
 Docker state machine and independent recapture, then synthetic and real probes.
 Runtime executability for a closed load probe does not create the governed
 executor of PR41. No productive backend/UI/runner wiring is introduced.
+
+## Real-gate findings
+
+Real immutable checkpoint capture exposed legal short filesystem reads exhausting
+the predecessor's 1,024-chunk budget. Coalesce raw reads into logical chunks of at
+most 1 MiB, preserving the original byte/count limits, exact SHA/size checks and
+one overflow-detection byte. This fixes the filesystem boundary, not the pure
+verification contract. Both this and the physical TAR-header correction have
+separately reproduced RED regressions before implementation.
