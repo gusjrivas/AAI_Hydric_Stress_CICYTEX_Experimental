@@ -67,7 +67,7 @@ fake Docker backend only, 3 folds / 6 ordered batches; focal 1 passed in 6.18 s,
 combined runner/port 33 passed in 53.82 s. Replay is idempotent and public preflight
 consumes nothing. Linux non-root/network-none new-code suite before that final
 integration test: 107 passed / 3 opt-in skips in 54.73 s. No skip is real PASS.
-Ruff/Black 16 changed Python files, strict OpenSpec and diff checks passed.
+Final Ruff/Black 17 changed Python files, strict OpenSpec and diff checks passed.
 No scientific execution is implied by any mechanical or transport gate.
 
 ## 3. Technical acceptance
