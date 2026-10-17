@@ -576,7 +576,11 @@ def _parse_gnu_payload(payload: bytes, *, link: bool) -> str:
 
 
 class _TarParser:
-    def __init__(self, max_entries: int) -> None:
+    def __init__(self, max_entries: int, payload_sink: object | None = None) -> None:
+        if payload_sink is not None and any(
+            not callable(getattr(payload_sink, name, None)) for name in ("start", "chunk", "end")
+        ):
+            raise TypeError("OCI TAR payload sink is invalid")
         self.buffer = bytearray()
         self.entries: list[LayaOciTarEntry] = []
         self.paths: set[str] = set()
@@ -598,6 +602,8 @@ class _TarParser:
         self.gnu_longlink: str | None = None
         self.global_metadata_pending = False
         self.root_directory: LayaOciTarEntry | None = None
+        self.payload_sink = payload_sink
+        self.regular_payload_active = False
 
     def feed(self, chunk: bytes) -> None:
         self.chunk_count += 1
@@ -622,6 +628,8 @@ class _TarParser:
                     return
                 if self.current_extension is not None:
                     self.extension_payload.extend(self.buffer[:consumed])
+                elif self.regular_payload_active:
+                    self.payload_sink.chunk(bytes(self.buffer[:consumed]))
                 del self.buffer[:consumed]
                 self.payload_remaining -= consumed
                 if not self.payload_remaining:
@@ -660,6 +668,9 @@ class _TarParser:
     def _complete_payload(self) -> None:
         extension = self.current_extension
         if extension is None:
+            if self.regular_payload_active:
+                self.payload_sink.end()
+                self.regular_payload_active = False
             return
         payload = bytes(self.extension_payload)
         self.current_extension = None
@@ -803,6 +814,12 @@ class _TarParser:
         self.gnu_longname = None
         self.gnu_longlink = None
         self.global_metadata_pending = False
+        if typeflag == "0" and self.payload_sink is not None:
+            self.payload_sink.start(entry)
+            if size:
+                self.regular_payload_active = True
+            else:
+                self.payload_sink.end()
 
     def _accept_extension(self, typeflag: str, size: int, profile: str) -> None:
         if typeflag in ("g", "x"):
@@ -843,6 +860,7 @@ class _TarParser:
             or self.gnu_longname is not None
             or self.gnu_longlink is not None
             or self.global_metadata_pending
+            or self.regular_payload_active
         ):
             raise ValueError("OCI TAR stream is truncated or lacks termination")
         return (
@@ -951,11 +969,12 @@ def _verify_laya_oci_tar_semantics_chunks_with_budget(
     compressed_chunks: object,
     *,
     max_uncompressed_bytes: object,
+    _payload_sink: object | None = None,
 ) -> VerifiedLayaOciTarLayer:
     failed = False
     try:
         authorized_plan, position = _authorize_plan_and_digest(plan, digest)
-        parser = _TarParser(MAX_OCI_TAR_ENTRIES)
+        parser = _TarParser(MAX_OCI_TAR_ENTRIES, _payload_sink)
         layer_receipt = runtime_oci_layers._verify_laya_oci_layer_diff_id_chunks_with_consumer(
             authorized_plan.layer_plan,
             digest,
