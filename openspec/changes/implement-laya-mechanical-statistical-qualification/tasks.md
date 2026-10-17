@@ -83,6 +83,13 @@ was not repeated for this pure host-side arithmetic change. No corpus/holdout,
 model inference, calibration fit or real scientific scoring was performed.
 Section 4 remains open. These checkboxes close technical acceptance only.
 
+Public rebased TDD history: mathematical RED `475aff9`, authority/privacy RED
+`55834cd`, bounds RED `5177c95`, differential mathematical RED `0843985` ->
+first GREEN `d4e2ad5`. Critique REDs `7f48a5b` (nested aliasing), `848822e`
+(post-validation mutation), `c64d087` (exact primitive types) -> corrective
+GREEN `959ba25`. Earlier SHAs in the preparation narrative are pre-rebase;
+these public commits retain the actual RED-before-GREEN order.
+
 Numerical fixture examples, not observed scientific study results: the paired
 balanced good/bad-group golden fixture has observed global delta 0, descriptive
 bounds [-2/3, 2/3] and plus-one tail 6528/10001. Unequal-site sample counts retain

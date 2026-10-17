@@ -38,7 +38,8 @@ Final independent authority/privacy GO: privacy PoC 1/1 PASS, complete boundary
 34/34 PASS with no numerical/decision drift, no open P0/P1/P2. Writer combined
 suite 86/86 PASS in 24.73 seconds; root Ruff/Black three changed Python files
 and diff checks PASS. These were preparation gates, not scientific results.
-PR43 dependency is now accepted; PR44 exact-head CI/publication gates remain open.
+PR43 dependency is accepted. Subsequent PR44 executable acceptance is recorded
+below; merge still requires the closing documentation HEAD's own checks.
 
 Pure Linux regression on the frozen corrective source, non-root/network-none,
 without Docker socket: 253 passed in 32.06 seconds (new rules/boundary, PR43
@@ -64,9 +65,69 @@ no complete-coverage claim. Both generated caches stay outside the PR.
 
 ## 3. Technical acceptance and handoff
 
-- [ ] 3.1 Directed Linux and historical/site/mock/backend/frontend regressions.
-- [ ] 3.2 Independent critique/audit with no open P0/P1/P2 and exact-head CI.
-- [ ] 3.3 Final architecture/technical-plan report, reproducible status and limitations.
+- [x] 3.1 Directed Linux and historical/site/mock/backend/frontend regressions.
+- [x] 3.2 Independent critique/audit with no open P0/P1/P2 and exact-head CI.
+- [x] 3.3 Final architecture/technical-plan report, reproducible status and limitations.
+
+### Executable acceptance already observed
+
+Frozen accepted executable candidate:
+`3c1b047e2f5885ce322e96ebada6ed6fd67ab3dd`; production source `8228586`,
+equivalent to reviewed pre-rebase `a4cd8bf`. CI `39051022431`: SUCCESS 16/16.
+Python job `117449449898`: 3667 passed / 61 skipped / 26 warnings in 1590.28
+seconds (26:30), observed on 2026-10-17. Backend, frontend/build, API contracts,
+historical/site/mock and runtime/supply contract jobs also passed. A skipped
+opt-in test is not a genuine runtime/model or scientific acceptance.
+
+First attempt `39050696710` on `97308a4` failed at Ruff I001 in a test import
+block, before pytest. Local Ruff 0.16.6 / helper 0.17.0 did not detect the same
+style issue as CI Ruff 0.17.1. Exact isolated Ruff 0.17.1 reproduced it;
+`3c1b047` only reordered imports/blank lines, without source or test semantics
+changes. Whole src/tests passed Ruff 0.17.1 and Black 26.10.1 (394 files), and
+the Linux focal repeat passed 41/41 in 12.24 seconds. Independent delta review
+retained GO. The obsolete run's remaining jobs were cancelled; it is not PASS.
+Every required gate ran again on the corrected accepted candidate.
+
+Public rebased TDD history: boundary RED `9131565`, rules RED `ff24729` -> first
+GREEN `a4f9cf8`; causal privacy RED `0cde4e1` -> corrective GREEN `8228586`.
+The earlier SHAs above describe pre-rebase preparation, not missing public tests.
+No new model inference or private corpus execution was added by this host-side
+government change; the unchanged PR42 genuine pinned-model gate is not rerun or
+misrepresented as new scientific evidence.
+
+### Final technical architecture and limits
+
+The agreed mandatory technical sequence is implemented: durable operational
+state and typed API boundaries preserve the existing site/mock flows; verified
+Laya supply/rootfs/runtime and the closed gold-blind port feed the mechanical
+LOSO runner; sealed outer-test outputs feed real paired calculations; the
+terminal readiness boundary evaluates those aggregates without repeating
+inference, baseline, bootstrap or fitting. Laya remains consultive/default-off
+and does not enter forecast, stress calculation, recalibration or irrigation.
+
+Actual current readiness is BLOCKED: mechanical diagnostic states are evaluated,
+scientific criteria remain NOT_EVALUATED, latency is unavailable, raw ECE is
+not relabeled as calibrated/policy ECE, and every scientific/shadow/production
+claim remains false. The pure hypothetical PASS rule is not an admission issuer.
+Real corpus/custody, exact baseline, externally frozen analysis/output-stage/
+calibration profile, fit and actual measurements are still absent. A later
+controlled change is needed to admit and run that real profile, not a READY flag
+or activation of test seams. HU7/HU8 and A/B/C retain their separate gates.
+
+Independent rules, authority/privacy and architecture-board audits found no open
+P0/P1/P2 in the reviewed scope. The local user-facing execution report is
+`outputs/informe-pr-restantes-arquitectura-cicytex-laya.md` in the orchestration
+workspace; this tasks file and PR44 preserve the repository's acceptance facts.
+Technical closure does not close the scientific study or Trabajo Final and
+does not open conditional shadow/UI/production work from fixture results.
+
+This closing commit is documentation only; it does not assert its own future
+CI or merge. Before merge, its exact HEAD must pass the repository's full CI
+and independent documentary audit with no tracked source/test changes. The
+closing HEAD/check receipt and guarded merge are recorded in
+https://github.com/gusjrivas/AAI_Hydric_Stress_CICYTEX_Experimental/pull/44.
+The generated graph caches are excluded. Scientific section 4 stays open and
+the change is not archived as a completed scientific evaluation.
 
 ## 4. External scientific prerequisites — not completed by code/tests
 
