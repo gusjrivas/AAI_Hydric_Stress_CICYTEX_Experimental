@@ -57,7 +57,9 @@ def test_lease_rejects_clones_and_disposed_authority_without_leaking_handles(mon
             pytest.fail("disposed authority acquired resource")
 
 
-def test_lease_releases_on_consumer_failure_and_serializes_other_thread_disposal(monkeypatch, tmp_path):
+def test_lease_releases_on_consumer_failure_and_serializes_other_thread_disposal(
+    monkeypatch, tmp_path
+):
     evidence, parent = _materialized(monkeypatch, tmp_path)
     with pytest.raises(RuntimeError, match="consumer failure"):
         with filesystem._lease_laya_runtime_rootfs(evidence):
@@ -65,6 +67,7 @@ def test_lease_releases_on_consumer_failure_and_serializes_other_thread_disposal
     started = threading.Event()
     done = threading.Event()
     errors = []
+
     def dispose():
         started.set()
         try:
@@ -73,6 +76,7 @@ def test_lease_releases_on_consumer_failure_and_serializes_other_thread_disposal
             errors.append(type(error).__name__)
         finally:
             done.set()
+
     with filesystem._lease_laya_runtime_rootfs(evidence) as descriptor:
         thread = threading.Thread(target=dispose)
         thread.start()

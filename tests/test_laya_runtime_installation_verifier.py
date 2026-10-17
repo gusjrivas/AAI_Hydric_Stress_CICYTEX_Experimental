@@ -33,7 +33,7 @@ def _tar(*, changed=False, extra=None, flatten=False, symlink=False):
 
 
 def _chunks(value):
-    return (value[start:start + 173] for start in range(0, len(value), 173))
+    return (value[start : start + 173] for start in range(0, len(value), 173))
 
 
 def test_export_recapture_matches_bytes_links_and_private_commitment():
@@ -47,9 +47,15 @@ def test_export_recapture_matches_bytes_links_and_private_commitment():
     assert hashlib.sha256(b"model").hexdigest() not in repr(expected)
 
 
-@pytest.mark.parametrize("override", [
-    {"changed": True}, {"flatten": True}, {"symlink": True}, {"extra": "unexpected"},
-])
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"changed": True},
+        {"flatten": True},
+        {"symlink": True},
+        {"extra": "unexpected"},
+    ],
+)
 def test_export_cannot_change_payload_topology_or_namespace(override):
     from human_feedback.adapters import runtime_installation_verifier as verifier
 
@@ -62,9 +68,10 @@ def test_only_exact_empty_engine_marker_is_permitted():
     from human_feedback.adapters import runtime_installation_verifier as verifier
 
     expected = verifier._capture_installation_tar(_chunks(_tar()))
-    assert verifier._verify_exported_installation(
-        _chunks(_tar(extra=".dockerenv")), expected
-    ) == expected.commitment_sha256
+    assert (
+        verifier._verify_exported_installation(_chunks(_tar(extra=".dockerenv")), expected)
+        == expected.commitment_sha256
+    )
     with pytest.raises(ValueError):
         verifier._capture_installation_tar(_chunks(_tar(extra=".dockerenv")))
 
@@ -106,8 +113,24 @@ def test_observer_tee_short_writes_and_closed_state():
             offset += tee.write(memoryview(chunk)[offset:])
     expected = tee.finish()
     assert bytes(target.data) == value
-    assert expected.commitment_sha256 == verifier._capture_installation_tar(_chunks(value)).commitment_sha256
+    assert (
+        expected.commitment_sha256
+        == verifier._capture_installation_tar(_chunks(value)).commitment_sha256
+    )
     with pytest.raises(ValueError):
         tee.write(b"x")
     with pytest.raises(ValueError):
         tee.finish()
+
+
+def test_valid_many_small_writes_do_not_exhaust_chunk_budget():
+    from human_feedback.adapters import runtime_installation_verifier as verifier
+
+    observer = verifier._InstallationTarObservation()
+    value = _tar()
+    for byte in value:
+        observer.write(bytes([byte]))
+    assert (
+        observer.finish().commitment_sha256
+        == verifier._capture_installation_tar([value]).commitment_sha256
+    )

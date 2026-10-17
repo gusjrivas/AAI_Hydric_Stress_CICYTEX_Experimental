@@ -734,13 +734,17 @@ def _lease_laya_runtime_rootfs(evidence: object):
         try:
             resource = _RESOURCES.get(id(evidence))
             if (
-                resource is None or resource.reference() is not evidence
-                or resource.disposed or resource.revoked
+                resource is None
+                or resource.reference() is not evidence
+                or resource.disposed
+                or resource.revoked
             ):
                 raise RootfsMaterializationError("rootfs lease is not issued")
             _authority._require_issued_evidence(evidence)
             _require_root_binding(resource.parent_components, resource.parent_fd)
-            _require_owned_name(resource.parent_fd, resource.name, resource.root_fd, resource.identity)
+            _require_owned_name(
+                resource.parent_fd, resource.name, resource.root_fd, resource.identity
+            )
             descriptor = os.dup(resource.root_fd)
         except Exception:
             failed = True
