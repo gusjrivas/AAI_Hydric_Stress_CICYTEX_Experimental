@@ -40,7 +40,8 @@ Independent final critique on that executable SHA: mathematical/mechanical GO
 (36 directed tests in 7.43 seconds; all 45 tests in 17.46 seconds); authority and
 privacy GO (45 tests in 18.82 seconds). No open P0/P1/P2 in either reviewed scope.
 Ruff, Black and diff checks passed. These are preparation gates, not exact-head
-CI or publication acceptance. PR42 dependency and regression gates remain open.
+CI or publication acceptance. PR43 exact-head CI and remaining regression and
+publication gates remain open.
 
 Maximum admitted synthetic work-bound measurement (not a scientific benchmark):
 1536 rows, 512 groups per each of three sites, 10000 replicates, four summaries;
