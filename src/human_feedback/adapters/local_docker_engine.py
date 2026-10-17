@@ -23,6 +23,11 @@ from human_feedback.adapters._laya_runtime_probe import (
     PROBE_ARGUMENTS,
     PROBE_ENVIRONMENT,
 )
+from human_feedback.adapters._laya_synthetic_probe import (
+    SYNTHETIC_PROBE_ARGUMENTS,
+    SYNTHETIC_PROBE_ENVIRONMENT,
+    validate_synthetic_probe_observation,
+)
 
 DOCKER_SOCKET_PATH = "/var/run/docker.sock"
 DOCKER_API_VERSION = "v1.44"
@@ -51,6 +56,8 @@ _EXPECTED_PROBE_OBSERVATION = {
     "python": "3.11.10",
     "schema_version": "laya-local-load-probe-v1",
 }
+_MATERIALIZATION_PROBE_PROFILE = "materialization-load-v1"
+_SYNTHETIC_PROBE_PROFILE = "synthetic-execution-v1"
 
 
 class LocalDockerEngineError(RuntimeError):
@@ -537,6 +544,13 @@ def _closed_probe_payload(image_id: str, nonce: str) -> dict[str, Any]:
     }
 
 
+def _closed_synthetic_probe_payload(image_id: str, nonce: str) -> dict[str, Any]:
+    payload = _closed_probe_payload(image_id, nonce)
+    payload["Cmd"] = list(SYNTHETIC_PROBE_ARGUMENTS)
+    payload["Env"] = list(SYNTHETIC_PROBE_ENVIRONMENT)
+    return payload
+
+
 def _image_changes(nonce: str) -> tuple[str, ...]:
     if type(nonce) is not str or _NONCE.fullmatch(nonce) is None:
         raise LocalDockerEngineError("local Docker ownership nonce is invalid")
@@ -602,8 +616,13 @@ def _matches_completed_probe_state(value: object) -> bool:
     )
 
 
-def _matches_closed_probe(
-    value: dict[str, Any], *, image_id: str, container_id: str, nonce: str
+def _matches_closed_probe_payload(
+    value: dict[str, Any],
+    *,
+    image_id: str,
+    container_id: str,
+    nonce: str,
+    expected: dict[str, Any],
 ) -> bool:
     config = value.get("Config")
     host = value.get("HostConfig")
@@ -611,7 +630,6 @@ def _matches_closed_probe(
     state = value.get("State")
     if not all(type(item) is dict for item in (config, host, networks, state)):
         return False
-    expected = _closed_probe_payload(image_id, nonce)
     expected_host = expected["HostConfig"]
     network_entries = networks.get("Networks")
     no_network = type(network_entries) is dict and set(network_entries).issubset({"none"})
@@ -665,6 +683,30 @@ def _matches_closed_probe(
     )
 
 
+def _matches_closed_probe(
+    value: dict[str, Any], *, image_id: str, container_id: str, nonce: str
+) -> bool:
+    return _matches_closed_probe_payload(
+        value,
+        image_id=image_id,
+        container_id=container_id,
+        nonce=nonce,
+        expected=_closed_probe_payload(image_id, nonce),
+    )
+
+
+def _matches_closed_synthetic_probe(
+    value: dict[str, Any], *, image_id: str, container_id: str, nonce: str
+) -> bool:
+    return _matches_closed_probe_payload(
+        value,
+        image_id=image_id,
+        container_id=container_id,
+        nonce=nonce,
+        expected=_closed_synthetic_probe_payload(image_id, nonce),
+    )
+
+
 class LocalDockerEngine:
     """Stateful owner of exact local Docker resources created by one operation."""
 
@@ -680,10 +722,15 @@ class LocalDockerEngine:
         self._removed_images: set[str] = set()
         self._container_images: dict[str, str] = {}
         self._container_intents: dict[str, str] = {}
+        self._container_intent_profiles: dict[str, str] = {}
+        self._container_profiles: dict[str, str] = {}
         self._image_intents: set[str] = set()
         self._closed_inspected: set[str] = set()
+        self._inspected_profiles: dict[str, str] = {}
         self._started: set[str] = set()
+        self._started_profiles: dict[str, str] = {}
         self._waited: set[str] = set()
+        self._waited_profiles: dict[str, str] = {}
 
     def _request(
         self,
@@ -745,12 +792,55 @@ class LocalDockerEngine:
         self._ready = True
 
     def create_closed_probe_container(self, image_id: str) -> str:
+        return self._create_closed_probe_container(
+            image_id,
+            profile=_MATERIALIZATION_PROBE_PROFILE,
+            name_prefix="aai-laya-probe-",
+            payload_factory=_closed_probe_payload,
+        )
+
+    def create_closed_synthetic_probe_container(self, image_id: str) -> str:
+        if any(
+            (
+                self._owned_containers,
+                self._owned_images,
+                self._removed_containers,
+                self._removed_images,
+                self._container_intents,
+                self._container_intent_profiles,
+                self._container_profiles,
+                self._image_intents,
+                self._closed_inspected,
+                self._inspected_profiles,
+                self._started,
+                self._started_profiles,
+                self._waited,
+                self._waited_profiles,
+            )
+        ):
+            raise LocalDockerEngineError("local Docker synthetic engine is not fresh")
+        return self._create_closed_probe_container(
+            image_id,
+            profile=_SYNTHETIC_PROBE_PROFILE,
+            name_prefix="aai-laya-synthetic-probe-",
+            payload_factory=_closed_synthetic_probe_payload,
+        )
+
+    def _create_closed_probe_container(
+        self,
+        image_id: str,
+        *,
+        profile: str,
+        name_prefix: str,
+        payload_factory: object,
+    ) -> str:
         image_id = _require_image_id(image_id)
         self._ensure_ready()
-        name = "aai-laya-probe-" + secrets.token_hex(16)
+        name = name_prefix + secrets.token_hex(16)
         self._container_intents[name] = image_id
+        self._container_intent_profiles[name] = profile
         payload = json.dumps(
-            _closed_probe_payload(image_id, self._nonce),
+            payload_factory(image_id, self._nonce),
             ensure_ascii=True,
             allow_nan=False,
             sort_keys=True,
@@ -765,7 +855,9 @@ class LocalDockerEngine:
         container_id = _require_container_id(response.get("Id"))
         self._owned_containers.add(container_id)
         self._container_images[container_id] = image_id
+        self._container_profiles[container_id] = profile
         self._container_intents.pop(name, None)
+        self._container_intent_profiles.pop(name, None)
         if set(response).difference({"Id", "Warnings"}):
             raise LocalDockerEngineError("local Docker create response is invalid")
         return container_id
@@ -803,16 +895,25 @@ class LocalDockerEngine:
         return image_id
 
     def _reconcile_container_intent(self, name: str, image_id: str) -> None:
+        profile = self._container_intent_profiles.get(name)
+        if profile not in {_MATERIALIZATION_PROBE_PROFILE, _SYNTHETIC_PROBE_PROFILE}:
+            raise LocalDockerEngineError("owned Docker container intent profile is invalid")
         path_name = urllib.parse.quote(name, safe="")
         response = self._request("GET", f"/{DOCKER_API_VERSION}/containers/{path_name}/json")
         if response.status == 404:
             self._container_intents.pop(name, None)
+            self._container_intent_profiles.pop(name, None)
             return
         if response.status != 200:
             raise LocalDockerEngineError("owned Docker container intent is unresolved")
         value = _json_object(response.body)
         container_id = _require_container_id(value.get("Id"))
-        if not _matches_closed_probe(
+        matcher = (
+            _matches_closed_probe
+            if profile == _MATERIALIZATION_PROBE_PROFILE
+            else _matches_closed_synthetic_probe
+        )
+        if not matcher(
             value,
             image_id=image_id,
             container_id=container_id,
@@ -821,7 +922,9 @@ class LocalDockerEngine:
             raise LocalDockerEngineError("local Docker container intent changed")
         self._owned_containers.add(container_id)
         self._container_images[container_id] = image_id
+        self._container_profiles[container_id] = profile
         self._container_intents.pop(name, None)
+        self._container_intent_profiles.pop(name, None)
 
     def _reconcile_image_intent(self, reference: str) -> None:
         path_reference = urllib.parse.quote(reference, safe="")
@@ -880,10 +983,44 @@ class LocalDockerEngine:
     def inspect_closed_probe_container(
         self, container_id: str, *, expected_image_id: str
     ) -> dict[str, Any]:
+        return self._inspect_closed_probe_container(
+            container_id,
+            expected_image_id=expected_image_id,
+            profile=_MATERIALIZATION_PROBE_PROFILE,
+        )
+
+    def inspect_closed_synthetic_probe_container(
+        self, container_id: str, *, expected_image_id: str
+    ) -> dict[str, Any]:
+        return self._inspect_closed_probe_container(
+            container_id,
+            expected_image_id=expected_image_id,
+            profile=_SYNTHETIC_PROBE_PROFILE,
+        )
+
+    def _inspect_closed_probe_container(
+        self, container_id: str, *, expected_image_id: str, profile: str
+    ) -> dict[str, Any]:
         container_id = _require_container_id(container_id)
         image_id = _require_image_id(expected_image_id)
+        registered_profile = self._container_profiles.get(container_id)
+        if (
+            container_id in self._owned_containers
+            and registered_profile != profile
+            or profile == _SYNTHETIC_PROBE_PROFILE
+            and (
+                container_id not in self._owned_containers
+                or registered_profile != _SYNTHETIC_PROBE_PROFILE
+            )
+        ):
+            raise LocalDockerEngineError("local Docker probe isolation changed")
         value = self.inspect_container(container_id)
-        if not _matches_closed_probe(
+        matcher = (
+            _matches_closed_probe
+            if profile == _MATERIALIZATION_PROBE_PROFILE
+            else _matches_closed_synthetic_probe
+        )
+        if not matcher(
             value,
             image_id=image_id,
             container_id=container_id,
@@ -892,12 +1029,17 @@ class LocalDockerEngine:
             raise LocalDockerEngineError("local Docker probe isolation changed")
         if container_id in self._owned_containers:
             self._closed_inspected.add(container_id)
+            self._inspected_profiles[container_id] = profile
         return value
 
     def export_stopped_container_stream(self, container_id: str) -> DockerByteStream:
         container_id = _require_container_id(container_id)
         image_id = self._container_images.get(container_id)
-        if image_id is None or container_id not in self._closed_inspected:
+        if (
+            image_id is None
+            or container_id not in self._closed_inspected
+            or self._inspected_profiles.get(container_id) != _MATERIALIZATION_PROBE_PROFILE
+        ):
             raise LocalDockerEngineError("local Docker probe was not closed-inspected")
         if container_id in self._started:
             raise LocalDockerEngineError("local Docker probe already started")
@@ -909,22 +1051,41 @@ class LocalDockerEngine:
         )
 
     def start_probe(self, container_id: str) -> None:
+        self._start_probe(container_id, profile=_MATERIALIZATION_PROBE_PROFILE)
+
+    def _start_probe(self, container_id: str, *, profile: str) -> None:
         container_id = _require_container_id(container_id)
         image_id = self._container_images.get(container_id)
-        if image_id is None or container_id not in self._closed_inspected:
+        if (
+            image_id is None
+            or container_id not in self._closed_inspected
+            or self._container_profiles.get(container_id) != profile
+            or self._inspected_profiles.get(container_id) != profile
+        ):
             raise LocalDockerEngineError("local Docker probe was not closed-inspected")
         if container_id in self._started:
             raise LocalDockerEngineError("local Docker probe already started")
-        self.inspect_closed_probe_container(container_id, expected_image_id=image_id)
+        self._inspect_closed_probe_container(
+            container_id, expected_image_id=image_id, profile=profile
+        )
         response = self._request("POST", f"/{DOCKER_API_VERSION}/containers/{container_id}/start")
         if response.status != 204:
             raise LocalDockerEngineError("local Docker probe start failed")
         self._started.add(container_id)
+        self._started_profiles[container_id] = profile
 
     def wait_probe(self, container_id: str) -> None:
+        self._wait_probe(container_id, profile=_MATERIALIZATION_PROBE_PROFILE)
+
+    def _wait_probe(self, container_id: str, *, profile: str) -> None:
         container_id = _require_container_id(container_id)
         if container_id not in self._started or container_id in self._waited:
             raise LocalDockerEngineError("local Docker probe wait state is invalid")
+        started_profile = self._started_profiles.get(container_id)
+        if started_profile is not None and started_profile != profile:
+            raise LocalDockerEngineError("local Docker probe profile changed")
+        if profile == _SYNTHETIC_PROBE_PROFILE and started_profile != profile:
+            raise LocalDockerEngineError("local Docker probe profile changed")
         value = self._request_json(
             "POST",
             f"/{DOCKER_API_VERSION}/containers/{container_id}/wait?condition=not-running",
@@ -938,11 +1099,20 @@ class LocalDockerEngine:
         if not _matches_completed_probe_state(completed.get("State")):
             raise LocalDockerEngineError("local Docker completed probe state changed")
         self._waited.add(container_id)
+        self._waited_profiles[container_id] = profile
 
     def probe_logs_bounded(self, container_id: str) -> tuple[bytes, bytes]:
+        return self._probe_logs_bounded(container_id, profile=_MATERIALIZATION_PROBE_PROFILE)
+
+    def _probe_logs_bounded(self, container_id: str, *, profile: str) -> tuple[bytes, bytes]:
         container_id = _require_container_id(container_id)
         if container_id not in self._waited:
             raise LocalDockerEngineError("local Docker probe logs are premature")
+        waited_profile = self._waited_profiles.get(container_id)
+        if waited_profile is not None and waited_profile != profile:
+            raise LocalDockerEngineError("local Docker probe profile changed")
+        if profile == _SYNTHETIC_PROBE_PROFILE and waited_profile != profile:
+            raise LocalDockerEngineError("local Docker probe profile changed")
         response = self._request(
             "GET",
             f"/{DOCKER_API_VERSION}/containers/{container_id}/logs?"
@@ -961,6 +1131,17 @@ class LocalDockerEngine:
         stdout, stderr = self.probe_logs_bounded(container_id)
         _validate_probe_observation(stdout)
         return stdout, stderr
+
+    def run_closed_synthetic_probe(self, container_id: str, *, expected_image_id: str) -> bytes:
+        """Run one fixed synthetic probe and return only its canonical observation."""
+
+        self.inspect_closed_synthetic_probe_container(
+            container_id, expected_image_id=expected_image_id
+        )
+        self._start_probe(container_id, profile=_SYNTHETIC_PROBE_PROFILE)
+        self._wait_probe(container_id, profile=_SYNTHETIC_PROBE_PROFILE)
+        stdout, _stderr = self._probe_logs_bounded(container_id, profile=_SYNTHETIC_PROBE_PROFILE)
+        return validate_synthetic_probe_observation(stdout)
 
     def inspect_image(self, image_id: str) -> dict[str, Any]:
         image_id = _require_image_id(image_id)
@@ -984,9 +1165,13 @@ class LocalDockerEngine:
             self._owned_containers.remove(container_id)
             self._removed_containers.add(container_id)
             self._container_images.pop(container_id, None)
+            self._container_profiles.pop(container_id, None)
             self._closed_inspected.discard(container_id)
+            self._inspected_profiles.pop(container_id, None)
             self._started.discard(container_id)
+            self._started_profiles.pop(container_id, None)
             self._waited.discard(container_id)
+            self._waited_profiles.pop(container_id, None)
             return False
         if inspected.status != 200:
             raise LocalDockerEngineError("owned Docker container inspection failed")
@@ -1004,9 +1189,13 @@ class LocalDockerEngine:
         self._owned_containers.remove(container_id)
         self._removed_containers.add(container_id)
         self._container_images.pop(container_id, None)
+        self._container_profiles.pop(container_id, None)
         self._closed_inspected.discard(container_id)
+        self._inspected_profiles.pop(container_id, None)
         self._started.discard(container_id)
+        self._started_profiles.pop(container_id, None)
         self._waited.discard(container_id)
+        self._waited_profiles.pop(container_id, None)
         return True
 
     def remove_owned_image(self, image_id: str) -> bool:
