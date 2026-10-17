@@ -61,6 +61,16 @@ def _canonical(value=None):
     ).encode("ascii")
 
 
+def _imported_modules(source: str) -> frozenset[str]:
+    result = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            result.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            result.add(node.module)
+    return frozenset(result)
+
+
 def test_shared_observation_module_is_pure_and_adapter_reexports_the_same_callable():
     module = _module()
     from human_feedback.adapters import _laya_synthetic_probe as adapter
@@ -69,13 +79,14 @@ def test_shared_observation_module_is_pure_and_adapter_reexports_the_same_callab
     assert (
         adapter.validate_synthetic_probe_observation is module.validate_synthetic_probe_observation
     )
-    tree = ast.parse(inspect.getsource(module))
-    imports = {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for alias in node.names
-    }
+    hostile = _imported_modules(
+        "import socket\n"
+        "from os import path\n"
+        "from human_feedback.adapters import _laya_synthetic_probe\n"
+    )
+    assert hostile == frozenset({"socket", "os", "human_feedback.adapters"})
+
+    imports = _imported_modules(inspect.getsource(module))
     assert not any(name.startswith("human_feedback.adapters") for name in imports)
     assert not any(
         name.split(".")[0]
