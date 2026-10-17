@@ -128,6 +128,7 @@ class _IssuedEvidenceRecord:
         "materialization_plan",
         "image_id",
         "installation_sha256",
+        "observation_sha256",
         "runtime_identity",
         "profile",
         "revoked",
@@ -141,6 +142,7 @@ class _IssuedEvidenceRecord:
         self.materialization_plan = plan._materialization_plan
         self.image_id = plan._image_id
         self.installation_sha256 = plan._installation_sha256
+        self.observation_sha256 = evidence._observation_sha256
         self.runtime_identity = plan._runtime_identity
         self.profile = evidence.execution_profile
         self.revoked = False
@@ -282,6 +284,7 @@ class _LayaRuntimeExecutionReceipt:
 class LayaRuntimeExecutionEvidence:
     schema_version: str
     _plan: LayaRuntimeExecutionPlan = _field(repr=False)
+    _observation_sha256: str = _field(repr=False)
     _factory_token: _InitVar[object]
     execution_profile: str = _field(default=EXECUTION_PROFILE, init=False)
     artifact_integrity_verified: bool = _field(default=True, init=False)
@@ -325,6 +328,9 @@ class LayaRuntimeExecutionEvidence:
             _factory_token is not _EVIDENCE_TOKEN
             or self.schema_version != _EVIDENCE_SCHEMA
             or type(self._plan) is not LayaRuntimeExecutionPlan
+            or type(self._observation_sha256) is not str
+            or len(self._observation_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self._observation_sha256)
             or self.execution_profile != EXECUTION_PROFILE
             or any(
                 getattr(self, claim, None) is not expected
@@ -426,6 +432,7 @@ def _evidence_record_matches(
         and record.materialization_plan is plan._materialization_plan
         and record.image_id == plan._image_id
         and record.installation_sha256 == plan._installation_sha256
+        and record.observation_sha256 == evidence._observation_sha256
         and record.runtime_identity is plan._runtime_identity
         and record.profile == evidence.execution_profile
     )
@@ -464,25 +471,27 @@ def _register_issued_evidence(evidence: LayaRuntimeExecutionEvidence) -> None:
     record = None
 
     def cleanup(expired) -> None:
-        retained_plan = None
         with _ISSUANCE_LOCK:
             current = _ISSUED_EVIDENCE.get(identity)
             if current is not None and current is record and current.reference is expired:
-                retained_plan = current.plan
-                current.plan = None
-                current.runtime_evidence = None
-                current.materialization_plan = None
-                current.image_id = ""
-                current.installation_sha256 = ""
-                current.runtime_identity = None
-                current.profile = ""
+                _clear_evidence_record(current)
                 _ISSUED_EVIDENCE.pop(identity, None)
-        del retained_plan
 
     reference = _weakref.ref(evidence, cleanup)
     record = _IssuedEvidenceRecord(reference, evidence)
     with _ISSUANCE_LOCK:
         _ISSUED_EVIDENCE[identity] = record
+
+
+def _clear_evidence_record(record: _IssuedEvidenceRecord) -> None:
+    record.plan = None
+    record.runtime_evidence = None
+    record.materialization_plan = None
+    record.image_id = ""
+    record.installation_sha256 = ""
+    record.observation_sha256 = ""
+    record.runtime_identity = None
+    record.profile = ""
 
 
 def _issue_laya_runtime_execution_receipt(
@@ -540,12 +549,14 @@ def _seal_laya_runtime_execution_evidence(
             ):
                 raise ValueError("runtime execution receipt lacks issued authority")
             record.consumed = True
+            observation_sha256 = record.observation_sha256
             _ISSUED_RECEIPTS.pop(id(receipt), None)
             _clear_receipt_record(record)
         issued_plan = _revalidate_plan(issued_plan)
         result = LayaRuntimeExecutionEvidence(
             schema_version=_EVIDENCE_SCHEMA,
             _plan=issued_plan,
+            _observation_sha256=observation_sha256,
             _factory_token=_EVIDENCE_TOKEN,
         )
         _register_issued_evidence(result)
@@ -592,7 +603,7 @@ def _revoke_evidence(value: object) -> None:
             raise TypeError("runtime execution evidence type is invalid")
         with _ISSUANCE_LOCK:
             record = _ISSUED_EVIDENCE.get(id(value))
-            if not _evidence_record_matches(record, value):
+            if type(record) is not _IssuedEvidenceRecord or record.reference() is not value:
                 raise ValueError("runtime execution evidence revocation is invalid")
             record.revoked = True
             valid = True
@@ -600,6 +611,29 @@ def _revoke_evidence(value: object) -> None:
         valid = False
     if not valid:
         _raise_private("runtime execution evidence revocation failed")
+
+
+def _discard_issued_evidence(value: object) -> None:
+    """Forget only one exact partially issued authority without parent validation."""
+
+    valid = False
+    try:
+        if type(value) is not LayaRuntimeExecutionEvidence:
+            raise TypeError("runtime execution evidence type is invalid")
+        with _ISSUANCE_LOCK:
+            record = _ISSUED_EVIDENCE.get(id(value))
+            if record is None:
+                valid = True
+            elif type(record) is _IssuedEvidenceRecord and record.reference() is value:
+                _clear_evidence_record(record)
+                _ISSUED_EVIDENCE.pop(id(value), None)
+                valid = True
+            else:
+                raise ValueError("runtime execution evidence discard is invalid")
+    except Exception:
+        valid = False
+    if not valid:
+        _raise_private("runtime execution evidence discard failed")
 
 
 def canonical_laya_runtime_execution_summary_bytes(evidence: object) -> bytes:
