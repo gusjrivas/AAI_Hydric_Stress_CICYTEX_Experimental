@@ -155,6 +155,30 @@ def test_declared_choice_must_be_one_of_the_closed_categories():
         _validate(observation)
 
 
+def test_declared_choice_must_be_one_of_the_rounded_probability_maxima():
+    observation = _observation()
+    observation["predictions"][0]["choice"] = "other"
+    observation["predictions"][1] = copy.deepcopy(observation["predictions"][0])
+    with pytest.raises(ValueError, match="synthetic execution probe"):
+        _validate(observation)
+
+
+@pytest.mark.parametrize("choice", ["data_quality", "model_behavior"])
+def test_any_rounded_probability_tie_winner_is_accepted(choice):
+    observation = _observation()
+    prediction = observation["predictions"][0]
+    prediction["choice"] = choice
+    prediction["probabilities"] = {
+        "data_quality": 0.3,
+        "model_behavior": 0.3,
+        "agronomic_context": 0.2,
+        "usability": 0.1,
+        "other": 0.1,
+    }
+    observation["predictions"][1] = copy.deepcopy(prediction)
+    assert _validate(observation) == _canonical_bytes(observation)
+
+
 @pytest.mark.parametrize("bad", [-0.0001, 1.0001, math.nan, math.inf, -math.inf, True])
 def test_probabilities_must_be_finite_real_values_in_closed_unit_interval(bad):
     observation = _observation()
@@ -226,3 +250,25 @@ def test_validator_rejects_duplicate_json_keys_and_oversized_stdout():
         validate_synthetic_probe_observation(duplicate)
     with pytest.raises(ValueError, match="synthetic execution probe"):
         validate_synthetic_probe_observation(b" " * (1024 * 1024))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"private_canary":"DO_NOT_DISCLOSE_7f31"',
+        b"\xffDO_NOT_DISCLOSE_7f31",
+    ],
+)
+def test_parser_failures_do_not_retain_child_stdout_in_exception_graph(payload):
+    from human_feedback.adapters._laya_synthetic_probe import (
+        validate_synthetic_probe_observation,
+    )
+
+    with pytest.raises(ValueError, match="synthetic execution probe") as caught:
+        validate_synthetic_probe_observation(payload)
+    error = caught.value
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert error.__suppress_context__ is True
+    rendered = repr((error.args, str(error), repr(error)))
+    assert "DO_NOT_DISCLOSE_7f31" not in rendered
