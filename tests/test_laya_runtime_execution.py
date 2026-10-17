@@ -199,6 +199,7 @@ def test_direct_evidence_scaffold_remains_unissued_private_and_outside_public_ap
     direct = module.LayaRuntimeExecutionEvidence(
         schema_version="laya-runtime-execution-evidence-v1",
         _plan=plan,
+        _observation_sha256="a" * 64,
         _factory_token=module._EVIDENCE_TOKEN,
     )
     assert image_id not in repr(direct)
