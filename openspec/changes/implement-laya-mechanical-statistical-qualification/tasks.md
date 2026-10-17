@@ -57,7 +57,25 @@ The measurement does not substitute for unavailable per-example Laya latency.
 
 - [ ] 3.1 Directed and historical/site/mock/backend regression gates.
 - [ ] 3.2 Independent critique/audit without P0/P1/P2, exact-head CI PASS.
-- [ ] 3.3 Record numerical fixture outputs separately from scientific BLOCKED status.
+- [x] 3.3 Record numerical fixture outputs separately from scientific BLOCKED status.
+
+Post-rebase directed Linux/non-root/network-none regression: 212 passed in 24.60
+seconds, using trusted helper image
+`sha256:90d42f3d776d8d3434982bd00bd815166d496dd3195cea2fa6b6bbcb0d934475`.
+It covered the three new statistics test files plus legacy readiness/safety/CLI,
+preregistration issuance/preregistration/corpus and runner. No Docker socket was
+mounted for this pure regression. Exact-head CI and historical/backend/frontend
+acceptance remain pending; the 212-test result does not replace them.
+
+Numerical fixture examples, not observed scientific study results: the paired
+balanced good/bad-group golden fixture has observed global delta 0, descriptive
+bounds [-2/3, 2/3] and plus-one tail 6528/10001. Unequal-site sample counts retain
+an equal-site mean of 1/3 rather than a pooled estimate. The unequal-group-size
+fixture has global delta -3/11 and tail 7531/10001. Tests verify inclusive margin
+and Holm boundaries, weighted ECE and fixed five-label abstention semantics.
+Every privately issued fixture result still reports MECHANICAL_FIXTURE_ONLY_BLOCKED,
+unavailable calibration/latency/real admissions and false scientific/shadow/
+production claims; those numerical examples cannot replace external evidence.
 
 ## 4. Scientific prerequisites — not supplied, not inferred from fixtures
 
