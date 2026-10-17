@@ -48,10 +48,14 @@ _BOOTSTRAP_UNIT = "group_within_site"
 _BOOTSTRAP_INTERVAL = "two_sided_percentile"
 _BOOTSTRAP_REPLICATES = 10_000
 _BOOTSTRAP_CONFIDENCE_LEVEL = 0.95
-_PRIMARY_INTERVAL_DECISION_RULE = "lower_bound_gte_minimum_paired_delta"
-_SITE_INTERVAL_DECISION_RULE = "lower_bound_gte_minimum_site_delta"
+_BOOTSTRAP_SEED = 20_261_017
+_BOOTSTRAP_P_VALUE_DEFINITION = "plus_one_fraction_replicates_at_or_below_margin"
+_INTERVAL_DECISION_RULE = "descriptive_only_holm_tail_probability_is_gate"
 _MULTIPLICITY_CORRECTION = "holm"
 _FAMILYWISE_ALPHA = 0.05
+_HOLM_ORDERING = "ascending_p_value_then_preregistered_family_order"
+_HOLM_STEP_DOWN_RULE = "reject_while_p_lte_alpha_div_remaining_stop_on_first_failure"
+_MULTIPLICITY_GATE_RULE = "all_hypotheses_rejected"
 _LEGACY_POLICY_ID = "laya-readiness-policy-v1"
 _HOLM_HYPOTHESIS_FAMILY = (
     "global_equal_site_macro_f1_superiority",
@@ -115,6 +119,7 @@ _ANALYSIS_FIELDS = frozenset(
         "bootstrap_replicates",
         "bootstrap_confidence_level",
         "bootstrap_seed",
+        "bootstrap_p_value_definition",
         "primary_interval_decision_rule",
         "site_interval_decision_rule",
         "macro_f1_labels",
@@ -122,6 +127,9 @@ _ANALYSIS_FIELDS = frozenset(
         "multiplicity_correction",
         "familywise_alpha",
         "holm_hypothesis_family",
+        "holm_ordering",
+        "holm_step_down_rule",
+        "multiplicity_gate_rule",
         "legacy_policy_id",
         "legacy_thresholds",
     }
@@ -178,6 +186,7 @@ class AnalysisProtocol:
     bootstrap_replicates: int
     bootstrap_confidence_level: float
     bootstrap_seed: int
+    bootstrap_p_value_definition: str
     primary_interval_decision_rule: str
     site_interval_decision_rule: str
     macro_f1_labels: tuple[str, ...]
@@ -185,6 +194,9 @@ class AnalysisProtocol:
     multiplicity_correction: str
     familywise_alpha: float
     holm_hypothesis_family: tuple[str, ...]
+    holm_ordering: str
+    holm_step_down_rule: str
+    multiplicity_gate_rule: str
     legacy_policy_id: str
     legacy_thresholds: tuple[tuple[str, float], ...]
 
@@ -374,9 +386,13 @@ def _parse_analysis(value: Any) -> AnalysisProtocol:
         "bootstrap_method": _BOOTSTRAP_METHOD,
         "bootstrap_unit": _BOOTSTRAP_UNIT,
         "bootstrap_interval": _BOOTSTRAP_INTERVAL,
-        "primary_interval_decision_rule": _PRIMARY_INTERVAL_DECISION_RULE,
-        "site_interval_decision_rule": _SITE_INTERVAL_DECISION_RULE,
+        "bootstrap_p_value_definition": _BOOTSTRAP_P_VALUE_DEFINITION,
+        "primary_interval_decision_rule": _INTERVAL_DECISION_RULE,
+        "site_interval_decision_rule": _INTERVAL_DECISION_RULE,
         "multiplicity_correction": _MULTIPLICITY_CORRECTION,
+        "holm_ordering": _HOLM_ORDERING,
+        "holm_step_down_rule": _HOLM_STEP_DOWN_RULE,
+        "multiplicity_gate_rule": _MULTIPLICITY_GATE_RULE,
         "legacy_policy_id": _LEGACY_POLICY_ID,
     }
     for name, expected in exact.items():
@@ -401,8 +417,8 @@ def _parse_analysis(value: Any) -> AnalysisProtocol:
     if confidence != _BOOTSTRAP_CONFIDENCE_LEVEL:
         raise ValueError("bootstrap confidence level is not the preregistered value")
     seed = _require_integer(raw["bootstrap_seed"], label="bootstrap seed")
-    if seed < 0:
-        raise ValueError("bootstrap seed must be non-negative")
+    if seed != _BOOTSTRAP_SEED:
+        raise ValueError("bootstrap seed is not the preregistered value")
     familywise_alpha = _require_number(raw["familywise_alpha"], label="familywise alpha")
     if familywise_alpha != _FAMILYWISE_ALPHA:
         raise ValueError("familywise alpha is not the preregistered value")
@@ -444,13 +460,17 @@ def _parse_analysis(value: Any) -> AnalysisProtocol:
         bootstrap_replicates=replicates,
         bootstrap_confidence_level=confidence,
         bootstrap_seed=seed,
-        primary_interval_decision_rule=_PRIMARY_INTERVAL_DECISION_RULE,
-        site_interval_decision_rule=_SITE_INTERVAL_DECISION_RULE,
+        bootstrap_p_value_definition=_BOOTSTRAP_P_VALUE_DEFINITION,
+        primary_interval_decision_rule=_INTERVAL_DECISION_RULE,
+        site_interval_decision_rule=_INTERVAL_DECISION_RULE,
         macro_f1_labels=CATEGORIES,
         macro_f1_zero_division=zero_division,
         multiplicity_correction=_MULTIPLICITY_CORRECTION,
         familywise_alpha=familywise_alpha,
         holm_hypothesis_family=_HOLM_HYPOTHESIS_FAMILY,
+        holm_ordering=_HOLM_ORDERING,
+        holm_step_down_rule=_HOLM_STEP_DOWN_RULE,
+        multiplicity_gate_rule=_MULTIPLICITY_GATE_RULE,
         legacy_policy_id=_LEGACY_POLICY_ID,
         legacy_thresholds=tuple(thresholds),
     )
@@ -676,6 +696,7 @@ def _summary(protocol: HumanEvaluationPreregistration) -> dict[str, Any]:
             "bootstrap_replicates": protocol.analysis.bootstrap_replicates,
             "bootstrap_confidence_level": protocol.analysis.bootstrap_confidence_level,
             "bootstrap_seed": protocol.analysis.bootstrap_seed,
+            "bootstrap_p_value_definition": (protocol.analysis.bootstrap_p_value_definition),
             "primary_interval_decision_rule": (protocol.analysis.primary_interval_decision_rule),
             "site_interval_decision_rule": protocol.analysis.site_interval_decision_rule,
             "macro_f1_labels": list(protocol.analysis.macro_f1_labels),
@@ -683,6 +704,9 @@ def _summary(protocol: HumanEvaluationPreregistration) -> dict[str, Any]:
             "multiplicity_correction": protocol.analysis.multiplicity_correction,
             "familywise_alpha": protocol.analysis.familywise_alpha,
             "holm_hypothesis_family": list(protocol.analysis.holm_hypothesis_family),
+            "holm_ordering": protocol.analysis.holm_ordering,
+            "holm_step_down_rule": protocol.analysis.holm_step_down_rule,
+            "multiplicity_gate_rule": protocol.analysis.multiplicity_gate_rule,
             "legacy_policy_id": protocol.analysis.legacy_policy_id,
             "legacy_thresholds": dict(protocol.analysis.legacy_thresholds),
         },

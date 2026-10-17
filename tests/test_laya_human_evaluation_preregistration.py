@@ -195,7 +195,7 @@ def _inputs(tmp_path: Path, *, records=None, mutate=None):
             "holm_step_down_rule": ("reject_while_p_lte_alpha_div_remaining_stop_on_first_failure"),
             "multiplicity_gate_rule": "all_hypotheses_rejected",
             "legacy_policy_id": "laya-readiness-policy-v1",
-            "legacy_thresholds": LEGACY_THRESHOLDS,
+            "legacy_thresholds": deepcopy(LEGACY_THRESHOLDS),
         },
         "external_artifacts": [
             {
