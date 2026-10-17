@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import secrets
 import stat
@@ -237,6 +238,130 @@ def _publish_noreplace(parent_fd: int, source: str, destination: str) -> None:
     rename.restype = ctypes.c_int
     if rename(parent_fd, os.fsencode(source), parent_fd, os.fsencode(destination), 1) != 0:
         _raise_private(RootfsMaterializationError, "atomic rootfs publication failed")
+
+
+def _open_relative_parent(root_fd: int, path: str) -> tuple[int, str]:
+    components = path.split("/")
+    if any(part in {"", ".", ".."} for part in components):
+        raise RootfsMaterializationError("invalid relative rootfs path")
+    descriptor = os.dup(root_fd)
+    try:
+        for component in components[:-1]:
+            child = os.open(component, _directory_flags(), dir_fd=descriptor)
+            previous, descriptor = descriptor, child
+            os.close(previous)
+        return descriptor, components[-1]
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+class _RootfsWriter:
+    """Route bounded chunks only to regular files surviving the final namespace."""
+
+    def __init__(self, root_fd: int, nodes: tuple[object, ...]) -> None:
+        self.root_fd = root_fd
+        self.expected = {node.path: node for node in nodes if node.typeflag == "0"}
+        self.hashes: dict[str, str] = {}
+        self.active: set[_RegularPayloadSink] = set()
+        self.budget = sum(node.size_bytes for node in self.expected.values())
+        if self.budget > 3 * 1024 * 1024 * 1024:
+            raise RootfsMaterializationError("rootfs payload budget exceeded")
+        capacity = os.fstatvfs(root_fd)
+        if self.budget > capacity.f_bavail * capacity.f_frsize:
+            raise RootfsMaterializationError("rootfs scratch capacity unavailable")
+        for node in sorted(nodes, key=lambda item: (item.path.count("/"), item.path)):
+            if node.typeflag == "5":
+                parent, name = _open_relative_parent(root_fd, node.path)
+                try:
+                    os.mkdir(name, STAGING_MODE, dir_fd=parent)
+                finally:
+                    os.close(parent)
+
+    def sink(self, position: int) -> _RegularPayloadSink:
+        return _RegularPayloadSink(self, position)
+
+    def finish_regulars(self) -> dict[str, str]:
+        if self.active or self.budget != 0 or self.hashes.keys() != self.expected.keys():
+            raise RootfsMaterializationError("rootfs payload coverage incomplete")
+        return dict(self.hashes)
+
+    def close(self) -> None:
+        for sink in tuple(self.active):
+            sink.close()
+
+
+class _RegularPayloadSink:
+    def __init__(self, owner: _RootfsWriter, position: int) -> None:
+        self.owner = owner
+        self.position = position
+        self.descriptor: int | None = None
+        self.node = None
+        self.remaining = 0
+        self.digest = None
+
+    def start(self, entry: object) -> None:
+        if self.descriptor is not None:
+            raise RootfsMaterializationError("rootfs payload already active")
+        node = self.owner.expected.get(entry.path)
+        self.node = None
+        if node is None or node.source_layer_position != self.position:
+            return
+        if node.path in self.owner.hashes or any(
+            getattr(node, field) != getattr(entry, field)
+            for field in ("typeflag", "size_bytes", "link_target", "mode", "uid", "gid", "mtime")
+        ):
+            raise RootfsMaterializationError("rootfs payload header mismatch")
+        parent, name = _open_relative_parent(self.owner.root_fd, node.path)
+        try:
+            self.descriptor = os.open(
+                name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+                dir_fd=parent,
+            )
+        finally:
+            os.close(parent)
+        self.node = node
+        self.remaining = node.size_bytes
+        self.digest = hashlib.sha256()
+        self.owner.active.add(self)
+
+    def chunk(self, payload: bytes) -> None:
+        if self.node is None:
+            return
+        if (
+            type(payload) is not bytes
+            or len(payload) > self.remaining
+            or len(payload) > self.owner.budget
+        ):
+            raise RootfsMaterializationError("rootfs payload byte budget exceeded")
+        offset = 0
+        while offset < len(payload):
+            written = os.write(self.descriptor, payload[offset:])
+            if written <= 0 or written > len(payload) - offset:
+                raise RootfsMaterializationError("rootfs payload write failed")
+            offset += written
+            self.remaining -= written
+            self.owner.budget -= written
+        self.digest.update(payload)
+
+    def end(self) -> None:
+        if self.node is None:
+            return
+        if self.remaining != 0:
+            raise RootfsMaterializationError("rootfs payload truncated")
+        os.fchmod(self.descriptor, 0o600 | (self.node.mode & 0o100))
+        os.fsync(self.descriptor)
+        self.owner.hashes[self.node.path] = self.digest.hexdigest()
+        self.close()
+
+    def close(self) -> None:
+        descriptor, self.descriptor = self.descriptor, None
+        self.node = None
+        self.owner.active.discard(self)
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def materialize_laya_runtime_rootfs(
