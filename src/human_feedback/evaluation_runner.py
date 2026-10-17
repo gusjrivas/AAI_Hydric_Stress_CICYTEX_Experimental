@@ -62,8 +62,10 @@ class _HumanLosoMechanicalRunEvidence:
 @dataclass(slots=True, repr=False)
 class _FoldProgress:
     calibration_receipt: _AcceptedBatchReceipt | None = None
+    calibration_seal: tuple[_AcceptedBatchReceipt, str] | None = field(default=None, repr=False)
     outer_test_released: bool = False
     test_receipt: _AcceptedBatchReceipt | None = None
+    test_seal: tuple[_AcceptedBatchReceipt, str] | None = field(default=None, repr=False)
 
 
 @dataclass(slots=True, repr=False)
@@ -232,7 +234,7 @@ def _execute_mechanical_state_machine(
     for fold_index, fold in enumerate(protocol._plan.folds):
         progress = state.folds[fold_index]
         if progress.calibration_receipt is None:
-            progress.calibration_receipt = _accepted_batch(
+            receipt = _accepted_batch(
                 adapter=adapter,
                 inference_port=inference_port,
                 records=fold.calibration_records,
@@ -241,6 +243,8 @@ def _execute_mechanical_state_machine(
                 runtime_identity=runtime_identity,
                 model_identity=model_identity,
             )
+            progress.calibration_receipt = receipt
+            progress.calibration_seal = (receipt, receipt.response_sha256)
         if not progress.outer_test_released:
             release = grant.authorize_outer_test(
                 fold_index,
@@ -250,7 +254,7 @@ def _execute_mechanical_state_machine(
                 _raise_private_failure()
             progress.outer_test_released = True
         if progress.test_receipt is None:
-            progress.test_receipt = _accepted_batch(
+            receipt = _accepted_batch(
                 adapter=adapter,
                 inference_port=inference_port,
                 records=fold.test_records,
@@ -259,6 +263,8 @@ def _execute_mechanical_state_machine(
                 runtime_identity=runtime_identity,
                 model_identity=model_identity,
             )
+            progress.test_receipt = receipt
+            progress.test_seal = (receipt, receipt.response_sha256)
     return _HumanLosoMechanicalRunEvidence()
 
 
@@ -380,14 +386,28 @@ def _sealed_human_loso_mechanical_batches(
             for fold_index, fold in enumerate(issued._plan.folds):
                 progress = state.folds[fold_index]
                 expected = (
-                    ("calibration", progress.calibration_receipt, len(fold.calibration_records)),
-                    ("test", progress.test_receipt, len(fold.test_records)),
+                    (
+                        "calibration",
+                        progress.calibration_receipt,
+                        progress.calibration_seal,
+                        len(fold.calibration_records),
+                    ),
+                    (
+                        "test",
+                        progress.test_receipt,
+                        progress.test_seal,
+                        len(fold.test_records),
+                    ),
                 )
                 if not progress.outer_test_released:
                     raise ValueError
-                for phase, receipt, count in expected:
+                for phase, receipt, seal, count in expected:
                     if (
                         type(receipt) is not _AcceptedBatchReceipt
+                        or type(seal) is not tuple
+                        or len(seal) != 2
+                        or seal[0] is not receipt
+                        or seal[1] != receipt.response_sha256
                         or receipt.phase != phase
                         or type(receipt.fold_index) is not int
                         or receipt.fold_index != fold_index
@@ -396,8 +416,7 @@ def _sealed_human_loso_mechanical_batches(
                         or not _is_sha256(receipt.request_sha256)
                         or not _is_sha256(receipt.response_sha256)
                         or type(receipt.canonical_response) is not bytes
-                        or hashlib.sha256(receipt.canonical_response).hexdigest()
-                        != receipt.response_sha256
+                        or hashlib.sha256(receipt.canonical_response).hexdigest() != seal[1]
                         or receipt.runtime_identity is not state.runtime_identity
                         or receipt.model_identity is not state.model_identity
                         or receipt.inference_port is not state.inference_port
