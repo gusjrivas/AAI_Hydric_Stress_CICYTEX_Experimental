@@ -96,8 +96,15 @@ def test_atomic_publication_preserves_staging_inode(tmp_path):
 
 def _node(path, *, kind="0", size=0, layer=0, target=None):
     return SimpleNamespace(
-        path=path, typeflag=kind, size_bytes=size, source_layer_position=layer,
-        link_target=target, mode=0o644, uid=0, gid=0, mtime=0,
+        path=path,
+        typeflag=kind,
+        size_bytes=size,
+        source_layer_position=layer,
+        link_target=target,
+        mode=0o644,
+        uid=0,
+        gid=0,
+        mtime=0,
     )
 
 
@@ -143,10 +150,72 @@ def test_writer_refuses_incomplete_or_invalid_payloads(tmp_path, monkeypatch, ca
                 sink.start(node)
                 if case == "zero-write":
                     monkeypatch.setattr(adapter.os, "write", lambda *_args: 0)
-                sink.chunk(b"abcd" if case == "overflow" else b"ab" if case == "truncated" else b"abc")
+                sink.chunk(
+                    b"abcd" if case == "overflow" else b"ab" if case == "truncated" else b"abc"
+                )
                 sink.end()
                 if case == "duplicate":
                     sink.start(node)
     finally:
         writer.close()
+        os.close(descriptor)
+
+
+def _written_tree(tmp_path):
+    descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    nodes = (
+        _node("value", size=3, layer=1),
+        _node("alias", kind="1", target="value"),
+        _node("chain", kind="1", target="alias"),
+        _node("symlink", kind="2", target="/value"),
+    )
+    writer = adapter._RootfsWriter(descriptor, nodes)
+    sink = writer.sink(1)
+    sink.start(nodes[0])
+    sink.chunk(b"new")
+    sink.end()
+    hashes = writer.finish_regulars()
+    writer.close()
+    return descriptor, nodes, hashes
+
+
+def test_final_links_resolve_to_replaced_terminal_and_commitment_is_repeatable(tmp_path):
+    commitments = []
+    for name in ("first", "second"):
+        root = tmp_path / name
+        root.mkdir(mode=0o700)
+        descriptor, nodes, hashes = _written_tree(root)
+        try:
+            adapter._create_final_links(descriptor, nodes)
+            assert (root / "alias").read_bytes() == b"new"
+            assert (root / "chain").stat().st_ino == (root / "value").stat().st_ino
+            assert (root / "value").stat().st_nlink == 3
+            assert os.readlink(root / "symlink") == "/value"
+            commitments.append(adapter._verify_staged_tree(descriptor, nodes, hashes, "a" * 64))
+        finally:
+            os.close(descriptor)
+    assert commitments[0] == commitments[1]
+    assert len(commitments[0]) == 64
+
+
+@pytest.mark.parametrize("corruption", ("content", "extra", "hardlink", "symlink", "mode"))
+def test_staged_verification_detects_content_topology_and_permission_drift(tmp_path, corruption):
+    descriptor, nodes, hashes = _written_tree(tmp_path)
+    try:
+        adapter._create_final_links(descriptor, nodes)
+        if corruption == "content":
+            (tmp_path / "value").write_bytes(b"bad")
+        elif corruption == "extra":
+            (tmp_path / "extra").write_bytes(b"extra")
+        elif corruption == "hardlink":
+            (tmp_path / "chain").unlink()
+            (tmp_path / "chain").write_bytes(b"new")
+        elif corruption == "symlink":
+            (tmp_path / "symlink").unlink()
+            (tmp_path / "symlink").symlink_to("/wrong")
+        else:
+            (tmp_path / "value").chmod(0o666)
+        with pytest.raises(adapter.RootfsMaterializationError):
+            adapter._verify_staged_tree(descriptor, nodes, hashes, "a" * 64)
+    finally:
         os.close(descriptor)
