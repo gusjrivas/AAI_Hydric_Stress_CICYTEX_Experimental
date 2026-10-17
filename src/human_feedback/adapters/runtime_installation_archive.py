@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import posixpath
 import stat
 import tarfile
 from collections import Counter
@@ -19,6 +20,9 @@ MAX_INSTALLATION_ARCHIVE_BYTES = 3 * 1024 * 1024 * 1024
 _CHUNK_BYTES = 1024 * 1024
 _UID = 65532
 _GID = 65532
+_DOCKER_MANAGED_PATHS = ("etc/hostname", "etc/hosts", "etc/resolv.conf")
+_DOCKER_MANAGED_PATH_SET = frozenset(_DOCKER_MANAGED_PATHS)
+_MAX_SYMLINK_ALIAS_HOPS = 16
 _CHECKPOINT_PREFIX = "opt/laya-runtime/checkpoints/multilingual"
 _CHECKPOINT_FILES = (
     ("encoder_config", "encoder/config.json"),
@@ -48,6 +52,10 @@ class _InstallationEntry:
     link_target: str | None = None
     source: object | None = None
     checkpoint_path: str | None = None
+    uid: int = _UID
+    gid: int = _GID
+    mtime: int = 0
+    projected_empty: bool = False
 
 
 def _same_identity(left: object, right: object) -> bool:
@@ -129,10 +137,91 @@ def _checkpoint_installation_entries(
     return tuple(result)
 
 
+def _normalized_symlink_target(node: object) -> str | None:
+    target = node.link_target
+    if type(target) is not str or not target:
+        return None
+    if target.startswith("/"):
+        candidate = target.lstrip("/")
+    else:
+        candidate = posixpath.join(posixpath.dirname(node.path), target)
+    normalized = posixpath.normpath(candidate)
+    if normalized == ".":
+        return ""
+    if normalized == ".." or normalized.startswith("../"):
+        return None
+    return normalized
+
+
+def _resolved_symlink_target(node: object, namespace: dict[str, object]) -> str | None:
+    target = _normalized_symlink_target(node)
+    if target is None:
+        return None
+    visited: set[str] = set()
+    for _hop in range(_MAX_SYMLINK_ALIAS_HOPS):
+        if target in visited:
+            _raise_private("rootfs symlink alias cycle is unsafe")
+        visited.add(target)
+        components = target.split("/") if target else ()
+        for position in range(len(components)):
+            prefix = "/".join(components[: position + 1])
+            candidate = namespace.get(prefix)
+            if candidate is None or candidate.typeflag != "2":
+                continue
+            replacement = _normalized_symlink_target(candidate)
+            if replacement is None:
+                return None
+            suffix = "/".join(components[position + 1 :])
+            target = posixpath.normpath(posixpath.join(replacement, suffix))
+            if target == ".":
+                target = ""
+            if target == ".." or target.startswith("../"):
+                return None
+            break
+        else:
+            return target
+    _raise_private("rootfs symlink alias hop budget exceeded")
+
+
+def _aliases_docker_managed_path(node: object, namespace: dict[str, object]) -> bool:
+    if node.typeflag == "1":
+        return _rootfs._terminal(node, namespace).path in _DOCKER_MANAGED_PATH_SET
+    if node.typeflag != "2":
+        return False
+    target = _resolved_symlink_target(node, namespace)
+    if target is None:
+        return False
+    if target in ("", "etc") or target in _DOCKER_MANAGED_PATH_SET:
+        return True
+    terminal = namespace.get(target)
+    return (
+        terminal is not None
+        and terminal.typeflag == "1"
+        and (_rootfs._terminal(terminal, namespace).path in _DOCKER_MANAGED_PATH_SET)
+    )
+
+
 def _rootfs_entries(nodes: tuple[object, ...]) -> tuple[_InstallationEntry, ...]:
     namespace = {node.path: node for node in nodes}
+    if len(namespace) != len(nodes):
+        _raise_private("rootfs namespace is invalid")
+    etc = namespace.get("etc")
+    if etc is not None and etc.typeflag != "5":
+        _raise_private("Docker-managed installation parent is unsafe")
+    for path in _DOCKER_MANAGED_PATHS:
+        node = namespace.get(path)
+        if node is not None and node.typeflag != "0":
+            _raise_private("Docker-managed installation path is unsafe")
+    for node in nodes:
+        if node.path not in _DOCKER_MANAGED_PATH_SET and _aliases_docker_managed_path(
+            node, namespace
+        ):
+            _raise_private("Docker-managed installation alias is unsafe")
+
     result = []
     for node in nodes:
+        if node.path in _DOCKER_MANAGED_PATH_SET:
+            continue
         if node.typeflag == "5":
             result.append(_InstallationEntry(node.path, "directory", 0o700, source=node))
         elif node.typeflag == "0":
@@ -164,6 +253,20 @@ def _rootfs_entries(nodes: tuple[object, ...]) -> tuple[_InstallationEntry, ...]
             )
         else:
             _raise_private("rootfs archive node type is invalid")
+    if etc is None:
+        result.append(_InstallationEntry("etc", "directory", 0o700))
+    for path in _DOCKER_MANAGED_PATHS:
+        result.append(
+            _InstallationEntry(
+                path=path,
+                kind="regular",
+                mode=0o755,
+                source=namespace.get(path),
+                uid=0,
+                gid=0,
+                projected_empty=True,
+            )
+        )
     return tuple(result)
 
 
@@ -187,11 +290,11 @@ def _ordered_entries(
 
 def _tar_info(entry: _InstallationEntry) -> tarfile.TarInfo:
     info = tarfile.TarInfo(entry.path)
-    info.uid = _UID
-    info.gid = _GID
+    info.uid = entry.uid
+    info.gid = entry.gid
     info.uname = ""
     info.gname = ""
-    info.mtime = 0
+    info.mtime = entry.mtime
     info.mode = entry.mode
     if entry.kind == "directory":
         info.type = tarfile.DIRTYPE
@@ -458,6 +561,18 @@ def _write_laya_runtime_installation_archive(
         for entry in entries:
             total += _write_all(writer, _header(entry))
             if entry.kind != "regular":
+                continue
+            if entry.projected_empty:
+                if (
+                    entry.checkpoint_path is not None
+                    or entry.size_bytes != 0
+                    or entry.path not in _DOCKER_MANAGED_PATH_SET
+                ):
+                    raise RuntimeInstallationArchiveError(
+                        "Docker-managed installation projection is invalid"
+                    )
+                if entry.source is not None:
+                    streamed_rootfs_hashes[entry.path] = hashes[entry.path]
                 continue
             descriptor = None
             directories = None
