@@ -6,6 +6,7 @@ from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
+
 from human_feedback.evaluation_preregistration import (
     ExternalArtifact,
     canonical_human_evaluation_preregistration_summary_bytes,
