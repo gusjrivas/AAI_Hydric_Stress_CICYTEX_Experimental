@@ -324,6 +324,40 @@ def test_lease_exit_failure_revokes_partial_evidence_and_returns_none(monkeypatc
     assert caught.value.cleanup_pending is False
 
 
+def test_lease_exit_failure_discards_real_evidence_when_normal_revoke_fails(monkeypatch):
+    from human_feedback import runtime_execution as authority
+
+    real_issue = authority._issue_laya_runtime_execution_receipt
+    real_seal = authority._seal_laya_runtime_execution_evidence
+    wired = _wire(monkeypatch, lease_exit_failure=True)
+    captured = []
+
+    def issue(plan, observation):
+        wired.events.append("receipt")
+        return real_issue(plan, observation)
+
+    def seal(plan, receipt):
+        wired.events.append("seal")
+        evidence = real_seal(plan, receipt)
+        captured.append(evidence)
+        return evidence
+
+    def unavailable_revoke(_evidence):
+        raise RuntimeError(_PRIVATE_CANARY)
+
+    monkeypatch.setattr(authority, "_issue_laya_runtime_execution_receipt", issue)
+    monkeypatch.setattr(authority, "_seal_laya_runtime_execution_evidence", seal)
+    monkeypatch.setattr(authority, "_revoke_evidence", unavailable_revoke)
+
+    with pytest.raises(wired.adapter.DockerRuntimeExecutionError) as caught:
+        wired.adapter.execute_laya_runtime(wired.plan)
+
+    assert len(captured) == 1
+    _private_failure(caught.value, _PRIVATE_CANARY, wired.image_id, wired.installation)
+    with pytest.raises(ValueError):
+        authority.canonical_laya_runtime_execution_summary_bytes(captured[0])
+
+
 def test_retry_is_exact_idempotent_and_never_touches_parent_image(monkeypatch):
     wired = _wire(monkeypatch, cleanup_failures=1)
     with pytest.raises(wired.adapter.DockerRuntimeExecutionError) as caught:
