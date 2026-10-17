@@ -35,6 +35,17 @@ privacy GO (45 tests in 18.82 seconds). No open P0/P1/P2 in either reviewed scop
 Ruff, Black and diff checks passed. These are preparation gates, not exact-head
 CI or publication acceptance. PR42 dependency and regression gates remain open.
 
+Maximum admitted synthetic work-bound measurement (not a scientific benchmark):
+1536 rows, 512 groups per each of three sites, 10000 replicates, four summaries;
+Python 3.13.14 / Windows 11 build 26200, source unchanged from `25e9b6b`.
+Observed helper elapsed time: 95.173835 seconds. Process RSS sampled every 50 ms
+peaked at 38948864 bytes; this is sampled process memory, not an allocator-wide
+or cross-platform guarantee. No corpus/model/network input was used. The fixed
+bound is 10000 times the sum of site group counts (at most 15.36 million draws),
+with two 5x6 integer confusion-matrix additions per draw and four arrays of 10000
+aggregate replicates. No duplicated private rows or repeated baseline fitting.
+The measurement does not substitute for unavailable per-example Laya latency.
+
 ## 3. Technical acceptance
 
 - [ ] 3.1 Directed and historical/site/mock/backend regression gates.
