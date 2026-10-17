@@ -15,8 +15,8 @@ isolated unpublished branch. No daemon, network, real inference, positive issuer
 or productive caller is permitted before 1.5. After PR40 merge, rebase to the exact
 merge commit and repeat focal/static gates before proceeding.
 
-- [ ] 2.1 RED/GREEN runtime image lease and disposal concurrency.
-- [ ] 2.2 RED/GREEN fixed synthetic probe, strict output and determinism checks.
+- [x] 2.1 RED/GREEN runtime image lease and disposal concurrency (isolated unit scope).
+- [x] 2.2 RED/GREEN fixed synthetic probe, strict output and determinism checks (unit scope).
 - [ ] 2.3 RED/GREEN owned isolated child and positive evidence issuance/revocation.
 
 ## 3. Acceptance
@@ -37,3 +37,16 @@ Updated preparation: PR40/PR41 pure contracts pass 27/27 after rebasing to the
 accepted executable. Image-lease RED `e595979`: 6 failures solely for the missing
 private lease helper. Synthetic-probe RED `2e97d39`: 41 failures solely for the
 missing module. These are expected unmerged REDs, not failures of PR40 or main.
+
+Unit GREEN, still unpublished and blocked on 1.5 for integration:
+
+- Image lease RED `e595979` -> GREEN `062be9e`: 6 focal passes; Linux non-root
+  lease/orchestration/core regression 51 passes. Independent architecture GO,
+  no open P0/P1/P2 in this bounded slice.
+- Synthetic probe RED `2e97d39` -> GREEN `8866159`; independent review found
+  retained parser-error context and missing choice/maximum consistency. Follow-up
+  RED `fce45fa` reproduced both; GREEN `3f6a3b8` passed 45 focal tests and
+  independent re-review GO without open P0/P1/P2. Rounded ties accept any maximum.
+- Ruff, Black and diff checks passed. No daemon, network or model execution was
+  performed in these unit slices. This evidence is not real inference acceptance;
+  repeat focal/static checks after rebasing to the exact PR40 merge commit.
