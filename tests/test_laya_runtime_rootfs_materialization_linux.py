@@ -15,6 +15,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_missing_atomic_rename_symbol_disables_capability_before_io(monkeypatch):
+    monkeypatch.setattr(adapter, "_atomic_rename_function", lambda: None)
+    assert adapter._secure_rootfs_materialization_available() is False
+
+
 def test_directory_chain_rejects_symlink_ancestor_and_closes_partial_descriptors(tmp_path):
     real = tmp_path / "real"
     real.mkdir()
