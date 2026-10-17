@@ -23,11 +23,11 @@ its exact child/intents. Scientific readiness and productive callers stay off.
 
 - [x] 2.1 RED/GREEN runtime image lease and disposal concurrency (isolated unit scope).
 - [x] 2.2 RED/GREEN fixed synthetic probe, strict output and determinism checks (unit scope).
-- [ ] 2.3 RED/GREEN owned isolated child and positive evidence issuance/revocation.
+- [x] 2.3 RED/GREEN owned isolated child and positive evidence issuance/revocation.
 
 ## 3. Acceptance
 
-- [ ] 3.1 Synthetic failure/resource/schema/privacy regression gates.
+- [x] 3.1 Synthetic failure/resource/schema/privacy regression gates.
 - [ ] 3.2 Explicit real pinned smoke acceptance without scientific data.
 - [ ] 3.3 Historical/site/mock/backend/quality regressions.
 - [ ] 3.4 Independent critique/audit and exact-SHA CI; no open P0/P1/P2.
@@ -75,3 +75,26 @@ from the adapter. Combined observation/probe/engine regression passed 129 tests.
 Independent review identified a test-only import-scanner bypass for `ImportFrom`;
 `d30a91a` closed it with hostile AST sanity cases. Re-review GO, no open P0/P1/P2;
 56 parser tests and static checks passed. No authority issuance was added.
+
+## Reviewed implementation before real/CI acceptance
+
+- Core RED `7341eb1` -> GREEN `3360446`; persistent private commitment and
+  concurrency/weak-registry RED `a8750f1` -> GREEN `1a69a27`.
+- Orchestrator RED `b6df1f7` -> GREEN `efe5b51`; failure-cleanup ordering RED
+  `966dc7e`; live partial-authority RED `96f67d7` -> GREEN `2036aa7` plus the
+  exact-instance, idempotent core discard in `1a69a27`.
+- Core 28/28; core/orchestrator combined 50/50. Independent architectural review
+  of `1a69a27e65701ac338838a211b3ed20d92e6e410`: GO, no open P0/P1/P2. Adapter and
+  real-gate review also GO with the reviewed core helper now integrated.
+- Root integrated Linux non-root/network-none gate: **223 passed, 1 skipped in
+  263.40 seconds**. The skip is the explicitly opt-in real execution test, not a
+  real PASS. Later changes only clarified historical documentation and a test
+  docstring; production source stayed identical to the reviewed freeze.
+- Ruff, Black (14 changed Python files), strict OpenSpec and diff checks passed.
+- Source is ready for exact-head CI and the fresh real synthetic gate. Neither
+  real inference acceptance nor scientific readiness is claimed by these unit
+  results. Tasks 3.2/3.3/3.4 remain open pending their actual results.
+
+Historical preparation hashes above predate the PR40 rebase; equivalent patches
+are retained in this branch history. Current acceptance uses the frozen source
+and the actual final-head CI/real evidence, not those historical preparations.
