@@ -438,9 +438,7 @@ def test_existing_analysis_constants_also_remain_frozen(
 
 
 @pytest.mark.parametrize("threshold_name", tuple(LEGACY_THRESHOLDS))
-def test_legacy_thresholds_cannot_be_changed_post_hoc(
-    tmp_path: Path, threshold_name: str
-):
+def test_legacy_thresholds_cannot_be_changed_post_hoc(tmp_path: Path, threshold_name: str):
     def mutate(raw):
         current = raw["analysis"]["legacy_thresholds"][threshold_name]
         raw["analysis"]["legacy_thresholds"][threshold_name] = current + 0.01
@@ -456,9 +454,7 @@ def test_legacy_thresholds_cannot_be_changed_post_hoc(
     "required_sites",
     (list(reversed(SITES)), list(SITES[:-1]), [*SITES, "unexpected-site"]),
 )
-def test_required_site_membership_and_order_are_frozen(
-    tmp_path: Path, required_sites: list[str]
-):
+def test_required_site_membership_and_order_are_frozen(tmp_path: Path, required_sites: list[str]):
     raw, corpus, plan, artifacts, _ = _inputs(
         tmp_path, mutate=lambda value: value.update({"required_sites": required_sites})
     )
