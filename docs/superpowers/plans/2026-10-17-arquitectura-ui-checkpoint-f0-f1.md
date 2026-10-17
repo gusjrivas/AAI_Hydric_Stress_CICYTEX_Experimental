@@ -11,7 +11,7 @@
 | Repo / remoto | `gusjrivas/AAI_Hydric_Stress_CICYTEX_Experimental`, `origin` |
 | Base | `origin/main` = `9a52df2` (merge PR44), ascendencia verificada |
 | Rama de trabajo | `feat/ui-arch-f1-discovery` (desde `origin/main`) |
-| Protección de `main` | Ninguna (API: «Branch not protected»); permisos admin del usuario |
+| Protección de `main` | Ninguna (`gh api .../branches/main/protection` → 404 «Branch not protected»); permisos admin del usuario |
 | Entorno local | Python 3.13.15, Node 24.16.0 (CI usa 3.11 / 22) |
 | Línea base frontend | `node_modules` estaba desincronizado del lock (TS 6.0.3, sin `openapi-typescript`): 1 test y `tsc -b` fallaban. Tras `npm ci` (lock): TS 5.9.3, `tsc -b` exit 0, vitest 50 archivos / 360 tests pasan |
 | Codebase Memory | Proyecto `AAI_Hydric_Stress_CICYTEX_Experimental`, root `C:/Repo/...`, indexado 2026-10-10 (previo a PR44; 11847 nodos). Freshness `metadata_changed`/`not_tracked`: usar sólo para localizar, verificar con fuente |
@@ -59,7 +59,7 @@ gráfico/tablas/feedback con código minificado a mano y sin reintento. Sin test
 | G4 | `CicytexDefensePage` duplicada y sin estados de reintento | `defense/CicytexDefensePage.tsx` | Importante | F5 |
 | G5 | Componentes de navegación/sitio sin pruebas | ver arriba | Importante | F4 (TDD) |
 | G6 | Lógica de dominio en routers (`recalibration.py`, `producer_v2.py`) | lectura explorador | Importante, deuda | Límite aceptado (sin defecto funcional demostrado) |
-| G7 | `get_feedback_triage` lanza `RuntimeError`/`ValueError` ante config Laya mal formada → 500 | `dependencies.py:get_feedback_triage` | Cosmética (falla cerrada, Laya default-off) | Límite aceptado |
+| G7 | `get_feedback_triage` evalúa `float(LAYA_MIN_CONFIDENCE)` antes de la rama «disabled»: un valor mal formado lanza `ValueError` aun con Laya desactivado; config Laya a medias lanza `RuntimeError`. Probable 500 (no reproducido). Es falla cerrada ante configuración inválida, sin efecto sobre datos | `dependencies.py:197-215` | Endurecimiento menor, sin defecto reproducido | Límite aceptado; RED si se reproduce |
 | G8 | Variables de entorno dispersas; I/O CSV por petición | `dependencies.py` | Cosmética | Límite aceptado |
 | G9 | Sin backup/restore de `data/`, JSON, SQLite en backend | exploración | Documentar en F8 | No implementado |
 

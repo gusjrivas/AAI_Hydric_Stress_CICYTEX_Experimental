@@ -13,12 +13,13 @@ Sin impacto sobre hipótesis, datos, modelos, umbrales, política del ensamble n
 | Indicador de modo | Componente `ModeBadge` común, derivado sólo de la ruta: **Operación**, **Replay histórico**, **Laboratorio sintético**, **Documentación de diseño**. No consulta backend y no cambia estado. |
 | Cambio de vista | No ejecuta modelos, no borra sesiones, no recalibra. Las acciones mutantes conservan su confirmación y alcance actuales. |
 | Lecturas | Operación = `cultivo`, `laboratorio`, `herramientas`. Trazabilidad = `seguimiento` (tres recorridos) y `#linaje`. Arquitectura y defensa = `evidencia`, `arquitectura`. |
+| Spec | `alerting-ui` fija cinco destinos y valores de `ArchitectureFlow` idénticos. Se añade el change OpenSpec `add-architecture-view-and-mode-indicator` (delta ADDED: destino «Arquitectura» e indicador de modo); los cinco destinos y las etapas de `ArchitectureFlow` no cambian. |
 | Retiro | Nada se retira en este ciclo; se unifica sólo con equivalencia probada (CICYTEX → componentes compartidos, en F5). |
 
 ## Mapa de navegación
 
 ```text
-Encabezado (un solo <nav>)
+Encabezado (`<nav>` «Secciones principales»; `SiteHeader` conserva su `<nav>` de localidad)
  ├─ Operación ........ Mi cultivo · Laboratorio · Herramientas técnicas
  ├─ Trazabilidad ..... Seguimiento histórico (Pergamino · Melchor Romero · CICYTEX) · Linaje
  └─ Arquitectura y defensa ... Evidencia · Arquitectura
@@ -34,7 +35,7 @@ Nivel 2: ficha del nodo seleccionado (botón, no zoom):
   responsabilidad · entrada/salida · frontera · evidencia (ruta versionada) · límites
 Categorías visibles: Diseño documentado | Estado observado | Recorrido guiado
 Alternativa textual: la misma lista como tabla accesible.
-Laya: adaptador consultivo integrado, desactivado, científicamente BLOCKED.
+Laya: adaptador consultivo integrado y desactivado por defecto (ADR-0014). La evaluación científica de su utilidad no está habilitada: el corpus humano requerido no existe (plan maestro, sección «Continuidad científica de Laya»); la vista sólo explica sus pruebas sintéticas con límites, sin sugerencias reales.
 ```
 
 Un mapa estático versionado no es descubrimiento en vivo; ninguna salud, métrica ni traza se simula.
@@ -53,7 +54,7 @@ y viewport estrecho. Verificación renderizada en F7.
 
 ## Contratos mínimos de componentes
 
-- `modeForRoute(route | "demo" | "reproduccion-historica") -> "operacion" | "replay" | "laboratorio" | "diseno"` (función pura, testeable).
+- `modeForView(view) -> "operacion" | "replay" | "laboratorio" | "diseno"` (función pura, tabla exhaustiva por `RouteId | "demo" | "reproduccion-historica"`). `#demo` (sensor simulado acelerado, ADR-0012) se rotula Laboratorio sintético; `#linaje` (recalibración mutante) es Operación y conserva su confirmación. En Herramientas el modo describe la vista, no el origen del sensor activo; el texto lo aclara.
 - `ModeBadge({ mode })`: `role="note"`, texto visible.
 - Catálogo de arquitectura: datos TypeScript tipados con `evidence` = ruta relativa del repo; prueba de correspondencia contra archivos existentes (F6).
 
