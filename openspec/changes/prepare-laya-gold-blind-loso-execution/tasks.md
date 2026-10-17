@@ -41,10 +41,23 @@ runner 18 passed, Ruff/Black/diff PASS.
 Public preflight remains zero-consume BLOCKED; private fixture seams do not issue
 scientific authority. Rounded probability ties retain the approved semantics.
 
-The executable Docker adapter is NOT accepted by these pure gates. Fixed-program
-RED `b7a15df` and engine/attach RED through `669521b` intentionally remain failing
-until their implementation, now permitted after dependency 1.3. This includes a realistic
-HTTPResponse 101 buffered-frame regression, not only transport mocks.
+The complete executable adapter is NOT accepted by these pure gates.
+Fixed-program RED `b7a15df` -> GREEN `53a631f`: 22 tests passed, independent
+GO without P0/P1/P2 in that program-only scope, Ruff/Black/diff PASS. Pinned Laya
+returns real top-level usage metadata; no tokenizer counts are fabricated.
+
+Engine/attach RED through `669521b` -> initial GREEN `fdcb98a`: 20 tests passed;
+legacy engine/synthetic/observation/executor regression 106 passed in 108.21 s.
+Real Docker transport gate `7ed750d`: 2 passed in 2.79 s (Unicode and exact 64 KiB
+stdin, size/SHA response, owned-child cleanup verified). This gate uses fixed
+synthetic bytes and Python only, not Laya or a scientific corpus. A first attempt
+used a mismatched test timeout and was corrected without changing production.
+
+Engine review then found a P1 response-descriptor leak on invalid upgrade / begin
+failure. Its correction and independent re-audit remain REQUIRED before adapter
+acceptance. Concrete runtime-bound port RED `d5e4e8f` has 14 expected missing-module
+failures; GREEN and lease/cleanup integration are still in progress. No scientific
+execution is implied by any mechanical or transport gate.
 
 ## 3. Technical acceptance
 
