@@ -266,7 +266,7 @@ def test_cloned_or_revoked_runtime_never_reaches_a_lease_or_engine(monkeypatch):
     from human_feedback.adapters import laya_loso_docker_adapter as adapter
 
     _materialization, runtime, _resource, parent_engine, image_id, installation, *_ = (
-        _registered_runtime(monkeypatch, marker="9")
+        _registered_runtime(monkeypatch, marker="7")
     )
     for invalid in (_clone_exact(runtime), object()):
         with pytest.raises(adapter.DockerLayaLosoOfflineError) as caught:
