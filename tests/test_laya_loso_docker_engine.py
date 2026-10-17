@@ -451,6 +451,15 @@ def test_attach_transport_upgrades_writes_eof_and_decodes_fragmented_frames(monk
                 ("Content-Type", "application/vnd.docker.multiplexed-stream"),
             ),
         ),
+        (
+            101,
+            (
+                ("Connection", "Upgrade"),
+                ("Connection", "keep-alive"),
+                ("Upgrade", "tcp"),
+                ("Content-Type", "application/vnd.docker.multiplexed-stream"),
+            ),
+        ),
     ],
 )
 def test_attach_transport_rejects_nonexact_upgrade_before_private_input(
