@@ -41,6 +41,7 @@ _PROBE_LOG_LIMIT = 64 * 1024
 
 _MEMORY_BYTES = 4 * 1024**3
 _TMPFS = "rw,nosuid,nodev,noexec,size=67108864,mode=1777"
+_ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 _EXPECTED_PROBE_OBSERVATION = {
     "device": "cpu",
     "laya": "0.4.2",
@@ -400,12 +401,15 @@ def _closed_probe_payload(image_id: str, nonce: str) -> dict[str, Any]:
         "HostConfig": {
             "ReadonlyRootfs": True,
             "NetworkMode": "none",
+            "CapAdd": [],
             "CapDrop": ["ALL"],
             "SecurityOpt": ["no-new-privileges", "seccomp=builtin"],
             "Privileged": False,
             "Binds": [],
             "Mounts": [],
             "Devices": [],
+            "DeviceRequests": [],
+            "DeviceCgroupRules": [],
             "PortBindings": {},
             "PublishAllPorts": False,
             "AutoRemove": False,
@@ -466,6 +470,44 @@ def _matches_owned_image(value: dict[str, Any], *, image_id: str, nonce: str) ->
     )
 
 
+def _matches_closed_security_options(value: object) -> bool:
+    if type(value) is not list or len(value) != 2 or any(type(item) is not str for item in value):
+        return False
+    normalized = {
+        "no-new-privileges" if item == "no-new-privileges=true" else item for item in value
+    }
+    return normalized == {"no-new-privileges", "seccomp=builtin"}
+
+
+def _matches_fresh_probe_state(value: object) -> bool:
+    return type(value) is dict and all(
+        (
+            value.get("Status") == "created",
+            value.get("Running") is False,
+            value.get("Paused") is False,
+            value.get("Restarting") is False,
+            value.get("OOMKilled") is False,
+            value.get("Dead") is False,
+            value.get("StartedAt") == _ZERO_DOCKER_TIMESTAMP,
+            value.get("FinishedAt") == _ZERO_DOCKER_TIMESTAMP,
+        )
+    )
+
+
+def _matches_completed_probe_state(value: object) -> bool:
+    return type(value) is dict and all(
+        (
+            value.get("Status") == "exited",
+            value.get("Running") is False,
+            value.get("Paused") is False,
+            value.get("Restarting") is False,
+            value.get("OOMKilled") is False,
+            value.get("Dead") is False,
+            value.get("ExitCode") == 0,
+        )
+    )
+
+
 def _matches_closed_probe(
     value: dict[str, Any], *, image_id: str, container_id: str, nonce: str
 ) -> bool:
@@ -477,7 +519,6 @@ def _matches_closed_probe(
         return False
     expected = _closed_probe_payload(image_id, nonce)
     expected_host = expected["HostConfig"]
-    security = host.get("SecurityOpt")
     network_entries = networks.get("Networks")
     no_network = type(network_entries) is dict and set(network_entries).issubset({"none"})
     return (
@@ -492,14 +533,15 @@ def _matches_closed_probe(
         and config["Labels"].get(OWNERSHIP_LABEL) == nonce
         and host.get("ReadonlyRootfs") is True
         and host.get("NetworkMode") == "none"
+        and host.get("CapAdd") in (None, [])
         and host.get("CapDrop") == ["ALL"]
-        and type(security) is list
-        and "seccomp=builtin" in security
-        and any(item in security for item in ("no-new-privileges", "no-new-privileges=true"))
+        and _matches_closed_security_options(host.get("SecurityOpt"))
         and host.get("Privileged") is False
         and host.get("Binds") in (None, [])
         and host.get("Mounts") in (None, [])
         and host.get("Devices") in (None, [])
+        and host.get("DeviceRequests") in (None, [])
+        and host.get("DeviceCgroupRules") in (None, [])
         and host.get("PortBindings") in (None, {})
         and host.get("PublishAllPorts") is False
         and host.get("AutoRemove") is False
@@ -525,7 +567,7 @@ def _matches_closed_probe(
         and value.get("Mounts") in (None, [])
         and networks.get("Ports") in (None, {})
         and no_network
-        and state.get("Running") is False
+        and _matches_fresh_probe_state(state)
     )
 
 
@@ -798,6 +840,9 @@ class LocalDockerEngine:
         error = value.get("Error")
         if value.get("StatusCode") != 0 or error not in (None, {"Message": ""}):
             raise LocalDockerEngineError("local Docker probe failed")
+        completed = self.inspect_container(container_id)
+        if not _matches_completed_probe_state(completed.get("State")):
+            raise LocalDockerEngineError("local Docker completed probe state changed")
         self._waited.add(container_id)
 
     def probe_logs_bounded(self, container_id: str) -> tuple[bytes, bytes]:

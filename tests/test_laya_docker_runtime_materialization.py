@@ -209,7 +209,9 @@ def test_disposing_one_runtime_does_not_block_an_independent_runtime(monkeypatch
 
     monkeypatch.setattr(adapter._authority, "_revoke_evidence", lambda value: None)
     for token, blocked in ((first, True), (second, False)):
-        resource = adapter._RuntimeResource(weakref.ref(token), Engine(blocked), "sha256:" + "a" * 64)
+        resource = adapter._RuntimeResource(
+            weakref.ref(token), Engine(blocked), "sha256:" + "a" * 64
+        )
         monkeypatch.setitem(adapter._RESOURCES, id(token), resource)
 
     def dispose(token):

@@ -10,7 +10,7 @@ from __future__ import annotations
 import secrets
 import threading
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from human_feedback import runtime_materialization as _authority
 from human_feedback.adapters.filesystem_rootfs_materialization import _lease_laya_runtime_rootfs
@@ -35,6 +35,7 @@ class _RuntimeResource:
     image_id: str
     revoked: bool = False
     disposed: bool = False
+    lock: object = field(default_factory=threading.RLock, repr=False)
 
 
 @dataclass(slots=True)
@@ -42,6 +43,7 @@ class _CleanupAttempt:
     error_ref: weakref.ReferenceType
     engine: object
     pending: bool = True
+    lock: object = field(default_factory=threading.RLock, repr=False)
 
 
 class LayaRuntimeMaterializationError(ValueError):
@@ -159,12 +161,13 @@ def retry_laya_runtime_materialization_cleanup(error: LayaRuntimeMaterialization
     try:
         with _LOCK:
             attempt = _CLEANUP_ATTEMPTS.get(id(error))
-            if (
-                type(error) is not LayaRuntimeMaterializationError
-                or attempt is None
-                or attempt.error_ref() is not error
-            ):
-                _fail()
+        if (
+            type(error) is not LayaRuntimeMaterializationError
+            or attempt is None
+            or attempt.error_ref() is not error
+        ):
+            _fail()
+        with attempt.lock:
             if not attempt.pending or _cleanup_failed_attempt(attempt.engine):
                 attempt.pending = False
                 valid = True
@@ -181,8 +184,9 @@ def dispose_laya_runtime(evidence: _authority.LayaRuntimeMaterializationEvidence
     try:
         with _LOCK:
             resource = _RESOURCES.get(id(evidence))
-            if resource is None or resource.evidence_ref() is not evidence:
-                _fail()
+        if resource is None or resource.evidence_ref() is not evidence:
+            _fail()
+        with resource.lock:
             if not resource.revoked:
                 _authority._revoke_evidence(evidence)
                 resource.revoked = True
