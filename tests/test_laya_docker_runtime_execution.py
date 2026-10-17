@@ -281,6 +281,14 @@ def test_engine_boundary_failure_cleans_child_and_never_issues(monkeypatch, boun
     _private_failure(caught.value, _PRIVATE_CANARY, wired.image_id, wired.installation)
 
 
+def test_failed_execution_cleans_child_before_releasing_image_lease(monkeypatch):
+    wired = _wire(monkeypatch, failure="run")
+    with pytest.raises(wired.adapter.DockerRuntimeExecutionError):
+        wired.adapter.execute_laya_runtime(wired.plan)
+    assert wired.events.index("run") < wired.events.index("cleanup")
+    assert wired.events.index("cleanup") < wired.events.index("lease-exit")
+
+
 def test_cleanup_failure_never_issues_and_returns_only_an_opaque_retry_handle(monkeypatch):
     wired = _wire(monkeypatch, cleanup_failures=1)
     with pytest.raises(wired.adapter.DockerRuntimeExecutionError) as caught:
