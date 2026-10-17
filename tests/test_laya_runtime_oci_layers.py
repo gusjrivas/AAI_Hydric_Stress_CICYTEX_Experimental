@@ -573,6 +573,12 @@ def test_only_filesystem_adapter_and_tar_successor_use_layer_contracts():
                     and (
                         node.module == "human_feedback.runtime_oci_layers"
                         or (
+                            node.module == "human_feedback"
+                            and any(
+                                alias.name == "runtime_oci_layers" for alias in node.names
+                            )
+                        )
+                        or (
                             node.level > 0
                             and node.module in {None, "", "runtime_oci_layers"}
                             and any(
