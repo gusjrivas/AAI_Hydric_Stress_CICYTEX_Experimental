@@ -208,6 +208,31 @@ def test_payload_bound_fails_before_first_archive_byte(monkeypatch, tmp_path):
         filesystem.dispose_laya_runtime_rootfs(rootfs)
 
 
+def test_entry_bound_matches_parser_and_fails_before_first_archive_byte(monkeypatch, tmp_path):
+    from human_feedback import runtime_oci_tar
+    from human_feedback.adapters import runtime_installation_archive as module
+
+    assert module.MAX_INSTALLATION_ENTRIES == runtime_oci_tar.MAX_OCI_TAR_ENTRIES
+    filesystem, rootfs, checkpoint, checkpoint_root, root_fd = _issued_sources(
+        monkeypatch, tmp_path
+    )
+    try:
+        monkeypatch.setattr(module, "MAX_INSTALLATION_ENTRIES", 1)
+        output = io.BytesIO()
+        with pytest.raises(module.RuntimeInstallationArchiveError):
+            module._write_laya_runtime_installation_archive(
+                output,
+                lease_root_fd=root_fd,
+                rootfs_evidence=rootfs,
+                checkpoint_evidence=checkpoint,
+                checkpoint_source_root=str(checkpoint_root),
+            )
+        assert output.getvalue() == b""
+    finally:
+        os.close(root_fd)
+        filesystem.dispose_laya_runtime_rootfs(rootfs)
+
+
 def test_checkpoint_mutation_during_stream_fails_without_closing_writer(monkeypatch, tmp_path):
     from human_feedback.adapters import runtime_installation_archive as module
 

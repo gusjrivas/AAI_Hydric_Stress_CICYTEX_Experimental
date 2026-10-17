@@ -87,3 +87,52 @@ def test_lease_releases_on_consumer_failure_and_serializes_other_thread_disposal
     assert done.is_set()
     assert errors == []
     assert not (parent / "rootfs").exists()
+
+
+def test_waiting_disposal_does_not_block_an_unrelated_rootfs_lease(monkeypatch, tmp_path):
+    first, first_parent = _materialized(monkeypatch, tmp_path / "first")
+    second, second_parent = _materialized(monkeypatch, tmp_path / "second")
+    disposal_started = threading.Event()
+    disposal_done = threading.Event()
+    second_leased = threading.Event()
+    errors = []
+
+    def dispose_first():
+        disposal_started.set()
+        try:
+            filesystem.dispose_laya_runtime_rootfs(first)
+        except Exception as error:
+            errors.append(type(error).__name__)
+        finally:
+            disposal_done.set()
+
+    def lease_second():
+        try:
+            with filesystem._lease_laya_runtime_rootfs(second) as descriptor:
+                assert os.fstat(descriptor).st_ino == (second_parent / "rootfs").stat().st_ino
+                second_leased.set()
+        except Exception as error:
+            errors.append(type(error).__name__)
+            second_leased.set()
+
+    try:
+        with filesystem._lease_laya_runtime_rootfs(first):
+            dispose_thread = threading.Thread(target=dispose_first)
+            dispose_thread.start()
+            assert disposal_started.wait(2)
+            assert not disposal_done.wait(0.1)
+
+            lease_thread = threading.Thread(target=lease_second)
+            lease_thread.start()
+            assert second_leased.wait(2)
+            lease_thread.join(2)
+            assert not lease_thread.is_alive()
+            assert errors == []
+            assert (first_parent / "rootfs").exists()
+        dispose_thread.join(5)
+        assert disposal_done.is_set()
+        assert errors == []
+    finally:
+        if (first_parent / "rootfs").exists():
+            filesystem.dispose_laya_runtime_rootfs(first)
+        filesystem.dispose_laya_runtime_rootfs(second)
