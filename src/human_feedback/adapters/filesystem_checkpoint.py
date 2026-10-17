@@ -224,15 +224,21 @@ def _path_fingerprint(
 
 def _file_chunks(file_fd: int, expected_size: int):
     remaining = expected_size + 1
+    pending = bytearray()
     while remaining:
         chunk = os.read(
             file_fd,
-            min(runtime_checkpoint.MAX_CHECKPOINT_CHUNK_BYTES, remaining),
+            min(runtime_checkpoint.MAX_CHECKPOINT_CHUNK_BYTES - len(pending), remaining),
         )
         if not chunk:
-            return
+            break
         remaining -= len(chunk)
-        yield chunk
+        pending.extend(chunk)
+        if len(pending) == runtime_checkpoint.MAX_CHECKPOINT_CHUNK_BYTES:
+            yield bytes(pending)
+            pending.clear()
+    if pending:
+        yield bytes(pending)
 
 
 def _capture_one(
