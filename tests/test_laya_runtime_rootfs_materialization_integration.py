@@ -193,7 +193,7 @@ def test_changed_source_layer_fails_without_destination_or_staging(monkeypatch, 
     from human_feedback.adapters import filesystem_rootfs_materialization as filesystem
 
     chain, source, plan = _issued_materialization_plan(monkeypatch, tmp_path)
-    layer = chain.layer_evidence.layout_plan.layer_blobs[0]
+    layer = chain.layer_evidence.plan.layer_blobs[0]
     layer_path = source / "blobs" / "sha256" / layer.digest.removeprefix("sha256:")
     layer_path.write_bytes(layer_path.read_bytes() + b"changed-after-authority")
     changed_source = _fingerprint(source)
@@ -211,3 +211,120 @@ def test_changed_source_layer_fails_without_destination_or_staging(monkeypatch, 
 
     assert tuple(parent.iterdir()) == ()
     assert _fingerprint(source) == changed_source
+
+
+def _open_descriptor_count() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ("writer-chunk", "create-links", "verify-tree", "publish", "seal"),
+)
+def test_fault_injection_never_leaks_staging_destination_source_or_descriptors(
+    monkeypatch,
+    tmp_path,
+    fault,
+):
+    from human_feedback import runtime_rootfs_materialization
+    from human_feedback.adapters import filesystem_rootfs_materialization as filesystem
+
+    _chain, source, plan = _issued_materialization_plan(monkeypatch, tmp_path)
+    source_before = _fingerprint(source)
+    parent = tmp_path / "private-output"
+    parent.mkdir(mode=0o700)
+    parent.chmod(0o700)
+
+    def fail(*_args, **_kwargs):
+        raise filesystem.RootfsMaterializationError("injected rootfs failure")
+
+    if fault == "writer-chunk":
+        monkeypatch.setattr(filesystem._RegularPayloadSink, "chunk", fail)
+    elif fault == "create-links":
+        monkeypatch.setattr(filesystem, "_create_final_links", fail)
+    elif fault == "verify-tree":
+        monkeypatch.setattr(filesystem, "_verify_staged_tree", fail)
+    elif fault == "publish":
+        monkeypatch.setattr(filesystem, "_publish_noreplace", fail)
+    else:
+        monkeypatch.setattr(
+            runtime_rootfs_materialization,
+            "_seal_laya_runtime_rootfs_materialization_evidence",
+            fail,
+        )
+
+    descriptors_before = _open_descriptor_count()
+    with pytest.raises(filesystem.RootfsMaterializationError) as captured:
+        filesystem.materialize_laya_runtime_rootfs(
+            plan,
+            str(source),
+            str(parent),
+            "rootfs",
+        )
+
+    assert str(source) not in str(captured.value)
+    assert str(parent) not in str(captured.value)
+    assert tuple(parent.iterdir()) == ()
+    assert _fingerprint(source) == source_before
+    assert _open_descriptor_count() == descriptors_before
+
+
+def test_dispose_is_idempotent_removes_exact_tree_and_revokes_summary(monkeypatch, tmp_path):
+    from human_feedback import runtime_rootfs_materialization
+    from human_feedback.adapters import filesystem_rootfs_materialization as filesystem
+
+    _chain, source, plan = _issued_materialization_plan(monkeypatch, tmp_path)
+    source_before = _fingerprint(source)
+    parent = tmp_path / "private-output"
+    parent.mkdir(mode=0o700)
+    parent.chmod(0o700)
+    evidence = filesystem.materialize_laya_runtime_rootfs(
+        plan,
+        str(source),
+        str(parent),
+        "rootfs",
+    )
+    runtime_rootfs_materialization.canonical_laya_runtime_rootfs_materialization_summary_bytes(
+        evidence
+    )
+
+    assert filesystem.dispose_laya_runtime_rootfs(evidence) is None
+    assert filesystem.dispose_laya_runtime_rootfs(evidence) is None
+
+    assert tuple(parent.iterdir()) == ()
+    assert _fingerprint(source) == source_before
+    with pytest.raises((TypeError, ValueError)):
+        runtime_rootfs_materialization.canonical_laya_runtime_rootfs_materialization_summary_bytes(
+            evidence
+        )
+
+
+def test_dispose_refuses_rebound_destination_inode_without_deleting_either_tree(
+    monkeypatch,
+    tmp_path,
+):
+    from human_feedback.adapters import filesystem_rootfs_materialization as filesystem
+
+    _chain, source, plan = _issued_materialization_plan(monkeypatch, tmp_path)
+    parent = tmp_path / "private-output"
+    parent.mkdir(mode=0o700)
+    parent.chmod(0o700)
+    evidence = filesystem.materialize_laya_runtime_rootfs(
+        plan,
+        str(source),
+        str(parent),
+        "rootfs",
+    )
+    original = parent / "original-rootfs"
+    (parent / "rootfs").rename(original)
+    replacement = parent / "rootfs"
+    replacement.mkdir(mode=0o700)
+    marker = replacement / "must-survive.txt"
+    marker.write_bytes(b"replacement sentinel")
+    original_before = _fingerprint(original)
+
+    with pytest.raises(filesystem.RootfsMaterializationError):
+        filesystem.dispose_laya_runtime_rootfs(evidence)
+
+    assert marker.read_bytes() == b"replacement sentinel"
+    assert _fingerprint(original) == original_before
