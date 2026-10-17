@@ -7,12 +7,26 @@ import tarfile
 import pytest
 
 
-def _tar(*, changed=False, extra=None, flatten=False, symlink=False):
+_PROJECTED_PATHS = ("etc/hosts", "etc/hostname", "etc/resolv.conf")
+
+
+def _tar(
+    *,
+    changed=False,
+    extra=None,
+    flatten=False,
+    symlink=False,
+    projected=True,
+    projection_damage=None,
+):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w", format=tarfile.GNU_FORMAT) as archive:
         entries = [("app", "5", b""), ("app/model", "0", b"wrong" if changed else b"model")]
         entries += [("app/link", "0" if flatten else "1", b"model" if flatten else b"")]
         entries += [("app/sym", "2", b"")]
+        entries += [("etc", "5", b"")]
+        if projected:
+            entries += [(path, "0", b"") for path in _PROJECTED_PATHS]
         if extra is not None:
             entries.append((extra, "0", b""))
         for path, kind, payload in entries:
@@ -20,6 +34,20 @@ def _tar(*, changed=False, extra=None, flatten=False, symlink=False):
             info.type = kind.encode("ascii")
             info.uid = info.gid = 65532
             info.mode = 0o700 if kind == "5" else 0o600
+            if path in _PROJECTED_PATHS:
+                info.uid = info.gid = 0
+                info.mode = 0o755
+                if projection_damage == "payload" and path == "etc/hosts":
+                    payload = b"tampered"
+                elif projection_damage == "owner" and path == "etc/hosts":
+                    info.uid = 65532
+                elif projection_damage == "mode" and path == "etc/hosts":
+                    info.mode = 0o644
+                elif projection_damage == "type" and path == "etc/hosts":
+                    info.type = tarfile.SYMTYPE
+                    info.linkname = "elsewhere"
+                elif projection_damage == "mtime":
+                    info.mtime = 123
             if path == "app/link":
                 info.linkname = "app/model" if not flatten else ""
             if path == "app/sym":
@@ -74,6 +102,42 @@ def test_only_exact_empty_engine_marker_is_permitted():
     )
     with pytest.raises(ValueError):
         verifier._capture_installation_tar(_chunks(_tar(extra=".dockerenv")))
+
+
+def test_capture_requires_exact_three_projected_engine_files():
+    from human_feedback.adapters import runtime_installation_verifier as verifier
+
+    expected = verifier._capture_installation_tar(_chunks(_tar()))
+    assert all(any(record[0] == path for record in expected.records) for path in _PROJECTED_PATHS)
+    with pytest.raises(ValueError, match="recapture"):
+        verifier._capture_installation_tar(_chunks(_tar(projected=False)))
+
+
+@pytest.mark.parametrize("damage", ["payload", "owner", "mode", "type"])
+def test_capture_rejects_noncanonical_projected_engine_files(damage):
+    from human_feedback.adapters import runtime_installation_verifier as verifier
+
+    with pytest.raises(ValueError, match="recapture"):
+        verifier._capture_installation_tar(_chunks(_tar(projection_damage=damage)))
+
+
+def test_export_normalizes_only_projected_file_mtime():
+    from human_feedback.adapters import runtime_installation_verifier as verifier
+
+    expected = verifier._capture_installation_tar(_chunks(_tar()))
+    assert (
+        verifier._verify_exported_installation(
+            _chunks(_tar(projection_damage="mtime")), expected
+        )
+        == expected.commitment_sha256
+    )
+
+
+def test_fourth_root_owned_projected_file_is_not_permitted():
+    from human_feedback.adapters import runtime_installation_verifier as verifier
+
+    with pytest.raises(ValueError, match="recapture"):
+        verifier._capture_installation_tar(_chunks(_tar(extra="etc/fourth")))
 
 
 @pytest.mark.parametrize("damage", ["truncated", "tail", "checksum", "duplicate"])
