@@ -352,7 +352,7 @@ def test_module_ast_is_pure_and_has_no_adapter_dependency():
     assert attribute_owners.isdisjoint(forbidden_roots)
 
 
-def test_supply_convergence_has_no_productive_caller():
+def test_supply_convergence_has_only_rootfs_materialization_authority_caller():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_supply_convergence.py"
     forbidden_symbols = {
@@ -372,4 +372,4 @@ def test_supply_convergence_has_no_productive_caller():
             source = path.read_text(encoding="utf-8")
             if any(symbol in source for symbol in forbidden_symbols):
                 offenders.append(path.relative_to(repository).as_posix())
-    assert offenders == []
+    assert offenders == ["src/human_feedback/runtime_rootfs_materialization.py"]

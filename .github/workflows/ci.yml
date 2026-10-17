@@ -136,6 +136,38 @@ jobs:
           tests/test_laya_runtime_supply_convergence_security.py
           tests/test_laya_runtime_supply_convergence_privacy.py
 
+  laya-rootfs-materialization-contract:
+    needs: laya-runtime-supply-convergence-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Require non-root Linux runner
+        run: python -c "import os; assert os.geteuid() != 0"
+
+      - name: Test rootfs materialization contract and OCI regressions
+        run: >-
+          python -m pytest
+          tests/test_laya_runtime_rootfs_materialization.py
+          tests/test_laya_runtime_rootfs_materialization_capture.py
+          tests/test_laya_runtime_rootfs_materialization_filesystem.py
+          tests/test_laya_runtime_rootfs_materialization_integration.py
+          tests/test_laya_runtime_rootfs_materialization_linux.py
+          tests/test_laya_runtime_rootfs_materialization_streaming.py
+          tests/test_laya_runtime_oci_tar.py
+          tests/test_laya_runtime_oci_layout_filesystem.py
+          tests/test_laya_runtime_oci_rootfs.py
+
   experiment-v4-container:
     runs-on: ubuntu-latest
     steps:

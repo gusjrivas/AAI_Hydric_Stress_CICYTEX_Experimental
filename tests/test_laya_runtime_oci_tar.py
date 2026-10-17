@@ -1702,7 +1702,9 @@ def test_private_tar_stream_budget_bridge_is_adapter_only_and_bounded():
         "digest",
         "compressed_chunks",
         "max_uncompressed_bytes",
+        "_payload_sink",
     )
+    assert parameters["_payload_sink"].default is None
     assert parameters["max_uncompressed_bytes"].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["max_uncompressed_bytes"].default is inspect.Parameter.empty
 

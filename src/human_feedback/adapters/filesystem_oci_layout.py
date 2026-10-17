@@ -606,7 +606,16 @@ def capture_and_verify_laya_oci_layer_diff_ids(
 def _capture_and_verify_tar_semantics(
     tar_plan: Any,
     components: tuple[str, ...],
+    *,
+    _payload_sink_factory=None,
+    _expected_tar_receipts=None,
 ):
+    if _payload_sink_factory is not None and not callable(_payload_sink_factory):
+        raise OciLayoutCaptureError("secure OCI TAR payload sink factory is invalid")
+    if _expected_tar_receipts is not None and (
+        type(_expected_tar_receipts) is not tuple or len(_expected_tar_receipts) != 10
+    ):
+        raise OciLayoutCaptureError("secure OCI expected TAR receipt coverage is invalid")
     layout_plan = tar_plan.layout_plan
     owned: list[int] = []
     close_error = None
@@ -657,18 +666,21 @@ def _capture_and_verify_tar_semantics(
 
         receipts = []
         remaining_rootfs = runtime_oci_layers.MAX_OCI_ROOTFS_UNCOMPRESSED_BYTES
-        for blob in tar_plan.layer_plan.layer_blobs:
+        for position, blob in enumerate(tar_plan.layer_plan.layer_blobs):
             effective_limit = _effective_layer_budget(remaining_rootfs)
             name = blob.digest.removeprefix("sha256:")
             descriptor = _open_file(sha256_fd, name, owned)
             try:
                 before = os.fstat(descriptor)
                 _require_file(before, blob.size_bytes)
+                verify_kwargs = {"max_uncompressed_bytes": effective_limit}
+                if _payload_sink_factory is not None:
+                    verify_kwargs["_payload_sink"] = _payload_sink_factory(position)
                 receipt = runtime_oci_tar._verify_laya_oci_tar_semantics_chunks_with_budget(
                     tar_plan,
                     blob.digest,
                     _blob_chunks(descriptor, blob.size_bytes),
-                    max_uncompressed_bytes=effective_limit,
+                    **verify_kwargs,
                 )
                 after = os.fstat(descriptor)
                 if _fingerprint(before) != _fingerprint(after):
@@ -676,7 +688,6 @@ def _capture_and_verify_tar_semantics(
                 fingerprint = _fingerprint(before)
             finally:
                 _close_descriptor(owned, descriptor)
-            remaining_rootfs -= receipt.layer_receipt.uncompressed_size_bytes
             if fingerprint != fingerprints["blob:" + blob.role]:
                 raise OciLayoutCaptureError("secure OCI layer changed between TAR passes")
             if (
@@ -689,6 +700,21 @@ def _capture_and_verify_tar_semantics(
                 != fingerprint
             ):
                 raise OciLayoutCaptureError("secure OCI layer path changed during TAR capture")
+            if _expected_tar_receipts is not None:
+                expected = _expected_tar_receipts[position]
+                if any(
+                    getattr(receipt, name, None) != getattr(expected, name, None)
+                    for name in (
+                        "layer_position",
+                        "entries",
+                        "root_directory",
+                        "payload_size_bytes",
+                        "tar_size_bytes",
+                        "layer_receipt",
+                    )
+                ):
+                    raise OciLayoutCaptureError("secure OCI TAR receipt does not match expected")
+            remaining_rootfs -= receipt.layer_receipt.uncompressed_size_bytes
             receipts.append(receipt)
 
         receipt_tuple = tuple(receipts)
