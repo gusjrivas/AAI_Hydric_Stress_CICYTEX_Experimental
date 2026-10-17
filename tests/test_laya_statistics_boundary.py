@@ -259,3 +259,32 @@ def test_cloned_protocol_never_invokes_fixture_baseline(monkeypatch, tmp_path):
 
     _assert_private_failure(caught.value)
     assert calls == []
+
+
+def test_issued_evidence_snapshot_rejects_nested_aggregate_and_profile_tamper(
+    monkeypatch, tmp_path
+):
+    _runner, protocol, _receipts = _executed_protocol(monkeypatch, tmp_path)
+    module = _module()
+    _authorize(module, monkeypatch)
+    evidence = module._run_laya_mechanical_statistics_fixture(protocol)
+
+    mutations = (
+        (evidence.raw_laya, "macro_f1", 1.25),
+        (evidence.raw_by_site[0].laya, "accuracy", 1.25),
+        (evidence.policy_laya, "mean_cost", -1.0),
+        (evidence.bootstrap[0], "tail_probability", 1.25),
+        (evidence.holm[0], "rejected", not evidence.holm[0].rejected),
+        (evidence.availability, "scientific_verdict", "FORGED_READY"),
+        (evidence, "fixture_profile_id", "forged-profile"),
+    )
+    for target, field, forged in mutations:
+        original = getattr(target, field)
+        object.__setattr__(target, field, forged)
+        try:
+            with pytest.raises(ValueError) as caught:
+                module._require_issued_mechanical_statistics(evidence)
+            _assert_private_failure(caught.value, forged)
+        finally:
+            object.__setattr__(target, field, original)
+        assert module._require_issued_mechanical_statistics(evidence) is evidence
