@@ -212,8 +212,38 @@ def _tar_info(entry: _InstallationEntry) -> tarfile.TarInfo:
     return info
 
 
+def _encoded_header(entry: _InstallationEntry) -> tuple[bytes, int]:
+    try:
+        info = _tar_info(entry)
+        path_bytes = info.name.encode("utf-8", errors="strict")
+        link_bytes = info.linkname.encode("utf-8", errors="strict")
+        if (
+            not path_bytes
+            or len(path_bytes) > runtime_oci_tar.MAX_OCI_TAR_PATH_BYTES
+            or len(link_bytes) > runtime_oci_tar.MAX_OCI_TAR_LINK_BYTES
+        ):
+            _raise_private("runtime installation TAR path budget is invalid")
+        try:
+            return (
+                info.tobuf(format=tarfile.USTAR_FORMAT, encoding="utf-8", errors="strict"),
+                1,
+            )
+        except ValueError:
+            encoded = info.tobuf(
+                format=tarfile.GNU_FORMAT,
+                encoding="utf-8",
+                errors="strict",
+            )
+            header_count = 1 + (len(path_bytes) > 100) + (len(link_bytes) > 100)
+            return encoded, header_count
+    except RuntimeInstallationArchiveError:
+        raise
+    except Exception:
+        _raise_private("runtime installation TAR header is invalid")
+
+
 def _header(entry: _InstallationEntry) -> bytes:
-    return _tar_info(entry).tobuf(format=tarfile.GNU_FORMAT, encoding="utf-8", errors="strict")
+    return _encoded_header(entry)[0]
 
 
 def _archive_size(entries: tuple[_InstallationEntry, ...]) -> tuple[int, int]:
@@ -221,8 +251,13 @@ def _archive_size(entries: tuple[_InstallationEntry, ...]) -> tuple[int, int]:
     if payload > MAX_INSTALLATION_PAYLOAD_BYTES:
         _raise_private("runtime installation payload budget exceeded")
     total = 1024
+    header_count = 0
     for item in entries:
-        total += len(_header(item))
+        encoded, physical_headers = _encoded_header(item)
+        header_count += physical_headers
+        if header_count > MAX_INSTALLATION_ENTRIES:
+            _raise_private("runtime installation physical header budget exceeded")
+        total += len(encoded)
         if item.kind == "regular":
             total += item.size_bytes + (-item.size_bytes % 512)
         if total > MAX_INSTALLATION_ARCHIVE_BYTES:
