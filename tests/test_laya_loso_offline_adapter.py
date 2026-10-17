@@ -222,6 +222,56 @@ def test_response_schema_probabilities_and_category_are_closed_and_finite():
         _private_failure(caught.value, "PRIVATE-OUTPUT-CANARY")
 
 
+def test_boolean_scalars_and_invalid_expected_counts_are_rejected():
+    mutations = []
+    boolean_ordinal = _response()
+    boolean_ordinal["predictions"][0]["ordinal"] = False
+    mutations.append(boolean_ordinal)
+    boolean_probability = _response()
+    boolean_probability["predictions"][0]["probabilities"]["data_quality"] = True
+    mutations.append(boolean_probability)
+    boolean_tokens = _response()
+    boolean_tokens["predictions"][0]["usage"]["state_tokens"] = True
+    mutations.append(boolean_tokens)
+    boolean_dropped = _response()
+    boolean_dropped["predictions"][0]["usage"]["state_tokens_dropped"] = False
+    mutations.append(boolean_dropped)
+
+    for response in mutations:
+        with pytest.raises((TypeError, ValueError)):
+            validate_laya_loso_offline_response(_encoded(response), expected_count=2)
+    for invalid_count in (True, 0, -1, 513):
+        with pytest.raises((TypeError, ValueError)):
+            validate_laya_loso_offline_response(_encoded(), expected_count=invalid_count)
+
+
+def test_request_cardinality_is_bounded_even_when_each_item_is_small():
+    too_many = tuple(
+        GoldBlindOfflineInput(opaque_token=f"{index:064x}", comment="x")
+        for index in range(513)
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        canonical_laya_loso_offline_request_bytes(too_many)
+
+
+def test_response_category_must_be_the_unique_probability_argmax():
+    tied = _response()
+    probabilities = tied["predictions"][0]["probabilities"]
+    probabilities.update(
+        {
+            "data_quality": 0.4,
+            "model_behavior": 0.4,
+            "agronomic_context": 0.1,
+            "usability": 0.05,
+            "other": 0.05,
+        }
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        validate_laya_loso_offline_response(_encoded(tied), expected_count=2)
+
+
 def test_usage_must_prove_no_truncation_no_dropped_tokens_and_fixed_host_limit():
     import human_feedback.loso_offline_adapter as module
 
