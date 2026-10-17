@@ -140,6 +140,115 @@ class _OfflineTransport:
         }
 
 
+class _Headers:
+    def __init__(self, pairs):
+        self.pairs = tuple(pairs)
+
+    def get_all(self, name, default=None):
+        values = [value for key, value in self.pairs if key.lower() == name.lower()]
+        return values or default
+
+    def get(self, name, default=None):
+        values = self.get_all(name)
+        return default if values is None else ", ".join(values)
+
+
+class _HijackResponse:
+    def __init__(self, payload, *, status=101, headers=None, fragment=1):
+        self.status = status
+        self.headers = _Headers(
+            headers
+            or (
+                ("Connection", "Upgrade"),
+                ("Upgrade", "tcp"),
+                ("Content-Type", "application/vnd.docker.multiplexed-stream"),
+            )
+        )
+        self.payload = bytearray(payload)
+        self.fragment = fragment
+
+    def getheader(self, name, default=None):
+        return self.headers.get(name, default)
+
+    def read(self, size):
+        count = min(size, self.fragment, len(self.payload))
+        result = bytes(self.payload[:count])
+        del self.payload[:count]
+        return result
+
+    read1 = read
+
+
+class _HijackSocket:
+    def __init__(self):
+        self.shutdowns = []
+        self.timeouts = []
+
+    def shutdown(self, how):
+        self.shutdowns.append(how)
+
+    def settimeout(self, value):
+        self.timeouts.append(value)
+
+
+class _HijackConnection:
+    instances = []
+    response = None
+
+    def __init__(self, timeout):
+        self.timeout = timeout
+        self.sock = _HijackSocket()
+        self.request_call = None
+        self.putrequest_call = None
+        self.headers = []
+        self.sent = []
+        self.closed = False
+        self.instances.append(self)
+
+    def request(self, *args, **kwargs):
+        self.request_call = (args, kwargs)
+
+    def putrequest(self, *args, **kwargs):
+        self.putrequest_call = (args, kwargs)
+
+    def putheader(self, name, value):
+        self.headers.append((name, value))
+
+    def endheaders(self):
+        pass
+
+    def send(self, value):
+        self.sent.append(bytes(value))
+
+    def getresponse(self):
+        return self.response
+
+    def close(self):
+        self.closed = True
+
+
+def _frame(stream: int, payload: bytes) -> bytes:
+    return bytes((stream, 0, 0, 0)) + len(payload).to_bytes(4, "big") + payload
+
+
+def _hijack_transport(monkeypatch, response, *, expired=False):
+    from human_feedback.adapters import local_docker_engine as module
+
+    class Watchdog:
+        def __init__(self, _connection, _deadline):
+            self.expired = expired
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    _HijackConnection.instances.clear()
+    _HijackConnection.response = response
+    monkeypatch.setattr(module, "_UnixSocketHTTPConnection", _HijackConnection)
+    monkeypatch.setattr(module, "_DeadlineWatchdog", Watchdog)
+    return module, module._LocalUnixTransport()
+
+
 def _created_engine(*, transport=None):
     from human_feedback.adapters.local_docker_engine import LocalDockerEngine
 
@@ -293,3 +402,119 @@ def test_fixed_program_projects_pinned_laya_usage_without_host_estimation():
         value.encode("utf-8") if type(value) is str else value
         for value in probe.OFFLINE_PROBE_ARGUMENTS
     )
+
+
+def test_attach_transport_upgrades_writes_eof_and_decodes_fragmented_frames(monkeypatch):
+    stdout = b"canonical response"
+    stderr = b"bounded warning"
+    response = _HijackResponse(_frame(1, stdout) + _frame(2, stderr), fragment=1)
+    module, transport = _hijack_transport(monkeypatch, response)
+    path = f"/v1.44/containers/{CONTAINER_ID}/attach?" "stream=1&stdin=1&stdout=1&stderr=1"
+
+    with transport.open_attach(
+        path,
+        stdin_limit=64 * 1024,
+        stdout_limit=64 * 1024,
+        stderr_limit=8 * 1024,
+        timeout=300.0,
+    ) as session:
+        observed = session.exchange(REQUEST)
+
+    connection = _HijackConnection.instances[0]
+    if connection.request_call is not None:
+        args, kwargs = connection.request_call
+        assert args[:2] == ("POST", path)
+        sent_headers = kwargs["headers"]
+    else:
+        assert connection.putrequest_call[0][:2] == ("POST", path)
+        sent_headers = dict(connection.headers)
+    normalized_headers = {key.lower(): value.lower() for key, value in sent_headers.items()}
+    assert normalized_headers["connection"] == "upgrade"
+    assert normalized_headers["upgrade"] == "tcp"
+    assert b"".join(connection.sent) == REQUEST
+    assert connection.sock.shutdowns == [module.socket.SHUT_WR]
+    assert observed == (stdout, stderr)
+    assert connection.closed is True
+
+
+@pytest.mark.parametrize(
+    ("status", "headers"),
+    [
+        (200, None),
+        (101, (("Connection", "Upgrade"), ("Upgrade", "tcp"))),
+        (
+            101,
+            (
+                ("Connection", "Upgrade"),
+                ("Upgrade", "tcp"),
+                ("Upgrade", "websocket"),
+                ("Content-Type", "application/vnd.docker.multiplexed-stream"),
+            ),
+        ),
+    ],
+)
+def test_attach_transport_rejects_nonexact_upgrade_before_private_input(
+    monkeypatch, status, headers
+):
+    response = _HijackResponse(b"", status=status, headers=headers)
+    module, transport = _hijack_transport(monkeypatch, response)
+
+    with pytest.raises(module.LocalDockerEngineError):
+        transport.open_attach(
+            f"/v1.44/containers/{CONTAINER_ID}/attach?" "stream=1&stdin=1&stdout=1&stderr=1",
+            stdin_limit=64 * 1024,
+            stdout_limit=64 * 1024,
+            stderr_limit=8 * 1024,
+            timeout=300.0,
+        )
+
+    connection = _HijackConnection.instances[0]
+    assert connection.sent == []
+    assert connection.closed is True
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"\x01\x00",
+        _frame(3, b"invalid stream"),
+        bytes((1, 0, 0, 0)) + (64 * 1024 + 1).to_bytes(4, "big"),
+        bytes((1, 0, 0, 0)) + (4).to_bytes(4, "big") + b"cut",
+    ],
+    ids=("truncated-header", "invalid-stream", "oversized-frame", "truncated-payload"),
+)
+def test_attach_transport_closes_on_malformed_or_oversized_frames(monkeypatch, payload):
+    response = _HijackResponse(payload, fragment=2)
+    module, transport = _hijack_transport(monkeypatch, response)
+
+    with pytest.raises(module.LocalDockerEngineError):
+        with transport.open_attach(
+            f"/v1.44/containers/{CONTAINER_ID}/attach?" "stream=1&stdin=1&stdout=1&stderr=1",
+            stdin_limit=64 * 1024,
+            stdout_limit=64 * 1024,
+            stderr_limit=8 * 1024,
+            timeout=300.0,
+        ) as session:
+            session.exchange(REQUEST)
+
+    connection = _HijackConnection.instances[0]
+    assert connection.closed is True
+
+
+def test_attach_transport_deadline_closes_without_writing_private_input(monkeypatch):
+    response = _HijackResponse(_frame(1, RESPONSE))
+    module, transport = _hijack_transport(monkeypatch, response, expired=True)
+
+    with pytest.raises(module.LocalDockerEngineError):
+        with transport.open_attach(
+            f"/v1.44/containers/{CONTAINER_ID}/attach?" "stream=1&stdin=1&stdout=1&stderr=1",
+            stdin_limit=64 * 1024,
+            stdout_limit=64 * 1024,
+            stderr_limit=8 * 1024,
+            timeout=300.0,
+        ) as session:
+            session.exchange(REQUEST)
+
+    connection = _HijackConnection.instances[0]
+    assert connection.sent == []
+    assert connection.closed is True
