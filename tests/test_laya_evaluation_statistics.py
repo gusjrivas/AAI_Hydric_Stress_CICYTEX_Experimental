@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 
 import pytest
+
+from human_feedback.evaluation_corpus import CATEGORIES, REQUIRED_SITES
 from human_feedback.evaluation_statistics import (
     _BootstrapSummary,
     _holm_step_down,
@@ -12,8 +14,6 @@ from human_feedback.evaluation_statistics import (
     _paired_group_bootstrap,
     _raw_metrics,
 )
-
-from human_feedback.evaluation_corpus import CATEGORIES, REQUIRED_SITES
 
 
 def _probabilities(choice: str, confidence: float) -> tuple[tuple[str, float], ...]:
