@@ -255,7 +255,7 @@ def test_request_cardinality_is_bounded_even_when_each_item_is_small():
         canonical_laya_loso_offline_request_bytes(too_many)
 
 
-def test_response_category_must_be_the_unique_probability_argmax():
+def test_response_category_may_share_the_argmax_but_cannot_be_inferior():
     tied = _response()
     probabilities = tied["predictions"][0]["probabilities"]
     probabilities.update(
@@ -267,9 +267,13 @@ def test_response_category_must_be_the_unique_probability_argmax():
             "other": 0.05,
         }
     )
+    accepted = validate_laya_loso_offline_response(_encoded(tied), expected_count=2)
+    assert json.loads(accepted)["predictions"][0]["category"] == "data_quality"
 
+    inferior = _response()
+    inferior["predictions"][0]["category"] = "other"
     with pytest.raises((TypeError, ValueError)):
-        validate_laya_loso_offline_response(_encoded(tied), expected_count=2)
+        validate_laya_loso_offline_response(_encoded(inferior), expected_count=2)
 
 
 def test_usage_must_prove_no_truncation_no_dropped_tokens_and_fixed_host_limit():
