@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ARCHITECTURE_NODES } from "./architectureCatalog";
 import { ROUTES } from "../navigation/useHashRoute";
 
-const REPO_ROOT = resolve(process.cwd(), "..");
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
 describe("architecture catalog", () => {
   it("keeps the seven original stages in order", () => {
@@ -40,6 +41,6 @@ describe("architecture catalog", () => {
     const laya = ARCHITECTURE_NODES.find((n) => n.id === "laya");
     expect(laya?.kind).toBe("adapter");
     expect(laya?.status).toBe("desactivado");
-    expect(laya?.limits).toMatch(/sin sugerencias reales/i);
+    expect(laya?.limits).toMatch(/sin sugerencias reales en esta configuración/i);
   });
 });

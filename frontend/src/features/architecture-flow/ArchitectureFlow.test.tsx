@@ -19,7 +19,7 @@ describe("ArchitectureFlow", () => {
 
   it("shows the node sheet with responsibility, boundary, evidence and limits when selected", async () => {
     render(<ArchitectureFlow />);
-    await userEvent.click(screen.getByRole("button", { name: /detalle: calidad/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Calidad", pressed: false }));
     const sheet = screen.getByRole("region", { name: /ficha de calidad/i });
     for (const label of ["Responsabilidad", "Entrada", "Salida", "Frontera", "Evidencia", "Límites"]) {
       expect(within(sheet).getByText(label)).toBeInTheDocument();
@@ -33,9 +33,15 @@ describe("ArchitectureFlow", () => {
     expect(within(table).getAllByRole("row").length).toBeGreaterThanOrEqual(9);
   });
 
+  it("never presents a stage as running nor shows live metrics or traces", () => {
+    render(<ArchitectureFlow />);
+    expect(screen.queryByText(/en ejecución|en curso|en tiempo real|latencia|trazas?/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
   it("describes Laya as disabled advisory adapter without real suggestions", async () => {
     render(<ArchitectureFlow />);
-    await userEvent.click(screen.getByRole("button", { name: /detalle: laya/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Laya" }));
     const sheet = screen.getByRole("region", { name: /ficha de laya/i });
     expect(within(sheet).getByText("Desactivado por defecto")).toBeInTheDocument();
     expect(within(sheet).getByText(/sin sugerencias reales/i)).toBeInTheDocument();

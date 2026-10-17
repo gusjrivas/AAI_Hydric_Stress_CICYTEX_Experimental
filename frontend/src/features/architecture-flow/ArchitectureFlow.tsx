@@ -46,7 +46,6 @@ export function ArchitectureFlow() {
               <button
                 type="button"
                 aria-pressed={selectedId === node.id}
-                aria-label={`Detalle: ${node.label}`}
                 onClick={() => setSelectedId(node.id)}
               >
                 {node.label}
@@ -55,7 +54,7 @@ export function ArchitectureFlow() {
           ))}
         </ul>
         {selected && (
-          <section className="af-sheet" aria-label={`Ficha de ${selected.label}`}>
+          <section className="af-sheet" aria-label={`Ficha de ${selected.label}`} aria-live="polite">
             <h3>{selected.label}</h3>
             <dl>
               <dt>Estado</dt>
@@ -100,7 +99,7 @@ export function ArchitectureFlow() {
             <tr key={node.id}>
               <th scope="row">{node.label}</th>
               <td>{node.kind === "stage" ? "Etapa" : "Adaptador consultivo"}</td>
-              <td>{node.status === "desactivado" ? "Desactivado" : "Documentado"}</td>
+              <td>{node.status === "desactivado" ? "Desactivado por defecto" : "Documentado"}</td>
               <td>{node.limits}</td>
             </tr>
           ))}
