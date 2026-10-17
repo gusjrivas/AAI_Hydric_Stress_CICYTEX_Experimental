@@ -25,6 +25,7 @@ from human_feedback.adapters.runtime_installation_verifier import (
 
 _LOCK = threading.RLock()
 _RESOURCES: dict[int, _RuntimeResource] = {}
+_CLEANUP_ATTEMPTS: dict[int, _CleanupAttempt] = {}
 
 
 @dataclass(slots=True)
@@ -36,25 +37,50 @@ class _RuntimeResource:
     disposed: bool = False
 
 
-def _fail() -> None:
-    error = ValueError("secure runtime materialization failed")
+@dataclass(slots=True)
+class _CleanupAttempt:
+    error_ref: weakref.ReferenceType
+    engine: object
+    pending: bool = True
+
+
+class LayaRuntimeMaterializationError(ValueError):
+    """Private failure with an optional issued handle for explicit cleanup retry."""
+
+    __slots__ = ("__weakref__",)
+
+    @property
+    def cleanup_pending(self) -> bool:
+        with _LOCK:
+            attempt = _CLEANUP_ATTEMPTS.get(id(self))
+            return bool(attempt and attempt.error_ref() is self and attempt.pending)
+
+
+def _fail(pending_engine=None) -> None:
+    error = LayaRuntimeMaterializationError("secure runtime materialization failed")
     error.__suppress_context__ = True
+    if pending_engine is not None:
+        identity = id(error)
+
+        def abandon(_reference):
+            with _LOCK:
+                _CLEANUP_ATTEMPTS.pop(identity, None)
+
+        record = _CleanupAttempt(weakref.ref(error, abandon), pending_engine)
+        with _LOCK:
+            _CLEANUP_ATTEMPTS[identity] = record
     raise error from None
 
 
-def _cleanup_failed_attempt(engine, container_id, image_id):
+def _cleanup_failed_attempt(engine):
     # No broad listing/adoption/prune. The engine verifies local IDs and nonce
     # again before each operation. An unavailable daemon can leave an orphan;
     # it can never turn a failed attempt into issued runtime authority.
-    for identity, remove in (
-        (container_id, engine.remove_owned_container),
-        (image_id, engine.remove_owned_image),
-    ):
-        if identity is not None:
-            try:
-                remove(identity)
-            except Exception:
-                pass
+    try:
+        engine.cleanup_owned_resources()
+        return True
+    except Exception:
+        return False
 
 
 def materialize_laya_runtime(
@@ -64,6 +90,7 @@ def materialize_laya_runtime(
     """Return authority only for an independently recaptured, loaded derivative."""
 
     engine = None
+    pending_engine = None
     image_id = container_id = evidence = None
     valid = False
     try:
@@ -92,6 +119,7 @@ def materialize_laya_runtime(
             if expected is None:
                 _fail()
             container_id = engine.create_closed_probe_container(image_id)
+            engine.inspect_closed_probe_container(container_id, expected_image_id=image_id)
             with engine.export_stopped_container_stream(container_id) as chunks:
                 commitment = _verify_exported_installation(chunks, expected)
             engine.run_closed_probe(container_id, expected_image_id=image_id)
@@ -118,10 +146,32 @@ def materialize_laya_runtime(
             if evidence is not None:
                 _authority._revoke_evidence(evidence)
             if engine is not None:
-                _cleanup_failed_attempt(engine, container_id, image_id)
+                if not _cleanup_failed_attempt(engine):
+                    pending_engine = engine
+    if not valid:
+        _fail(pending_engine)
+    return evidence
+
+
+def retry_laya_runtime_materialization_cleanup(error: LayaRuntimeMaterializationError) -> None:
+    """Retry an exact issued failed-attempt handle without creating authority."""
+    valid = False
+    try:
+        with _LOCK:
+            attempt = _CLEANUP_ATTEMPTS.get(id(error))
+            if (
+                type(error) is not LayaRuntimeMaterializationError
+                or attempt is None
+                or attempt.error_ref() is not error
+            ):
+                _fail()
+            if not attempt.pending or _cleanup_failed_attempt(attempt.engine):
+                attempt.pending = False
+                valid = True
+    except Exception:
+        valid = False
     if not valid:
         _fail()
-    return evidence
 
 
 def dispose_laya_runtime(evidence: _authority.LayaRuntimeMaterializationEvidence) -> None:

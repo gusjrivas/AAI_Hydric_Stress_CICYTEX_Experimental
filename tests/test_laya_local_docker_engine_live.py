@@ -54,9 +54,15 @@ def test_real_engine_import_inspect_export_and_owned_cleanup():
             exported = b"".join(chunks)
             assert len(exported) < 65536
             with tarfile.open(fileobj=io.BytesIO(exported)) as archive:
-                diagnostic = [(x.name, x.type, x.mode, x.uid, x.gid, x.mtime, x.size, x.linkname) for x in archive]
+                diagnostic = [
+                    (x.name, x.type, x.mode, x.uid, x.gid, x.mtime, x.size, x.linkname)
+                    for x in archive
+                ]
             try:
-                assert _verify_exported_installation([exported], expected) == expected.commitment_sha256
+                assert (
+                    _verify_exported_installation([exported], expected)
+                    == expected.commitment_sha256
+                )
             except ValueError:
                 pytest.fail(f"synthetic export metadata: {diagnostic!r}")
     finally:

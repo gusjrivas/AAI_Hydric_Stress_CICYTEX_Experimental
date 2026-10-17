@@ -16,11 +16,12 @@ from human_feedback import runtime_oci_tar as _tar
 _EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 _GENERATED_FILES = {
     ".dockerenv": 0o755,
-    "etc/hosts": 0o644,
-    "etc/hostname": 0o644,
-    "etc/resolv.conf": 0o644,
+    "dev/console": 0o755,
+    "etc/hosts": 0o755,
+    "etc/hostname": 0o755,
+    "etc/resolv.conf": 0o755,
 }
-_GENERATED_DIRECTORIES = {"dev", "proc", "sys"}
+_GENERATED_DIRECTORIES = {"dev", "dev/pts", "dev/shm", "proc", "sys"}
 
 
 def _fail() -> None:
@@ -201,6 +202,10 @@ def _verify_exported_installation(chunks, expected: _InstallationManifest) -> st
         retained = []
         for item in actual:
             if item[0] in original_paths:
+                # Engine init-layer creates only these closed mountpoint paths.
+                # Their containing directories change mtime, not identity/mode.
+                if item[0] in {"dev", "etc"} and item[1] == "5":
+                    item = (*item[:5], 0, item[6])
                 retained.append(item)
                 continue
             path, kind, mode, uid, gid, _mtime, payload = item
@@ -215,6 +220,9 @@ def _verify_exported_installation(chunks, expected: _InstallationManifest) -> st
                     _fail()
             elif path in _GENERATED_DIRECTORIES:
                 if (kind, mode, payload) != ("5", 0o755, ()):
+                    _fail()
+            elif path == "etc/mtab":
+                if (kind, mode, payload) != ("2", 0o777, ("/proc/mounts",)):
                     _fail()
             else:
                 _fail()

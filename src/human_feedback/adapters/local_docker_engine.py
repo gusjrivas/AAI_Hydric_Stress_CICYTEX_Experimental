@@ -429,6 +429,10 @@ def _closed_probe_payload(image_id: str, nonce: str) -> dict[str, Any]:
                 {"Name": "core", "Soft": 0, "Hard": 0},
             ],
             "Tmpfs": {"/tmp": _TMPFS},
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {"max-size": "64k", "max-file": "1"},
+            },
             "IpcMode": "private",
         },
         "NetworkingConfig": {"EndpointsConfig": {}},
@@ -516,6 +520,7 @@ def _matches_closed_probe(
         and host.get("NanoCpus") == expected_host["NanoCpus"]
         and host.get("Ulimits") == expected_host["Ulimits"]
         and host.get("Tmpfs") == expected_host["Tmpfs"]
+        and host.get("LogConfig") == expected_host["LogConfig"]
         and host.get("IpcMode") == expected_host["IpcMode"]
         and value.get("Mounts") in (None, [])
         and networks.get("Ports") in (None, {})
