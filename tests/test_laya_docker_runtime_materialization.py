@@ -45,9 +45,14 @@ class _Engine:
     @contextmanager
     def export_stopped_container_stream(self, container):
         assert container == self.container_id
+        assert "inspect" in self.events
         self._event("export")
         payload = self.archive if self.failure != "recapture" else self.archive[:-1024]
         yield iter([payload])
+
+    def inspect_closed_probe_container(self, container, *, expected_image_id):
+        assert container == self.container_id and expected_image_id == self.image_id
+        self._event("inspect")
 
     def run_closed_probe(self, container, *, expected_image_id):
         assert container == self.container_id
@@ -63,6 +68,20 @@ class _Engine:
         assert image == self.image_id
         self._event("remove-image")
         self.image = False
+
+    def cleanup_owned_resources(self):
+        errors = []
+        for present, remove, identity in (
+            (self.container, self.remove_owned_container, self.container_id),
+            (self.image, self.remove_owned_image, self.image_id),
+        ):
+            if present:
+                try:
+                    remove(identity)
+                except Exception as error:
+                    errors.append(error)
+        if errors:
+            raise RuntimeError("private cleanup failure")
 
 
 def _setup(monkeypatch, tmp_path, failure=None):
@@ -83,7 +102,7 @@ def test_only_recaptured_loaded_image_produces_runtime_authority(monkeypatch, tm
     authority, adapter, filesystem, rootfs, plan, source, engine = _setup(monkeypatch, tmp_path)
     baseline = len(os.listdir("/proc/self/fd"))
     evidence = adapter.materialize_laya_runtime(plan, str(source))
-    assert engine.events == ["import", "create", "export", "load", "remove-container"]
+    assert engine.events == ["import", "create", "inspect", "export", "load", "remove-container"]
     assert engine.image and not engine.container
     summary = authority.canonical_laya_runtime_materialization_summary_bytes(evidence)
     assert b'"runtime_materialized":true' in summary
@@ -134,3 +153,32 @@ def test_dispose_failure_revokes_and_can_retry_after_parent_disposal(monkeypatch
     engine.failure = None
     adapter.dispose_laya_runtime(evidence)
     assert not engine.image
+
+
+def test_failed_attempt_retains_private_retry_handle_not_runtime_authority(monkeypatch, tmp_path):
+    _, adapter, filesystem, rootfs, plan, source, engine = _setup(monkeypatch, tmp_path, "load")
+    remove = engine.remove_owned_image
+
+    def unavailable(_identity):
+        raise RuntimeError("daemon temporarily unavailable")
+
+    engine.remove_owned_image = unavailable
+    try:
+        with pytest.raises(ValueError) as caught:
+            adapter.materialize_laya_runtime(plan, str(source))
+        error = caught.value
+        assert error.cleanup_pending is True
+        assert engine.image_id not in str(error)
+        assert engine.image_id not in repr(error)
+        with pytest.raises(ValueError):
+            adapter.retry_laya_runtime_materialization_cleanup(error)
+        engine.remove_owned_image = remove
+        engine.failure = None
+        adapter.retry_laya_runtime_materialization_cleanup(error)
+        adapter.retry_laya_runtime_materialization_cleanup(error)
+        assert error.cleanup_pending is False
+        assert not engine.image and not engine.container
+        with pytest.raises(ValueError):
+            adapter.retry_laya_runtime_materialization_cleanup(ValueError("forged"))
+    finally:
+        filesystem.dispose_laya_runtime_rootfs(rootfs)
