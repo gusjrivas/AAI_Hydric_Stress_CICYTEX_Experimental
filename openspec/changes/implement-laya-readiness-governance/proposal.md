@@ -6,12 +6,13 @@ HU5/HU6; human-feedback / architecture-integration; CRISP-DM evaluation mechanic
 ADR-0001 and ADR-0014. No HU7/HU8, v3/v4 experiment, hypothesis, historical data,
 forecast, recalibration, irrigation, HTTP/UI or default-off Laya change.
 
-Prepare isolated from PR43 frozen HEAD `120f28f`, whose exact-head CI is pending.
-Before its acceptance/merge, only specification and pure synthetic TDD preparation
-are permitted. Do not edit PR43's tracked tree, publish, open a corpus/holdout or
-run a model. Publication requires exact-merge rebase and repeated directed gates.
-After PR43 accepted merge, record its actual acceptance and close its technical
-result-dependent tasks historically, never scientific prerequisites by inference.
+Initial preparation was isolated from PR43 frozen HEAD `120f28f` while its CI was
+pending. Before dependency acceptance, only specification and pure synthetic TDD
+work was permitted, without PR43 edits, publication, corpus/holdout or model runs.
+PR43 subsequently passed CI 16/16 and merged as `41ab3d3`; exact-merge rebase and
+repeated directed gates are recorded in tasks.md. Publication still requires
+PR44's own gates. PR43 technical closure records actual observed acceptance;
+scientific prerequisites are never closed by inference.
 
 ## Scope
 
