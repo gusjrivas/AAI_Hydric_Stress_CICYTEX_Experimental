@@ -26,6 +26,8 @@ const MODE_BY_VIEW: Record<ViewKey, ViewMode> = {
   arquitectura: "diseno",
 };
 
-export function modeForView(view: ViewKey): ViewMode {
-  return MODE_BY_VIEW[view];
+/** `simulatedSensor`: el sensor activo pertenece al Laboratorio o a la demostración (datos simulados). */
+export function modeForView(view: ViewKey, options: { simulatedSensor?: boolean } = {}): ViewMode {
+  const mode = MODE_BY_VIEW[view];
+  return mode === "operacion" && options.simulatedSensor ? "laboratorio" : mode;
 }

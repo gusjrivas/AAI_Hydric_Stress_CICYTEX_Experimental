@@ -191,16 +191,26 @@ describe("App — navegación por hash (Entrega 2)", () => {
     expect(screen.getByRole("navigation", { name: /etapas de la arquitectura/i })).toBeVisible();
   });
 
+  it("points Acerca de esta herramienta to the architecture destination", async () => {
+    window.location.hash = "#evidencia";
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+    render(<App />);
+    expect(screen.getByRole("link", { name: "Arquitectura del sistema" })).toHaveAttribute("href", "#arquitectura");
+    vi.unstubAllGlobals();
+  });
+
   it.each([
     ["#defensa-cicytex", /replay histórico/i],
     ["#laboratorio-sensores", /laboratorio sintético/i],
-    ["#productor", /operación/i],
+    ["#productor", /^operación$/i],
   ])("labels the mode of %s so replay, lab and operation are never confused", async (hash, text) => {
     window.location.hash = hash;
     vi.spyOn(catalogApi, "listSectors").mockResolvedValue({ items: [], next_cursor: null });
     vi.spyOn(catalogApi, "listSensors").mockResolvedValue({ items: [], next_cursor: null });
     render(<App />);
-    expect(screen.getAllByRole("note").some((note) => text.test(note.textContent ?? ""))).toBe(true);
+    const badge = document.querySelector(".mode-badge");
+    expect(badge).not.toBeNull();
+    expect(badge!.querySelector("strong")!.textContent).toMatch(text);
   });
 
   it("opens the Evidencia section with the governance status visible", async () => {

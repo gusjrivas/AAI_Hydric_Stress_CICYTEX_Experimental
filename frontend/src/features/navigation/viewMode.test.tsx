@@ -24,6 +24,17 @@ describe("modeForView", () => {
   });
 });
 
+describe("modeForView with simulated sensors", () => {
+  it("never labels a simulated active sensor as operation", () => {
+    expect(modeForView("resumen", { simulatedSensor: true })).toBe("laboratorio");
+    expect(modeForView("productor", { simulatedSensor: false })).toBe("operacion");
+  });
+  it("does not relabel replay or design views", () => {
+    expect(modeForView("defensa-cicytex", { simulatedSensor: true })).toBe("replay");
+    expect(modeForView("arquitectura", { simulatedSensor: true })).toBe("diseno");
+  });
+});
+
 describe("ModeBadge", () => {
   it.each([
     ["operacion", /operación/i],

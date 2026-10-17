@@ -233,7 +233,7 @@ function App() {
       )}
 
       <main id="main-content" className="app-sections" tabIndex={-1}>
-        <ModeBadge mode={modeForView(viewKey)} />
+        <ModeBadge mode={modeForView(viewKey, { simulatedSensor: isViewingDemoSensor || labSensorId === activeSensorId })} />
         {!isDemoRoute && route === "arquitectura" && (
           <section aria-labelledby="arquitectura-heading">
             <h1 id="arquitectura-heading" className="app-section-heading" tabIndex={-1}>
