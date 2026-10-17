@@ -2,7 +2,7 @@
 
 The verifier in this module is deliberately a pure byte boundary.  It proves
 that a closed preregistration binds a validated corpus, its deterministic LOSO
-plan, and five supplied protocol artifacts.  It does not run the evaluation or
+plan, and six supplied protocol artifacts.  It does not run the evaluation or
 turn structural evidence into a scientific or operational approval.
 """
 
@@ -32,19 +32,33 @@ REQUIRED_ARTIFACT_ROLES = (
     "adjudication_protocol",
     "deidentification_protocol",
     "custody_record",
+    "baseline_protocol",
 )
 
 _PRIMARY_METRIC = "macro_f1"
 _BASELINE_ID = "deterministic-rule-baseline-v1"
+_BASELINE_PROTOCOL_ID = "deterministic-rule-baseline-protocol-v1"
 _COMPARISON_DESIGN = "same_loso_folds_paired_delta"
+_PRIMARY_ESTIMAND = "equal_site_mean_macro_f1_laya_minus_baseline"
+_SITE_ESTIMAND = "site_macro_f1_laya_minus_baseline"
 _MINIMUM_PAIRED_DELTA = 0.05
+_MINIMUM_SITE_PAIRED_DELTA = -0.02
 _BOOTSTRAP_METHOD = "stratified_cluster_percentile"
 _BOOTSTRAP_UNIT = "group_within_site"
+_BOOTSTRAP_INTERVAL = "two_sided_percentile"
 _BOOTSTRAP_REPLICATES = 10_000
 _BOOTSTRAP_CONFIDENCE_LEVEL = 0.95
+_PRIMARY_INTERVAL_DECISION_RULE = "lower_bound_gte_minimum_paired_delta"
+_SITE_INTERVAL_DECISION_RULE = "lower_bound_gte_minimum_site_delta"
 _MULTIPLICITY_CORRECTION = "holm"
 _FAMILYWISE_ALPHA = 0.05
 _LEGACY_POLICY_ID = "laya-readiness-policy-v1"
+_HOLM_HYPOTHESIS_FAMILY = (
+    "global_equal_site_macro_f1_superiority",
+    "cicytex_macro_f1_noninferiority",
+    "melchor-romero_macro_f1_noninferiority",
+    "pergamino_macro_f1_noninferiority",
+)
 _LEGACY_THRESHOLDS: dict[str, float] = {
     "minimum_decision_confidence": 0.85,
     "minimum_coverage": 0.6,
@@ -67,6 +81,7 @@ _ROOT_FIELDS = frozenset(
         "corpus_id",
         "evaluation_corpus_sha256",
         "loso_plan_sha256",
+        "loso_assignment_sha256",
         "required_sites",
         "cohort",
         "analysis",
@@ -87,15 +102,26 @@ _ANALYSIS_FIELDS = frozenset(
     {
         "primary_metric",
         "baseline_id",
+        "baseline_protocol_id",
+        "baseline_protocol_sha256",
         "comparison_design",
+        "primary_estimand",
+        "site_estimand",
         "minimum_paired_macro_f1_delta",
+        "minimum_site_paired_macro_f1_delta",
         "bootstrap_method",
         "bootstrap_unit",
+        "bootstrap_interval",
         "bootstrap_replicates",
         "bootstrap_confidence_level",
         "bootstrap_seed",
+        "primary_interval_decision_rule",
+        "site_interval_decision_rule",
+        "macro_f1_labels",
+        "macro_f1_zero_division",
         "multiplicity_correction",
         "familywise_alpha",
+        "holm_hypothesis_family",
         "legacy_policy_id",
         "legacy_thresholds",
     }
@@ -139,15 +165,26 @@ class CohortConstraints:
 class AnalysisProtocol:
     primary_metric: str
     baseline_id: str
+    baseline_protocol_id: str
+    baseline_protocol_sha256: str = field(repr=False)
     comparison_design: str
+    primary_estimand: str
+    site_estimand: str
     minimum_paired_macro_f1_delta: float
+    minimum_site_paired_macro_f1_delta: float
     bootstrap_method: str
     bootstrap_unit: str
+    bootstrap_interval: str
     bootstrap_replicates: int
     bootstrap_confidence_level: float
     bootstrap_seed: int
+    primary_interval_decision_rule: str
+    site_interval_decision_rule: str
+    macro_f1_labels: tuple[str, ...]
+    macro_f1_zero_division: int
     multiplicity_correction: str
     familywise_alpha: float
+    holm_hypothesis_family: tuple[str, ...]
     legacy_policy_id: str
     legacy_thresholds: tuple[tuple[str, float], ...]
 
@@ -162,6 +199,7 @@ class HumanEvaluationPreregistration:
     corpus_id: str
     evaluation_corpus_sha256: str = field(repr=False)
     loso_plan_sha256: str = field(repr=False)
+    loso_assignment_sha256: str = field(repr=False)
     required_sites: tuple[str, ...]
     cohort: CohortConstraints
     analysis: AnalysisProtocol
@@ -260,7 +298,7 @@ def _parse_utc(value: Any, *, label: str) -> datetime:
 
 def _verify_bindings(
     raw: dict[str, Any], corpus: EvaluationCorpus, plan: LosoEvaluationPlan
-) -> tuple[str, str, str, tuple[str, ...]]:
+) -> tuple[str, str, str, str, str]:
     if not isinstance(corpus, EvaluationCorpus):
         raise ValueError("evaluation corpus is invalid")
     if not isinstance(plan, LosoEvaluationPlan) or plan.corpus is not corpus:
@@ -277,6 +315,11 @@ def _verify_bindings(
     plan_digest = _require_digest(raw["loso_plan_sha256"], label="plan digest")
     if plan_digest != loso_evaluation_plan_digest(plan):
         raise ValueError("preregistration plan digest does not match plan")
+    assignment_digest = _require_digest(
+        raw["loso_assignment_sha256"], label="plan assignment digest"
+    )
+    if assignment_digest != plan.assignment_sha256:
+        raise ValueError("preregistration plan assignment digest does not match plan")
     sites_raw = raw["required_sites"]
     if not isinstance(sites_raw, list) or any(not isinstance(site, str) for site in sites_raw):
         raise ValueError("required sites must be a JSON array of strings")
@@ -288,7 +331,7 @@ def _verify_bindings(
         corpus.frozen_at, label="corpus frozen at"
     ):
         raise ValueError("preregistration frozen time predates corpus frozen time")
-    return protocol_id, frozen_at, corpus_digest, plan_digest
+    return protocol_id, frozen_at, corpus_digest, plan_digest, assignment_digest
 
 
 def _parse_cohort(value: Any) -> CohortConstraints:
@@ -324,9 +367,15 @@ def _parse_analysis(value: Any) -> AnalysisProtocol:
     exact = {
         "primary_metric": _PRIMARY_METRIC,
         "baseline_id": _BASELINE_ID,
+        "baseline_protocol_id": _BASELINE_PROTOCOL_ID,
         "comparison_design": _COMPARISON_DESIGN,
+        "primary_estimand": _PRIMARY_ESTIMAND,
+        "site_estimand": _SITE_ESTIMAND,
         "bootstrap_method": _BOOTSTRAP_METHOD,
         "bootstrap_unit": _BOOTSTRAP_UNIT,
+        "bootstrap_interval": _BOOTSTRAP_INTERVAL,
+        "primary_interval_decision_rule": _PRIMARY_INTERVAL_DECISION_RULE,
+        "site_interval_decision_rule": _SITE_INTERVAL_DECISION_RULE,
         "multiplicity_correction": _MULTIPLICITY_CORRECTION,
         "legacy_policy_id": _LEGACY_POLICY_ID,
     }
@@ -336,6 +385,11 @@ def _parse_analysis(value: Any) -> AnalysisProtocol:
     delta = _require_number(raw["minimum_paired_macro_f1_delta"], label="paired macro F1 delta")
     if delta != _MINIMUM_PAIRED_DELTA:
         raise ValueError("paired macro F1 delta is not the preregistered value")
+    site_delta = _require_number(
+        raw["minimum_site_paired_macro_f1_delta"], label="site paired macro F1 delta"
+    )
+    if site_delta != _MINIMUM_SITE_PAIRED_DELTA:
+        raise ValueError("site paired macro F1 delta is not the preregistered value")
     replicates = _require_positive_integer(
         raw["bootstrap_replicates"], label="bootstrap replicates"
     )
@@ -352,6 +406,18 @@ def _parse_analysis(value: Any) -> AnalysisProtocol:
     familywise_alpha = _require_number(raw["familywise_alpha"], label="familywise alpha")
     if familywise_alpha != _FAMILYWISE_ALPHA:
         raise ValueError("familywise alpha is not the preregistered value")
+    labels = raw["macro_f1_labels"]
+    if not isinstance(labels, list) or tuple(labels) != CATEGORIES:
+        raise ValueError("analysis macro F1 labels are invalid")
+    zero_division = _require_integer(raw["macro_f1_zero_division"], label="macro F1 zero division")
+    if zero_division != 0:
+        raise ValueError("analysis macro F1 zero division must be zero")
+    hypotheses = raw["holm_hypothesis_family"]
+    if not isinstance(hypotheses, list) or tuple(hypotheses) != _HOLM_HYPOTHESIS_FAMILY:
+        raise ValueError("analysis Holm hypothesis family is invalid")
+    baseline_digest = _require_digest(
+        raw["baseline_protocol_sha256"], label="analysis baseline protocol digest"
+    )
 
     thresholds_raw = _require_object(
         raw["legacy_thresholds"], frozenset(_LEGACY_THRESHOLDS), kind="legacy thresholds"
@@ -365,21 +431,34 @@ def _parse_analysis(value: Any) -> AnalysisProtocol:
     return AnalysisProtocol(
         primary_metric=_PRIMARY_METRIC,
         baseline_id=_BASELINE_ID,
+        baseline_protocol_id=_BASELINE_PROTOCOL_ID,
+        baseline_protocol_sha256=baseline_digest,
         comparison_design=_COMPARISON_DESIGN,
+        primary_estimand=_PRIMARY_ESTIMAND,
+        site_estimand=_SITE_ESTIMAND,
         minimum_paired_macro_f1_delta=delta,
+        minimum_site_paired_macro_f1_delta=site_delta,
         bootstrap_method=_BOOTSTRAP_METHOD,
         bootstrap_unit=_BOOTSTRAP_UNIT,
+        bootstrap_interval=_BOOTSTRAP_INTERVAL,
         bootstrap_replicates=replicates,
         bootstrap_confidence_level=confidence,
         bootstrap_seed=seed,
+        primary_interval_decision_rule=_PRIMARY_INTERVAL_DECISION_RULE,
+        site_interval_decision_rule=_SITE_INTERVAL_DECISION_RULE,
+        macro_f1_labels=CATEGORIES,
+        macro_f1_zero_division=zero_division,
         multiplicity_correction=_MULTIPLICITY_CORRECTION,
         familywise_alpha=familywise_alpha,
+        holm_hypothesis_family=_HOLM_HYPOTHESIS_FAMILY,
         legacy_policy_id=_LEGACY_POLICY_ID,
         legacy_thresholds=tuple(thresholds),
     )
 
 
-def _artifact_corpus_bindings(corpus: EvaluationCorpus) -> dict[str, tuple[str | None, str]]:
+def _artifact_corpus_bindings(
+    corpus: EvaluationCorpus, analysis: AnalysisProtocol
+) -> dict[str, tuple[str | None, str]]:
     return {
         "sampling_protocol": (corpus.sampling_protocol_id, corpus.sampling_protocol_sha256),
         "annotation_guide": (corpus.annotation_guide_id, corpus.annotation_guide_sha256),
@@ -392,6 +471,10 @@ def _artifact_corpus_bindings(corpus: EvaluationCorpus) -> dict[str, tuple[str |
             corpus.deidentification_protocol_sha256,
         ),
         "custody_record": (None, corpus.custody_digest),
+        "baseline_protocol": (
+            analysis.baseline_protocol_id,
+            analysis.baseline_protocol_sha256,
+        ),
     }
 
 
@@ -399,9 +482,10 @@ def _verify_artifacts(
     value: Any,
     external_artifacts: tuple[ExternalArtifact, ...],
     corpus: EvaluationCorpus,
+    analysis: AnalysisProtocol,
 ) -> tuple[VerifiedExternalArtifact, ...]:
     if not isinstance(value, list) or len(value) != len(REQUIRED_ARTIFACT_ROLES):
-        raise ValueError("external artifact manifest must contain exactly five roles")
+        raise ValueError("external artifact manifest must contain exactly six roles")
     if not isinstance(external_artifacts, tuple) or any(
         not isinstance(item, ExternalArtifact) for item in external_artifacts
     ):
@@ -420,7 +504,7 @@ def _verify_artifacts(
     if set(declared) != set(REQUIRED_ARTIFACT_ROLES):
         raise ValueError("external artifact roles must be exact")
 
-    bindings = _artifact_corpus_bindings(corpus)
+    bindings = _artifact_corpus_bindings(corpus, analysis)
     verified: list[VerifiedExternalArtifact] = []
     for role in REQUIRED_ARTIFACT_ROLES:
         raw = declared[role]
@@ -518,10 +602,12 @@ def verify_human_evaluation_preregistration(
     """Verify a frozen manifest against already validated private inputs."""
 
     raw = _decode_closed_json(preregistration_bytes)
-    protocol_id, frozen_at, corpus_digest, plan_digest = _verify_bindings(raw, corpus, plan)
+    protocol_id, frozen_at, corpus_digest, plan_digest, assignment_digest = _verify_bindings(
+        raw, corpus, plan
+    )
     cohort = _parse_cohort(raw["cohort"])
     analysis = _parse_analysis(raw["analysis"])
-    artifacts = _verify_artifacts(raw["external_artifacts"], external_artifacts, corpus)
+    artifacts = _verify_artifacts(raw["external_artifacts"], external_artifacts, corpus, analysis)
     alpha = _verify_cohort(corpus, cohort)
     return HumanEvaluationPreregistration(
         schema_version=SCHEMA_VERSION,
@@ -530,6 +616,7 @@ def verify_human_evaluation_preregistration(
         corpus_id=corpus.corpus_id,
         evaluation_corpus_sha256=corpus_digest,
         loso_plan_sha256=plan_digest,
+        loso_assignment_sha256=assignment_digest,
         required_sites=tuple(raw["required_sites"]),
         cohort=cohort,
         analysis=analysis,
@@ -551,6 +638,7 @@ def _summary(protocol: HumanEvaluationPreregistration) -> dict[str, Any]:
         "corpus_id": protocol.corpus_id,
         "evaluation_corpus_sha256": protocol.evaluation_corpus_sha256,
         "loso_plan_sha256": protocol.loso_plan_sha256,
+        "loso_assignment_sha256": protocol.loso_assignment_sha256,
         "required_sites": list(protocol.required_sites),
         "cohort": {
             "minimum_total_examples": protocol.cohort.minimum_total_examples,
@@ -573,15 +661,28 @@ def _summary(protocol: HumanEvaluationPreregistration) -> dict[str, Any]:
         "analysis": {
             "primary_metric": protocol.analysis.primary_metric,
             "baseline_id": protocol.analysis.baseline_id,
+            "baseline_protocol_id": protocol.analysis.baseline_protocol_id,
+            "baseline_protocol_sha256": protocol.analysis.baseline_protocol_sha256,
             "comparison_design": protocol.analysis.comparison_design,
+            "primary_estimand": protocol.analysis.primary_estimand,
+            "site_estimand": protocol.analysis.site_estimand,
             "minimum_paired_macro_f1_delta": (protocol.analysis.minimum_paired_macro_f1_delta),
+            "minimum_site_paired_macro_f1_delta": (
+                protocol.analysis.minimum_site_paired_macro_f1_delta
+            ),
             "bootstrap_method": protocol.analysis.bootstrap_method,
             "bootstrap_unit": protocol.analysis.bootstrap_unit,
+            "bootstrap_interval": protocol.analysis.bootstrap_interval,
             "bootstrap_replicates": protocol.analysis.bootstrap_replicates,
             "bootstrap_confidence_level": protocol.analysis.bootstrap_confidence_level,
             "bootstrap_seed": protocol.analysis.bootstrap_seed,
+            "primary_interval_decision_rule": (protocol.analysis.primary_interval_decision_rule),
+            "site_interval_decision_rule": protocol.analysis.site_interval_decision_rule,
+            "macro_f1_labels": list(protocol.analysis.macro_f1_labels),
+            "macro_f1_zero_division": protocol.analysis.macro_f1_zero_division,
             "multiplicity_correction": protocol.analysis.multiplicity_correction,
             "familywise_alpha": protocol.analysis.familywise_alpha,
+            "holm_hypothesis_family": list(protocol.analysis.holm_hypothesis_family),
             "legacy_policy_id": protocol.analysis.legacy_policy_id,
             "legacy_thresholds": dict(protocol.analysis.legacy_thresholds),
         },
