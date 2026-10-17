@@ -6,6 +6,7 @@ import json as _json
 from dataclasses import InitVar as _InitVar
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
+from types import MappingProxyType as _MappingProxyType
 
 from human_feedback import runtime_oci_rootfs as _runtime_oci_rootfs
 from human_feedback import runtime_supply_convergence as _runtime_supply_convergence
@@ -18,18 +19,21 @@ __all__ = (
 )
 
 MATERIALIZATION_PROFILE = "nonroot-disposable-v1"
-MATERIALIZATION_CLAIMS = {
-    "tar_semantics_verified": True,
-    "oci_rootfs_verified": True,
-    "rootfs_materialized": True,
-    "runtime_materialized": False,
-    "executor_available": False,
-    "inference_executed": False,
-}
+MATERIALIZATION_CLAIMS = _MappingProxyType(
+    {
+        "tar_semantics_verified": True,
+        "oci_rootfs_verified": True,
+        "rootfs_materialized": True,
+        "runtime_materialized": False,
+        "executor_available": False,
+        "inference_executed": False,
+    }
+)
 
 _PLAN_SCHEMA = "laya-runtime-rootfs-materialization-plan-v1"
 _EVIDENCE_SCHEMA = "laya-runtime-rootfs-materialization-evidence-v1"
 _FACTORY_TOKEN = object()
+_EVIDENCE_TOKEN = object()
 
 
 def _private_repr(value: object) -> str:
@@ -95,7 +99,7 @@ class LayaRuntimeRootfsMaterializationEvidence:
     inference_executed: bool = _field(default=False, init=False)
 
     def __post_init__(self, _factory_token: object) -> None:
-        if _factory_token is not _FACTORY_TOKEN:
+        if _factory_token is not _EVIDENCE_TOKEN:
             raise ValueError("rootfs materialization evidence requires the factory seal token")
         if (
             self.schema_version != _EVIDENCE_SCHEMA
@@ -123,20 +127,23 @@ def prepare_laya_runtime_rootfs_materialization_plan(
 ) -> LayaRuntimeRootfsMaterializationPlan:
     """Bind exact rootfs and issued supply authority without performing I/O."""
 
+    result = None
     try:
         _runtime_oci_rootfs.canonical_laya_runtime_oci_rootfs_summary_bytes(rootfs_evidence)
         issued_supply = _runtime_supply_convergence._require_issued_evidence(supply_evidence)
-        plan = LayaRuntimeRootfsMaterializationPlan(
+        result = LayaRuntimeRootfsMaterializationPlan(
             schema_version=_PLAN_SCHEMA,
             _rootfs_evidence=rootfs_evidence,
             _supply_evidence=issued_supply,
             _runtime_identity=rootfs_evidence.runtime_identity,
             _factory_token=_FACTORY_TOKEN,
         )
-        plan.__post_init__(_FACTORY_TOKEN)
-        return plan
+        result.__post_init__(_FACTORY_TOKEN)
     except Exception:
+        result = None
+    if result is None:
         _raise_private("rootfs materialization predecessor validation failed")
+    return result
 
 
 def canonical_laya_runtime_rootfs_materialization_summary_bytes(
@@ -144,16 +151,17 @@ def canonical_laya_runtime_rootfs_materialization_summary_bytes(
 ) -> bytes:
     """Render a public summary without filesystem or content identifiers."""
 
+    result = None
     try:
         if type(evidence) is not LayaRuntimeRootfsMaterializationEvidence:
             raise TypeError("rootfs materialization evidence type is invalid")
-        evidence.__post_init__(_FACTORY_TOKEN)
+        evidence.__post_init__(_EVIDENCE_TOKEN)
         payload = {
             "schema_version": evidence.schema_version,
             "materialization_profile": evidence.materialization_profile,
             **MATERIALIZATION_CLAIMS,
         }
-        return _json.dumps(
+        result = _json.dumps(
             payload,
             ensure_ascii=True,
             allow_nan=False,
@@ -161,4 +169,7 @@ def canonical_laya_runtime_rootfs_materialization_summary_bytes(
             separators=(",", ":"),
         ).encode("utf-8")
     except Exception:
+        result = None
+    if result is None:
         _raise_private("rootfs materialization evidence validation failed")
+    return result

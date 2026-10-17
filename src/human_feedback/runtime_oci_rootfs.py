@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+import weakref
 from dataclasses import InitVar, dataclass, field
 
 import human_feedback.runtime_oci_tar as runtime_oci_tar
@@ -22,6 +24,8 @@ MAX_OCI_ROOTFS_GID = runtime_oci_tar.MAX_OCI_TAR_GID
 MAX_OCI_ROOTFS_MTIME = runtime_oci_tar.MAX_OCI_TAR_MTIME
 
 _FACTORY_TOKEN = object()
+_ISSUED_EVIDENCE: dict[int, weakref.ReferenceType[object]] = {}
+_ISSUANCE_LOCK = threading.Lock()
 _CLAIMS = (
     "artifact_integrity_verified",
     "oci_manifest_semantics_verified",
@@ -60,6 +64,31 @@ def _raise_private(message: str) -> None:
     error = ValueError(message)
     error.__suppress_context__ = True
     raise error
+
+
+def _register_issued_evidence(value: object) -> None:
+    identity = id(value)
+    reference = None
+
+    def cleanup(expired: weakref.ReferenceType[object]) -> None:
+        with _ISSUANCE_LOCK:
+            if _ISSUED_EVIDENCE.get(identity) is expired:
+                _ISSUED_EVIDENCE.pop(identity, None)
+
+    reference = weakref.ref(value, cleanup)
+    with _ISSUANCE_LOCK:
+        _ISSUED_EVIDENCE[identity] = reference
+
+
+def _require_issued_evidence(value: object) -> LayaRuntimeOciRootfsEvidence:
+    if type(value) is not LayaRuntimeOciRootfsEvidence:
+        raise TypeError("OCI rootfs evidence type is invalid")
+    value.__post_init__(_FACTORY_TOKEN)
+    with _ISSUANCE_LOCK:
+        reference = _ISSUED_EVIDENCE.get(id(value))
+        if reference is None or reference() is not value:
+            raise ValueError("OCI rootfs evidence lacks issued authority")
+    return value
 
 
 def _validate_metadata(mode: object, uid: object, gid: object, mtime: object) -> None:
@@ -182,7 +211,7 @@ def _expected_claims(tar_evidence: object) -> tuple[bool, ...]:
     )
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
 class LayaRuntimeOciRootfsEvidence:
     schema_version: str
     plan: LayaOciRootfsPlan = field(repr=False)
@@ -609,7 +638,7 @@ def _seal_laya_runtime_oci_rootfs_evidence(
     root_directory: _LayaOciRootDirectory | None,
     nodes: tuple[LayaOciRootfsNode, ...],
 ) -> LayaRuntimeOciRootfsEvidence:
-    return LayaRuntimeOciRootfsEvidence(
+    evidence = LayaRuntimeOciRootfsEvidence(
         schema_version=OCI_ROOTFS_EVIDENCE_SCHEMA,
         plan=plan,
         tar_evidence=plan.tar_evidence,
@@ -619,6 +648,8 @@ def _seal_laya_runtime_oci_rootfs_evidence(
         rootfs_manifest_sha256=_manifest_sha256(nodes, root_directory),
         _factory_token=_FACTORY_TOKEN,
     )
+    _register_issued_evidence(evidence)
+    return evidence
 
 
 def _compose_rootfs_state(
@@ -690,9 +721,7 @@ def canonical_laya_runtime_oci_rootfs_summary_bytes(
     failed = False
     result = None
     try:
-        if type(evidence) is not LayaRuntimeOciRootfsEvidence:
-            raise TypeError("OCI rootfs evidence type is invalid")
-        evidence.__post_init__(_FACTORY_TOKEN)
+        evidence = _require_issued_evidence(evidence)
         identity_sha256 = evidence.runtime_identity.sha256
         if (
             type(identity_sha256) is not str
