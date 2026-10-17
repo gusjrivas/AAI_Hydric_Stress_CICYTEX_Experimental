@@ -2,8 +2,8 @@
 
 ### Requirement: Preregistro inmutable ligado al corpus y al plan
 
-El sistema DEBE aceptar únicamente un manifest cerrado cuyos digests coincidan
-con un `EvaluationCorpus` y un `LosoEvaluationPlan` ya validados. El plan DEBE
+El sistema MUST aceptar únicamente un manifest cerrado cuyos digests coincidan
+con un `EvaluationCorpus` y un `LosoEvaluationPlan` ya validados. El plan MUST
 pertenecer al mismo corpus y conservar los tres sitios requeridos.
 
 #### Scenario: binding íntegro
@@ -20,7 +20,7 @@ pertenecer al mismo corpus y conservar los tres sitios requeridos.
 
 ### Requirement: Artefactos externos verificados por bytes
 
-El sistema DEBE requerir exactamente los cinco roles contratados y comprobar
+El sistema MUST requerir exactamente los cinco roles contratados y comprobar
 `size_bytes` y SHA-256 contra el contenido recibido, el manifest y las referencias
 del corpus.
 
@@ -32,8 +32,8 @@ del corpus.
 
 ### Requirement: Cohorte y análisis fijados antes de resultados
 
-El sistema DEBE validar pisos preregistrados de N, sitio, grupo, celda y alpha
-nominal pre-adjudicación, y DEBE fijar macro-F1, baseline legacy en idénticos
+El sistema MUST validar pisos preregistrados de N, sitio, grupo, celda y alpha
+nominal pre-adjudicación, y MUST fijar macro-F1, baseline legacy en idénticos
 folds, delta pareado mínimo 0,05, bootstrap percentil estratificado con unidad
 `group_within_site` y 10.000/95 %/semilla, Holm/0,05 y los umbrales legacy
 vigentes. El verificador NO DEBE elegir N ni afirmar suficiencia de potencia.
@@ -50,8 +50,15 @@ vigentes. El verificador NO DEBE elegir N ni afirmar suficiencia de potencia.
 - **WHEN** se informa el estado científico real
 - **THEN** permanece `BLOCKED_CORPUS_NOT_PROVIDED`
 
-### Requirement: Summary público privado y no habilitante
+### Requirement: Summary público con privacidad y sin habilitación
 
-El sistema DEBE producir bytes canónicos y un digest reproducible sin texto ni
-identificadores privados. Una verificación exitosa NO DEBE afirmar ejecución,
+El sistema MUST producir bytes canónicos y un digest reproducible sin texto ni
+identificadores privados. Una verificación exitosa MUST NOT afirmar ejecución,
 suficiencia científica, elegibilidad shadow ni habilitación productiva.
+
+#### Scenario: Publicación de evidencia estructural
+
+- **GIVEN** un preregistro verificado con corpus y artefactos privados
+- **WHEN** se genera su summary público
+- **THEN** los bytes son canónicos y no contienen payload ni identificadores privados
+- **AND** todos los claims de ejecución, suficiencia y habilitación permanecen falsos
