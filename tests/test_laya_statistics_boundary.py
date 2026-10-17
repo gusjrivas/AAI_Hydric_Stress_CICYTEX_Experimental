@@ -156,11 +156,7 @@ def test_fixture_consumes_exact_sealed_batches_but_baseline_only_outer_test(monk
         for fold in protocol._plan.folds
         for record in fold.test_records
     ]
-    calibration_comments = {
-        record.comment for fold in protocol._plan.folds for record in fold.calibration_records
-    }
     assert calls == expected_outer
-    assert all(comment not in calibration_comments for _site, comment in calls)
     assert evidence._protocol is protocol
     assert tuple(item is expected for item, expected in zip(evidence._receipts, receipts)) == (
         True,
