@@ -282,3 +282,40 @@ def test_evaluate_and_summary_recheck_after_parent_validation(monkeypatch, tmp_p
         _private_failure(summary_failed.value, "forged-during-summary")
     finally:
         object.__setattr__(report, "fixture_profile_id", report_profile)
+
+
+def test_report_rejects_equal_string_subclasses_before_private_serialization(monkeypatch, tmp_path):
+    _statistics, _protocol, evidence = _issued_statistics(monkeypatch, tmp_path)
+    module = _module()
+    report = module.evaluate_laya_readiness(evidence)
+
+    class EqualPrivateString(str):
+        def __eq__(self, _other):
+            return True
+
+        __hash__ = str.__hash__
+
+    private_reason = EqualPrivateString("PRIVATE-READINESS-REASON-CANARY")
+    private_claim = EqualPrivateString("PRIVATE-READINESS-CLAIM-CANARY")
+    mutations = (
+        (
+            "reason_codes",
+            (private_reason, *report.reason_codes[1:]),
+            str(private_reason),
+        ),
+        (
+            "claims",
+            ((private_claim, report.claims[0][1]), *report.claims[1:]),
+            str(private_claim),
+        ),
+    )
+    for field, forged, canary in mutations:
+        original = getattr(report, field)
+        object.__setattr__(report, field, forged)
+        try:
+            with pytest.raises(ValueError) as caught:
+                module.canonical_laya_readiness_report_bytes(report)
+            _private_failure(caught.value, canary)
+        finally:
+            object.__setattr__(report, field, original)
+        assert module._require_issued_laya_readiness_report(report) is report
