@@ -62,9 +62,9 @@ class _FakeOfflineEngine:
         self.events.append(("inspect-image", expected_image_id))
         return {"Id": container_id}
 
-    def run_closed_loso_offline(self, container_id, request, *, expected_image_id):
+    def run_closed_loso_offline(self, container_id, *, expected_image_id, canonical_request):
         assert container_id == self.container_id
-        assert request == _REQUEST
+        assert canonical_request == _REQUEST
         self._event("run")
         self.events.append(("run-image", expected_image_id))
         if self.failure == "invalid-response":
@@ -159,6 +159,8 @@ def _private_failure(error, *private):
 
 
 def test_surface_is_closed_and_runtime_binding_is_private(monkeypatch):
+    from human_feedback.adapters.local_docker_engine import LocalDockerEngine
+
     wired = _wire(monkeypatch)
     adapter = wired.adapter
     assert tuple(inspect.signature(adapter.DockerLayaLosoOfflinePort).parameters) == (
@@ -170,6 +172,12 @@ def test_surface_is_closed_and_runtime_binding_is_private(monkeypatch):
     )
     assert tuple(inspect.signature(adapter.retry_laya_loso_offline_cleanup).parameters) == (
         "error",
+    )
+    real_parameters = inspect.signature(LocalDockerEngine.run_closed_loso_offline).parameters
+    fake_parameters = inspect.signature(_FakeOfflineEngine.run_closed_loso_offline).parameters
+    assert tuple(fake_parameters) == tuple(real_parameters)
+    assert tuple(item.kind for item in fake_parameters.values()) == tuple(
+        item.kind for item in real_parameters.values()
     )
     rendered = repr(wired.port)
     assert wired.image_id not in rendered
