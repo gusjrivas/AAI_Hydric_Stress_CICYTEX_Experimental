@@ -32,16 +32,11 @@ del corpus o del protocolo de análisis.
 - **WHEN** se verifica el preregistro
 - **THEN** el sistema lo rechaza sin tratar attestations como evidencia verificada
 
-### Requirement: Cohorte y análisis fijados antes de resultados
+### Requirement: Cohorte fijada antes de resultados
 
 El sistema MUST validar pisos preregistrados de N, sitio, grupo, celda y alpha
-nominal pre-adjudicación. MUST fijar labels canónicas y zero-division cero para
-macro-F1; estimando global de igual peso entre sitios y estimando por sitio;
-baseline legacy en idénticos folds; márgenes 0,05 global y -0,02 por sitio;
-bootstrap percentil bilateral estratificado con unidad `group_within_site` y
-10.000/95 %/semilla; reglas por límite inferior; familia Holm ordenada global,
-CICYTEX, Melchor Romero y Pergamino; y los umbrales legacy vigentes. El
-verificador NO DEBE elegir N ni afirmar suficiencia de potencia.
+nominal pre-adjudicación. El verificador MUST NOT elegir N ni afirmar suficiencia
+de potencia.
 
 #### Scenario: cohorte insuficiente
 
@@ -54,6 +49,19 @@ verificador NO DEBE elegir N ni afirmar suficiencia de potencia.
 - **GIVEN** que sólo existen fixtures sintéticos versionados
 - **WHEN** se informa el estado científico real
 - **THEN** permanece `BLOCKED_CORPUS_NOT_PROVIDED`
+
+### Requirement: Análisis fijado antes de resultados
+
+El sistema MUST fijar las labels y zero-division de macro-F1, los estimandos
+global y por sitio, el baseline y sus mismos folds, los márgenes global/por sitio,
+el bootstrap, las reglas por límite inferior, la familia Holm y los umbrales
+legacy antes de aceptar predicciones.
+
+#### Scenario: criterio estadístico alterado
+
+- **GIVEN** un manifest con cualquier criterio diferente del preregistro cerrado
+- **WHEN** se intenta verificar el protocolo
+- **THEN** el sistema falla cerrado antes de ejecutar Laya o el baseline
 
 ### Requirement: Summary público con privacidad y sin habilitación
 

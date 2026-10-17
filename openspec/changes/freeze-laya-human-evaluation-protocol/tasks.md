@@ -5,7 +5,7 @@
 - [x] 1.3 Publicar summary canónico y digest de evidencia.
 - [x] 1.4 Registrar hardening RED para assignment LOSO, baseline verificable y
   análisis sin grados de libertad post hoc.
-- [ ] 1.5 Implementar el hardening y volver a cerrar la matriz negativa.
+- [x] 1.5 Implementar el hardening y volver a cerrar la matriz negativa.
 
 ## 2. Cohorte y privacidad
 
