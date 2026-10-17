@@ -6,15 +6,15 @@
 
 ## 2. Pure authority
 
-- [ ] 2.1 Implement the I/O-free plan and sealed evidence contract.
+- [x] 2.1 Implement the I/O-free plan and sealed evidence contract.
 - [x] 2.2 Prove that only `rootfs_materialized` is newly elevated.
 
 ## 3. Secure Linux adapter
 
-- [ ] 3.1 Add RED tests for capability, destination and source preflight.
-- [ ] 3.2 Stream and reverify all layers while writing exact surviving payloads.
-- [ ] 3.3 Verify the staged tree and publish atomically without clobbering.
-- [ ] 3.4 Add bounded, ownership-scoped disposal and crash-recovery rules.
+- [x] 3.1 Add RED tests for capability, destination and source preflight.
+- [x] 3.2 Stream and reverify all layers while writing exact surviving payloads.
+- [x] 3.3 Verify the staged tree and publish atomically without clobbering.
+- [x] 3.4 Add bounded, ownership-scoped disposal and conservative orphan-recovery rules.
 
 ## 4. Gates
 

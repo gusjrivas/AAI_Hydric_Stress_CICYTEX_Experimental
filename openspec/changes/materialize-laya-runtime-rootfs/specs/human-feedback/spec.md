@@ -38,7 +38,7 @@ tree before publication.
 
 ### Requirement: Publication SHALL be bounded, atomic and no-clobber
 
-The system SHALL stage under an owner-only destination parent, enforce fixed byte
+The system SHALL stage under an owner-controlled destination parent without group/world write, enforce fixed byte
 and node limits, fsync the verified tree and publish with a same-filesystem atomic
 no-clobber primitive. Missing secure Linux capabilities SHALL fail closed.
 
@@ -52,6 +52,10 @@ no-clobber primitive. Missing secure Linux capabilities SHALL fail closed.
 Cleanup SHALL use descriptor-relative no-follow traversal, SHALL not cross a
 mount, and SHALL remove only staging or a published tree whose recorded inode
 identity belongs to the exact evidence.
+
+The adapter SHALL expose explicit evidence-bound disposal, revoke the issued
+authority on disposal, and close retained descriptors. A crashed process's
+orphan state SHALL never be adopted or deleted automatically by a new run.
 
 #### Scenario: Cleanup encounters a rebound path
 
