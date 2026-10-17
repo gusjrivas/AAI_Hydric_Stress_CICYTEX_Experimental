@@ -2,8 +2,8 @@
 
 - [x] 1.1 Inspect the fixed upstream prediction API and separate scientific claims.
 - [x] 1.2 Specify HU5/HU6 scope and closed synthetic profile.
-- [ ] 1.3 RED exact live PR40 authority, conservative preparation and privacy.
-- [ ] 1.4 GREEN additive pure contracts with no positive executor issuance yet.
+- [x] 1.3 RED exact live PR40 authority, conservative preparation and privacy.
+- [x] 1.4 GREEN additive pure contracts with no positive executor issuance yet.
 - [ ] 1.5 PR40 accepted with exact-SHA CI and real gate or recorded honest BLOCK.
 
 ## 2. Executor (blocked on 1.5)
@@ -18,3 +18,10 @@
 - [ ] 3.2 Explicit real pinned smoke acceptance without scientific data.
 - [ ] 3.3 Historical/site/mock/backend/quality regressions.
 - [ ] 3.4 Independent critique/audit and exact-SHA CI; no open P0/P1/P2.
+
+## Preparation evidence
+
+RED: 7 missing-module failures before `runtime_execution.py` existed. GREEN:
+7 focal passes; PR40+PR41 core regression 27 passes. Ruff/Black/diff-check pass.
+This is unmerged preparatory code. There is no positive execution issuer, Docker
+call or inference in this slice; PR40 acceptance remains a blocking dependency.
