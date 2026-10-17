@@ -22,4 +22,4 @@
 
 - [x] 3.1 Ejecutar suite focal, regresiones de corpus/split/ejecución y calidad.
 - [x] 3.2 Validar OpenSpec en modo estricto.
-- [ ] 3.3 Obtener gate independiente antes del merge.
+- [x] 3.3 Obtener gate independiente antes del merge.
