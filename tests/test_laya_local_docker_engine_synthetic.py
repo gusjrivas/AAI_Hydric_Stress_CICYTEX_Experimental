@@ -138,6 +138,8 @@ def test_synthetic_create_freezes_pr40_isolation_and_only_changes_fixed_probe_pr
 
 def test_synthetic_run_reinspects_fresh_state_then_returns_only_canonical_bytes():
     _synthetic_surface()
+    from human_feedback.adapters.local_docker_engine import DockerHttpResponse
+
     stdout, canonical = _synthetic_observation()
     transport = FakeTransport(
         [
@@ -149,7 +151,10 @@ def test_synthetic_run_reinspects_fresh_state_then_returns_only_canonical_bytes(
             _response(204),
             _response(200, {"StatusCode": 0}),
             _response(200, _synthetic_container_inspect(completed=True)),
-            _response(200, _log_frame(1, stdout) + _log_frame(2, b"bounded warning\n")),
+            DockerHttpResponse(
+                status=200,
+                body=_log_frame(1, stdout) + _log_frame(2, b"bounded warning\n"),
+            ),
         ]
     )
     engine = _engine(transport)
