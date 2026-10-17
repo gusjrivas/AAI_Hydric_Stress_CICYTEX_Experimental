@@ -5,14 +5,14 @@ import math
 from dataclasses import replace
 
 import pytest
+
+from human_feedback.evaluation_corpus import REQUIRED_SITES
 from human_feedback.evaluation_readiness import (
     _Criterion,
     _decide_readiness,
     _evaluate_mechanical_readiness_criteria,
     _Prerequisite,
 )
-
-from human_feedback.evaluation_corpus import REQUIRED_SITES
 from human_feedback.evaluation_statistics import (
     _Availability,
     _BootstrapSummary,
