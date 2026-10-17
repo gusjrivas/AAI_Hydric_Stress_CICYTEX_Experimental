@@ -12,14 +12,13 @@ can process a fixed synthetic request without creating scientific authority.
 - CRISP-DM: experimental deployment/integration, not scientific evaluation.
 - No change to base/synthetic/anomaly/full experimental configurations,
   hypotheses, datasets, historical results, HTTP contracts or productive wiring.
-- Depends on accepted and merged PR40. Its executable `4e9b84a` passed the fresh
-  real chain (856.97 seconds) and CI `39025053332` (16/16). The documentary closing
-  HEAD still requires checks and merge. Independent architecture review permits
-  isolated unit GREEN for the image lease and closed synthetic validator/program
-  during that documentary gate, without daemon, network, real inference or
-  positive execution evidence. PR41 publishing, merge and real smoke remain
-  blocked until PR40 merges; then rebase onto its exact merge commit and repeat
-  focal/static gates. This is preparation, not downstream activation.
+- Depends on accepted PR40, now merged as `d889c98`. Its executable `4e9b84a`
+  passed the fresh real chain (856.97 seconds) and CI `39025053332` (16/16).
+  Documentary HEAD `eff82d7` passed CI `39026767540` (16/16) and final audit GO.
+  PR41 rebased onto that exact merge; post-rebase unit/static gates passed
+  (180 tests). Earlier isolated unit preparation did not execute inference.
+  Positive issuance/orchestration and real smoke remain separate acceptance work;
+  this dependency closure does not activate productive callers.
 
 ## Change
 

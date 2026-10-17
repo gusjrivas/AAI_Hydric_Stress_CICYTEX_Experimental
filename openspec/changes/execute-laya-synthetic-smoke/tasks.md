@@ -4,19 +4,22 @@
 - [x] 1.2 Specify HU5/HU6 scope and closed synthetic profile.
 - [x] 1.3 RED exact live PR40 authority, conservative preparation and privacy.
 - [x] 1.4 GREEN additive pure contracts with no positive executor issuance yet.
-- [ ] 1.5 PR40 documentary HEAD accepted and merged; exact-SHA CI/real evidence recorded.
+- [x] 1.5 PR40 documentary HEAD accepted and merged; exact-SHA CI/real evidence recorded.
 
-## 2. Executor (issuance, real execution and publication blocked on 1.5)
+## 2. Executor
 
-PR40 executable `4e9b84a` has fresh real PASS 1/1 (856.97 seconds) and CI
-`39025053332` 16/16. While its documentation-only closing HEAD is checked,
-independent architecture review permits unit-only preparation for 2.1/2.2 in this
-isolated unpublished branch. Architecture review also permits fake-transport
-unit preparation of the closed synthetic engine profile in 2.3, using a fresh
-engine/nonce that never registers the parent image as owned. Its cleanup must
-touch only its exact child/intents. No daemon, network, real inference, positive
-issuer or productive caller is permitted before 1.5. After PR40 merge, rebase to the exact
-merge commit and repeat focal/static gates before proceeding.
+Dependency 1.5 closed: PR40 executable `4e9b84a` passed fresh real 1/1 (856.97
+seconds) and CI `39025053332` 16/16. Documentary HEAD `eff82d7` passed CI
+`39026767540` 16/16 (3351 passed, 57 skipped) and final independent global GO.
+PR40 merged as `d889c98bbd556fe28cefb575b8c4c8e437f24110`.
+
+PR41 was rebased to that exact merge. At post-rebase HEAD `81f3ef1`, source/tests
+were unchanged from the reviewed preparation. Linux non-root/network-none
+regression: 180 passed in 147.34 seconds; Ruff, Black (10 files), strict OpenSpec
+and diff checks passed. This closes the preparation gate, not acceptance of the
+remaining issuer/orchestration or real inference. Every synthetic execution must
+use a fresh engine/nonce that never owns the parent image; cleanup may touch only
+its exact child/intents. Scientific readiness and productive callers stay off.
 
 - [x] 2.1 RED/GREEN runtime image lease and disposal concurrency (isolated unit scope).
 - [x] 2.2 RED/GREEN fixed synthetic probe, strict output and determinism checks (unit scope).
