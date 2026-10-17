@@ -65,3 +65,10 @@ post-run cleanup are covered. This slice never invoked Docker or a model. The
 Root verification on reviewed unit preparation `cb8f81f`: 96 combined Linux
 non-root core/lease/probe/materialization tests passed in 144.17 seconds. This
 does not replace post-merge rebasing and exact-head verification.
+
+Shared observation boundary: RED `7c6936a` recorded 11 missing-module failures;
+GREEN `e07c436` extracted the unchanged pure parser and reexported the same callable
+from the adapter. Combined observation/probe/engine regression passed 129 tests.
+Independent review identified a test-only import-scanner bypass for `ImportFrom`;
+`d30a91a` closed it with hostile AST sanity cases. Re-review GO, no open P0/P1/P2;
+56 parser tests and static checks passed. No authority issuance was added.
