@@ -504,27 +504,110 @@ class _IssuedRecord:
 
 def _evidence_binding(value: _MechanicalStatisticsEvidence) -> tuple[object, ...]:
     return (
-        value.raw_laya,
-        value.raw_baseline,
-        value.raw_by_site,
-        value.policy_laya,
-        value.policy_baseline,
-        value.policy_by_site,
-        value.bootstrap,
-        value.holm,
-        value.mechanical_holm_all_rejected,
-        value.schema_version,
-        value.status,
-        value.fixture_profile_id,
-        value.baseline_fixture_id,
-        value.availability,
-        value.mechanical_fixture_calculated,
-        value.scientific_execution_completed,
-        value.calibration_fitted,
-        value.scientifically_sufficient,
-        value.eligible_for_shadow_review,
-        value.production_enablement_authorized,
+        _aggregate_snapshot(value.raw_laya),
+        _aggregate_snapshot(value.raw_baseline),
+        _aggregate_snapshot(value.raw_by_site),
+        _aggregate_snapshot(value.policy_laya),
+        _aggregate_snapshot(value.policy_baseline),
+        _aggregate_snapshot(value.policy_by_site),
+        _aggregate_snapshot(value.bootstrap),
+        _aggregate_snapshot(value.holm),
+        _primitive_snapshot(value.mechanical_holm_all_rejected),
+        _primitive_snapshot(value.schema_version),
+        _primitive_snapshot(value.status),
+        _primitive_snapshot(value.fixture_profile_id),
+        _primitive_snapshot(value.baseline_fixture_id),
+        _aggregate_snapshot(value.availability),
+        _primitive_snapshot(value.mechanical_fixture_calculated),
+        _primitive_snapshot(value.scientific_execution_completed),
+        _primitive_snapshot(value.calibration_fitted),
+        _primitive_snapshot(value.scientifically_sufficient),
+        _primitive_snapshot(value.eligible_for_shadow_review),
+        _primitive_snapshot(value.production_enablement_authorized),
     )
+
+
+def _primitive_snapshot(value: object) -> tuple[object, ...]:
+    """Commit to both the exact primitive type and its immutable value."""
+
+    if value is None:
+        return ("none",)
+    if type(value) is bool:
+        return ("bool", value)
+    if type(value) is int:
+        return ("int", value)
+    if type(value) is float and math.isfinite(value):
+        return ("float", value)
+    if type(value) is str:
+        return ("str", value)
+    _fail()
+
+
+def _aggregate_snapshot(value: object) -> tuple[object, ...]:
+    """Copy one closed aggregate into primitives, never retained object refs."""
+
+    if type(value) is tuple:
+        return ("tuple", tuple(_aggregate_snapshot(item) for item in value))
+    if type(value) is _RawMetrics:
+        return (
+            "raw",
+            _primitive_snapshot(value.total),
+            _primitive_snapshot(value.accuracy),
+            _primitive_snapshot(value.macro_f1),
+            _primitive_snapshot(value.brier),
+            _primitive_snapshot(value.ece),
+        )
+    if type(value) is _PolicyDiagnostics:
+        return (
+            "policy",
+            _primitive_snapshot(value.total),
+            _primitive_snapshot(value.coverage),
+            _primitive_snapshot(value.selective_accuracy),
+            _primitive_snapshot(value.accuracy),
+            _primitive_snapshot(value.macro_f1),
+            _primitive_snapshot(value.mean_cost),
+            _primitive_snapshot(value.confidence_source),
+            _primitive_snapshot(value.calibrated),
+        )
+    if type(value) is _SiteMetricPair:
+        return (
+            "site",
+            _primitive_snapshot(value.site_id),
+            _aggregate_snapshot(value.laya),
+            _aggregate_snapshot(value.baseline),
+        )
+    if type(value) is _BootstrapSummary:
+        return (
+            "bootstrap",
+            _primitive_snapshot(value.hypothesis),
+            _primitive_snapshot(value.observed_delta),
+            _primitive_snapshot(value.lower),
+            _primitive_snapshot(value.upper),
+            _primitive_snapshot(value.tail_probability),
+            _primitive_snapshot(value.replicate_count),
+        )
+    if type(value) is _HolmDecision:
+        return (
+            "holm",
+            _primitive_snapshot(value.hypothesis),
+            _primitive_snapshot(value.p_value),
+            _primitive_snapshot(value.threshold),
+            _primitive_snapshot(value.rejected),
+        )
+    if type(value) is _Availability:
+        return (
+            "availability",
+            _primitive_snapshot(value.raw_metrics),
+            _primitive_snapshot(value.legacy_policy_diagnostics),
+            _primitive_snapshot(value.calibrated_metrics),
+            _primitive_snapshot(value.latency),
+            _primitive_snapshot(value.p50_latency_ms),
+            _primitive_snapshot(value.p95_latency_ms),
+            _primitive_snapshot(value.real_baseline),
+            _primitive_snapshot(value.real_analysis_profile),
+            _primitive_snapshot(value.scientific_verdict),
+        )
+    _fail()
 
 
 def _register(value: _MechanicalStatisticsEvidence) -> None:
@@ -680,9 +763,20 @@ def _require_issued_mechanical_statistics(value: object) -> _MechanicalStatistic
             for observed, expected in zip(receipts, record.receipts, strict=True)
         ):
             raise ValueError
+        final_binding = _evidence_binding(value)
         with _LOCK:
             current = _ISSUED.get(id(value))
-            valid = current is record and current.reference() is value
+            valid = (
+                current is record
+                and current.reference() is value
+                and value._protocol is current.protocol
+                and len(value._receipts) == len(current.receipts)
+                and all(
+                    observed is expected
+                    for observed, expected in zip(value._receipts, current.receipts, strict=True)
+                )
+                and final_binding == current.binding
+            )
     except Exception:
         valid = False
     if not valid:
