@@ -437,12 +437,32 @@ def test_existing_analysis_constants_also_remain_frozen(
         )
 
 
-def test_legacy_thresholds_cannot_be_changed_post_hoc(tmp_path: Path):
+@pytest.mark.parametrize("threshold_name", tuple(LEGACY_THRESHOLDS))
+def test_legacy_thresholds_cannot_be_changed_post_hoc(
+    tmp_path: Path, threshold_name: str
+):
     def mutate(raw):
-        raw["analysis"]["legacy_thresholds"]["minimum_macro_f1"] = 0.64
+        current = raw["analysis"]["legacy_thresholds"][threshold_name]
+        raw["analysis"]["legacy_thresholds"][threshold_name] = current + 0.01
 
     raw, corpus, plan, artifacts, _ = _inputs(tmp_path, mutate=mutate)
     with pytest.raises(ValueError, match="legacy|threshold|macro"):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+@pytest.mark.parametrize(
+    "required_sites",
+    (list(reversed(SITES)), list(SITES[:-1]), [*SITES, "unexpected-site"]),
+)
+def test_required_site_membership_and_order_are_frozen(
+    tmp_path: Path, required_sites: list[str]
+):
+    raw, corpus, plan, artifacts, _ = _inputs(
+        tmp_path, mutate=lambda value: value.update({"required_sites": required_sites})
+    )
+    with pytest.raises(ValueError, match="required|site|canonical"):
         verify_human_evaluation_preregistration(
             raw, corpus=corpus, plan=plan, external_artifacts=artifacts
         )
