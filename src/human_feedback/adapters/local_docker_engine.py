@@ -252,7 +252,14 @@ class _UnixSocketHTTPConnection(http.client.HTTPConnection):
         """Parse a 101 response without HTTPConnection closing the upgraded socket."""
 
         response = http.client.HTTPResponse(self.sock)
-        response.begin()
+        try:
+            response.begin()
+        except BaseException:
+            try:
+                response.close()
+            except Exception:
+                pass
+            raise
         return response
 
 
@@ -561,6 +568,7 @@ class _LocalUnixTransport:
         deadline = time.monotonic() + timeout
         connection = _UnixSocketHTTPConnection(float(timeout))
         watchdog = _DeadlineWatchdog(connection, deadline)
+        response = None
         try:
             _remaining_timeout(connection, deadline)
             if callable(getattr(connection, "putrequest", None)):
@@ -596,13 +604,32 @@ class _LocalUnixTransport:
                 watchdog=watchdog,
             )
         except LocalDockerEngineError:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
             watchdog.cancel()
             connection.close()
             raise
         except Exception:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
             watchdog.cancel()
             connection.close()
             raise LocalDockerEngineError("local Docker attach failed") from None
+        except BaseException:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+            watchdog.cancel()
+            connection.close()
+            raise
 
 
 def _reject_constant(_value: str) -> None:
