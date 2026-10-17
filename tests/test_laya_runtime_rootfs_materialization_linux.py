@@ -92,6 +92,35 @@ def test_owned_cleanup_is_idempotent_only_for_the_same_unlinked_inode(tmp_path):
         os.close(parent_fd)
 
 
+def test_owned_cleanup_refuses_cross_device_child_before_traversal(tmp_path, monkeypatch):
+    parent_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    name, descriptor, identity = adapter._create_staging(parent_fd)
+    os.mkdir("mounted", mode=0o700, dir_fd=descriptor)
+    native_stat = os.stat
+    native_open = os.open
+    def mount_stat(path, *args, **kwargs):
+        actual = native_stat(path, *args, **kwargs)
+        if path == "mounted":
+            return SimpleNamespace(st_mode=actual.st_mode, st_dev=identity[0] + 1,
+                                   st_ino=actual.st_ino, st_uid=actual.st_uid)
+        return actual
+    def no_mount_open(path, *args, **kwargs):
+        if path == "mounted":
+            pytest.fail("cleanup opened a cross-device child")
+        return native_open(path, *args, **kwargs)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(adapter.os, "stat", mount_stat)
+            patch.setattr(adapter.os, "open", no_mount_open)
+            with pytest.raises(adapter.RootfsMaterializationError):
+                adapter._remove_owned_tree(parent_fd, name, descriptor, identity)
+        assert (tmp_path / name / "mounted").is_dir()
+        adapter._remove_owned_tree(parent_fd, name, descriptor, identity)
+    finally:
+        os.close(descriptor)
+        os.close(parent_fd)
+
+
 def test_atomic_publication_never_replaces_existing_winner(tmp_path):
     parent_fd = adapter._open_directory_chain(tuple(str(tmp_path).split("/")[1:]))
     name, descriptor, identity = adapter._create_staging(parent_fd)
