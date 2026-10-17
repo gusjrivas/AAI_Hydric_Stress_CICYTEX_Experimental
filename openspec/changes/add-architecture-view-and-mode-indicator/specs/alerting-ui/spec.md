@@ -22,4 +22,18 @@ La interfaz DEBE rotular cada vista con su modo (Operación, Replay histórico, 
 
 ### Requirement: Navegación centrada en la decisión y resumen fiel
 
-La interfaz DEBE ofrecer Resumen, Alertas y revisión, Calidad de datos, Modelo y trazabilidad, y Evidencia y arquitectura, agrupados en seis secciones de la navegación principal (Seguimiento histórico, Mi cultivo, Laboratorio, Evidencia, Arquitectura y Herramientas técnicas). El Resumen DEBE priorizar el último pronóstico registrado, sus fechas y el acceso a revisión humana; los escenarios vigentes se mantienen sin cambios.
+La interfaz DEBE ofrecer Resumen, Alertas y revisión, Calidad de datos, Modelo y trazabilidad, y Evidencia y arquitectura, agrupados en seis secciones de la navegación principal (Seguimiento histórico, Mi cultivo, Laboratorio, Evidencia, Arquitectura y Herramientas técnicas). El Resumen DEBE priorizar el último pronóstico registrado, sus fechas y el acceso a revisión humana.
+
+#### Scenario: Leer el resumen
+
+- **GIVEN** un historial disponible
+- **WHEN** se abre Resumen
+- **THEN** se presenta la fila con mayor fecha de referencia, su alerta, probabilidad disponible y fecha objetivo
+- **AND** se distingue esa fecha de la cobertura de datos y se conserva la aclaración de señal predictiva relativa, no diagnóstico ni probabilidad agronómicamente calibrada.
+
+#### Scenario: Navegar sin perder contexto
+
+- **GIVEN** un sensor activo y un resultado consultado o generado
+- **WHEN** se cambia de destino o se usa Atrás/Adelante
+- **THEN** se conserva el contexto compartido, se identifica el destino activo y se enfoca su encabezado, sin iniciar POST
+- **AND** los enlaces previos a calidad, predicción, linaje y evidencia siguen resolviendo al destino correspondiente.
