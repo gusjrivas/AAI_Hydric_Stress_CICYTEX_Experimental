@@ -63,6 +63,35 @@ def test_cleanup_refuses_replaced_staging_name(tmp_path):
         os.close(parent_fd)
 
 
+def test_staging_metadata_failure_closes_descriptor_and_removes_owned_directory(tmp_path, monkeypatch):
+    parent_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    before = len(os.listdir("/proc/self/fd"))
+    def fail_metadata(_descriptor):
+        raise OSError("private-metadata-failure")
+    monkeypatch.setattr(adapter.os, "fstat", fail_metadata)
+    try:
+        with pytest.raises(OSError):
+            adapter._create_staging(parent_fd)
+        assert list(tmp_path.iterdir()) == []
+        assert len(os.listdir("/proc/self/fd")) == before
+    finally:
+        os.close(parent_fd)
+
+
+def test_owned_cleanup_is_idempotent_only_for_the_same_unlinked_inode(tmp_path):
+    parent_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    name, descriptor, identity = adapter._create_staging(parent_fd)
+    try:
+        adapter._remove_owned_tree(parent_fd, name, descriptor, identity)
+        adapter._remove_owned_tree(parent_fd, name, descriptor, identity)
+        os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        with pytest.raises(adapter.RootfsMaterializationError):
+            adapter._remove_owned_tree(parent_fd, name, descriptor, identity)
+    finally:
+        os.close(descriptor)
+        os.close(parent_fd)
+
+
 def test_atomic_publication_never_replaces_existing_winner(tmp_path):
     parent_fd = adapter._open_directory_chain(tuple(str(tmp_path).split("/")[1:]))
     name, descriptor, identity = adapter._create_staging(parent_fd)
