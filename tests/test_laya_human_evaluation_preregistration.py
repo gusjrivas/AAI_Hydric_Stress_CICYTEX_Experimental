@@ -183,13 +183,17 @@ def _inputs(tmp_path: Path, *, records=None, mutate=None):
             "bootstrap_replicates": 10000,
             "bootstrap_confidence_level": 0.95,
             "bootstrap_seed": 20261017,
-            "primary_interval_decision_rule": ("lower_bound_gte_minimum_paired_delta"),
-            "site_interval_decision_rule": "lower_bound_gte_minimum_site_delta",
+            "bootstrap_p_value_definition": ("plus_one_fraction_replicates_at_or_below_margin"),
+            "primary_interval_decision_rule": ("descriptive_only_holm_tail_probability_is_gate"),
+            "site_interval_decision_rule": ("descriptive_only_holm_tail_probability_is_gate"),
             "macro_f1_labels": list(CATEGORIES),
             "macro_f1_zero_division": 0,
             "multiplicity_correction": "holm",
             "familywise_alpha": 0.05,
             "holm_hypothesis_family": list(HOLM_HYPOTHESIS_FAMILY),
+            "holm_ordering": "ascending_p_value_then_preregistered_family_order",
+            "holm_step_down_rule": ("reject_while_p_lte_alpha_div_remaining_stop_on_first_failure"),
+            "multiplicity_gate_rule": "all_hypotheses_rejected",
             "legacy_policy_id": "laya-readiness-policy-v1",
             "legacy_thresholds": LEGACY_THRESHOLDS,
         },
@@ -248,15 +252,25 @@ def test_summary_and_evidence_digest_are_canonical_public_and_deterministic(tmp_
     assert decoded["analysis"]["bootstrap_method"] == "stratified_cluster_percentile"
     assert decoded["analysis"]["bootstrap_unit"] == "group_within_site"
     assert decoded["analysis"]["bootstrap_interval"] == "two_sided_percentile"
+    assert decoded["analysis"]["bootstrap_p_value_definition"] == (
+        "plus_one_fraction_replicates_at_or_below_margin"
+    )
     assert decoded["analysis"]["primary_interval_decision_rule"] == (
-        "lower_bound_gte_minimum_paired_delta"
+        "descriptive_only_holm_tail_probability_is_gate"
     )
     assert decoded["analysis"]["site_interval_decision_rule"] == (
-        "lower_bound_gte_minimum_site_delta"
+        "descriptive_only_holm_tail_probability_is_gate"
     )
     assert decoded["analysis"]["macro_f1_labels"] == list(CATEGORIES)
     assert decoded["analysis"]["macro_f1_zero_division"] == 0
     assert decoded["analysis"]["holm_hypothesis_family"] == list(HOLM_HYPOTHESIS_FAMILY)
+    assert decoded["analysis"]["holm_ordering"] == (
+        "ascending_p_value_then_preregistered_family_order"
+    )
+    assert decoded["analysis"]["holm_step_down_rule"] == (
+        "reject_while_p_lte_alpha_div_remaining_stop_on_first_failure"
+    )
+    assert decoded["analysis"]["multiplicity_gate_rule"] == "all_hypotheses_rejected"
     assert decoded["analysis"]["multiplicity_correction"] == "holm"
     assert decoded["loso_assignment_sha256"] == plan.assignment_sha256
     assert [item["role"] for item in decoded["external_artifacts"]] == list(ROLES)
@@ -370,11 +384,15 @@ def test_manifest_and_cohort_fail_closed(tmp_path: Path, mutation, message: str)
         ("site_estimand", "pooled_macro_f1"),
         ("minimum_site_paired_macro_f1_delta", -0.01),
         ("bootstrap_interval", "one_sided_percentile"),
-        ("primary_interval_decision_rule", "point_estimate_gte_delta"),
-        ("site_interval_decision_rule", "point_estimate_gte_site_delta"),
+        ("bootstrap_p_value_definition", "fraction_replicates_below_zero"),
+        ("primary_interval_decision_rule", "lower_bound_gte_minimum_paired_delta"),
+        ("site_interval_decision_rule", "lower_bound_gte_minimum_site_delta"),
         ("macro_f1_labels", list(reversed(CATEGORIES))),
         ("macro_f1_zero_division", 1),
         ("holm_hypothesis_family", list(reversed(HOLM_HYPOTHESIS_FAMILY))),
+        ("holm_ordering", "preregistered_family_order_only"),
+        ("holm_step_down_rule", "reject_each_unadjusted_p_lte_alpha"),
+        ("multiplicity_gate_rule", "any_hypothesis_rejected"),
         ("baseline_protocol_id", "post-hoc-baseline-protocol"),
         ("baseline_protocol_sha256", "0" * 64),
     ),
@@ -384,6 +402,47 @@ def test_frozen_analysis_constants_cannot_be_mutated(tmp_path: Path, field: str,
         tmp_path, mutate=lambda value: value["analysis"].update({field: invalid})
     )
     with pytest.raises(ValueError, match="analysis|estimand|delta|interval|macro|Holm|baseline"):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+@pytest.mark.parametrize(
+    "field, invalid",
+    (
+        ("primary_metric", "accuracy"),
+        ("baseline_id", "post-hoc-baseline"),
+        ("comparison_design", "unpaired_site_average"),
+        ("minimum_paired_macro_f1_delta", 0.04),
+        ("bootstrap_replicates", 9999),
+        ("bootstrap_confidence_level", 0.90),
+        ("bootstrap_seed", 20261018),
+        ("multiplicity_correction", "bonferroni"),
+        ("familywise_alpha", 0.10),
+        ("legacy_policy_id", "post-hoc-policy"),
+    ),
+)
+def test_existing_analysis_constants_also_remain_frozen(
+    tmp_path: Path, field: str, invalid: object
+):
+    raw, corpus, plan, artifacts, _ = _inputs(
+        tmp_path, mutate=lambda value: value["analysis"].update({field: invalid})
+    )
+    with pytest.raises(
+        ValueError,
+        match="analysis|metric|baseline|comparison|delta|bootstrap|multiplicity|alpha|policy",
+    ):
+        verify_human_evaluation_preregistration(
+            raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+        )
+
+
+def test_legacy_thresholds_cannot_be_changed_post_hoc(tmp_path: Path):
+    def mutate(raw):
+        raw["analysis"]["legacy_thresholds"]["minimum_macro_f1"] = 0.64
+
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path, mutate=mutate)
+    with pytest.raises(ValueError, match="legacy|threshold|macro"):
         verify_human_evaluation_preregistration(
             raw, corpus=corpus, plan=plan, external_artifacts=artifacts
         )

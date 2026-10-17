@@ -16,8 +16,10 @@ resultado podría depender de decisiones tomadas después de inspeccionarlo.
   baseline.
 - Se fijan pisos de cohorte y acuerdo nominal pre-adjudicación.
 - Se fijan labels/zero-division de macro-F1, estimandos global/por sitio, baseline,
-  márgenes, intervalos/decisiones, bootstrap y la familia Holm ordenada, junto con
-  los umbrales legacy vigentes, sin ejecutar ni evaluar modelos.
+  márgenes, bootstrap pareado, probabilidades de cola y la regla Holm step-down.
+  Los intervalos 95 % quedan descriptivos; el PASS exige rechazo de las cuatro
+  hipótesis. También se congelan los umbrales legacy vigentes, sin ejecutar ni
+  evaluar modelos.
 - El summary público no contiene texto ni identificadores privados.
 
 ## Fuera de alcance

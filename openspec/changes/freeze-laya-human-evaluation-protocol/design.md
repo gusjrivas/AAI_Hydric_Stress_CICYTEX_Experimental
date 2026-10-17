@@ -48,10 +48,17 @@ zero-division igual a cero. El estimando primario es la media de igual peso entr
 sitios del delta macro-F1 Laya menos baseline; el estimando por sitio es ese delta
 dentro de cada sitio. Se fijan superioridad global mínima 0,05 y no inferioridad
 por sitio mínima -0,02. El bootstrap es percentil bilateral estratificado por
-sitio cuya unidad de remuestreo es el grupo dentro del sitio, con 10.000 réplicas,
-95 % y semilla declarada. Las decisiones usan el límite inferior del intervalo.
-Holm/0,05 opera sobre una familia ordenada cerrada: global, CICYTEX, Melchor Romero
-y Pergamino. También se copian
+sitio cuya unidad de remuestreo es el grupo dentro del sitio, con 10.000 réplicas
+pareadas por los mismos grupos/sitio, 95 % y semilla declarada. Los intervalos
+percentiles bilaterales son descriptivos y no son el gate. Para cada hipótesis
+`h`, con margen preregistrado `margin_h`, la probabilidad de cola es
+`p_h = (1 + count(delta_h_bootstrap <= margin_h)) / (B + 1)`.
+
+Holm/0,05 opera sobre una familia cerrada: global, CICYTEX, Melchor Romero y
+Pergamino. Ordena por `(p_h, índice preregistrado)`, compara el rango `r` contra
+`alpha / (m - r + 1)` y se detiene en el primer no rechazo. El PASS estadístico
+exige rechazar las cuatro hipótesis; ningún intervalo descriptivo puede sustituir
+esa regla. También se copian
 sin reinterpretar los diez umbrales de `laya-readiness-policy-v1`; quedan como
 criterios preregistrados, no como autoridad de readiness.
 

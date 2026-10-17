@@ -6,6 +6,8 @@
 - [x] 1.4 Registrar hardening RED para assignment LOSO, baseline verificable y
   análisis sin grados de libertad post hoc.
 - [x] 1.5 Implementar el hardening y volver a cerrar la matriz negativa.
+- [x] 1.6 Registrar RED final para probabilidades de cola, Holm step-down e
+  intervalos exclusivamente descriptivos.
 
 ## 2. Cohorte y privacidad
 

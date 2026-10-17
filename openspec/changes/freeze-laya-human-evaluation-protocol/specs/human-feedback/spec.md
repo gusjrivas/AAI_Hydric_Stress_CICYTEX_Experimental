@@ -53,15 +53,29 @@ de potencia.
 ### Requirement: Análisis fijado antes de resultados
 
 El sistema MUST fijar las labels y zero-division de macro-F1, los estimandos
-global y por sitio, el baseline y sus mismos folds, los márgenes global/por sitio,
-el bootstrap, las reglas por límite inferior, la familia Holm y los umbrales
-legacy antes de aceptar predicciones.
+global y por sitio, el baseline y sus mismos folds, los márgenes global/por sitio
+y el bootstrap estratificado pareado sobre los mismos grupos/sitio. Los intervalos
+95 % MUST ser descriptivos. Para cada hipótesis `h`, la probabilidad de cola MUST
+ser `(1 + count(delta_h_bootstrap <= margin_h)) / (B + 1)`.
+
+Holm MUST ordenar por `(p_h, índice preregistrado)`, comparar el rango `r` con
+`alpha/(m-r+1)` y detenerse en el primer no rechazo. El PASS estadístico MUST
+exigir el rechazo de las cuatro hipótesis. Estos criterios y los umbrales legacy
+MUST quedar congelados antes de aceptar predicciones.
 
 #### Scenario: criterio estadístico alterado
 
 - **GIVEN** un manifest con cualquier criterio diferente del preregistro cerrado
 - **WHEN** se intenta verificar el protocolo
 - **THEN** el sistema falla cerrado antes de ejecutar Laya o el baseline
+
+#### Scenario: intervalo descriptivo no habilita el gate
+
+- **GIVEN** intervalos bootstrap del 95 % y probabilidades de cola calculadas
+  sobre las mismas réplicas pareadas
+- **WHEN** se decide el resultado estadístico
+- **THEN** sólo la regla Holm preregistrada gobierna el PASS
+- **AND** las cuatro hipótesis deben ser rechazadas
 
 ### Requirement: Summary público con privacidad y sin habilitación
 
