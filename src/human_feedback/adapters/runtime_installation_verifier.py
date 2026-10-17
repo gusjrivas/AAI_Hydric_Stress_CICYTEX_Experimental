@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from human_feedback import runtime_oci_tar as _tar
 
 _EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+_PROJECTED_FILES = frozenset({"etc/hosts", "etc/hostname", "etc/resolv.conf"})
 _GENERATED_FILES = {
     ".dockerenv": 0o755,
     "dev/console": 0o755,
@@ -125,6 +126,15 @@ def _manifest(records) -> _InstallationManifest:
     )
 
 
+def _projected_record(path: str) -> tuple[object, ...]:
+    return (path, "0", 0o755, 0, 0, 0, (0, _EMPTY_SHA256, (path,)))
+
+
+def _has_exact_projected_files(records: tuple[tuple[object, ...], ...]) -> bool:
+    by_path = {item[0]: item for item in records}
+    return all(by_path.get(path) == _projected_record(path) for path in _PROJECTED_FILES)
+
+
 class _InstallationTarObservation:
     """Tee exactly the accepted bytes into a caller-owned bounded writer."""
 
@@ -175,7 +185,12 @@ class _InstallationTarObservation:
 
     def finish(self):
         records = self._finish_records()
-        if any(item[0] == ".dockerenv" or item[3:6] != (65532, 65532, 0) for item in records):
+        if not _has_exact_projected_files(records) or any(
+            item[0] == ".dockerenv"
+            or item[0] not in _PROJECTED_FILES
+            and item[3:6] != (65532, 65532, 0)
+            for item in records
+        ):
             _fail()
         return _manifest(records)
 
@@ -192,7 +207,11 @@ def _capture_installation_tar(chunks) -> _InstallationManifest:
 
 def _verify_exported_installation(chunks, expected: _InstallationManifest) -> str:
     try:
-        if type(expected) is not _InstallationManifest or _manifest(expected.records) != expected:
+        if (
+            type(expected) is not _InstallationManifest
+            or _manifest(expected.records) != expected
+            or not _has_exact_projected_files(expected.records)
+        ):
             _fail()
         observer = _InstallationTarObservation()
         for chunk in chunks:
@@ -205,6 +224,10 @@ def _verify_exported_installation(chunks, expected: _InstallationManifest) -> st
                 # Engine init-layer creates only these closed mountpoint paths.
                 # Their containing directories change mtime, not identity/mode.
                 if item[0] in {"dev", "etc"} and item[1] == "5":
+                    item = (*item[:5], 0, item[6])
+                elif item[0] in _PROJECTED_FILES:
+                    # Docker replaces these projected mountpoint files and changes
+                    # only their timestamp.  Every other field remains committed.
                     item = (*item[:5], 0, item[6])
                 retained.append(item)
                 continue

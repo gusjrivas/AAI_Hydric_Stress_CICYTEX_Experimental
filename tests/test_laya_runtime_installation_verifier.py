@@ -6,7 +6,6 @@ import tarfile
 
 import pytest
 
-
 _PROJECTED_PATHS = ("etc/hosts", "etc/hostname", "etc/resolv.conf")
 
 
@@ -46,6 +45,9 @@ def _tar(
                 elif projection_damage == "type" and path == "etc/hosts":
                     info.type = tarfile.SYMTYPE
                     info.linkname = "elsewhere"
+                elif projection_damage == "link" and path == "etc/hosts":
+                    info.type = tarfile.LNKTYPE
+                    info.linkname = "app/model"
                 elif projection_damage == "mtime":
                     info.mtime = 123
             if path == "app/link":
@@ -113,12 +115,23 @@ def test_capture_requires_exact_three_projected_engine_files():
         verifier._capture_installation_tar(_chunks(_tar(projected=False)))
 
 
-@pytest.mark.parametrize("damage", ["payload", "owner", "mode", "type"])
+@pytest.mark.parametrize("damage", ["payload", "owner", "mode", "type", "link"])
 def test_capture_rejects_noncanonical_projected_engine_files(damage):
     from human_feedback.adapters import runtime_installation_verifier as verifier
 
     with pytest.raises(ValueError, match="recapture"):
         verifier._capture_installation_tar(_chunks(_tar(projection_damage=damage)))
+
+
+@pytest.mark.parametrize("damage", ["payload", "owner", "mode", "type", "link"])
+def test_export_rejects_changes_to_projected_engine_files(damage):
+    from human_feedback.adapters import runtime_installation_verifier as verifier
+
+    expected = verifier._capture_installation_tar(_chunks(_tar()))
+    with pytest.raises(ValueError, match="recapture"):
+        verifier._verify_exported_installation(
+            _chunks(_tar(projection_damage=damage)), expected
+        )
 
 
 def test_export_normalizes_only_projected_file_mtime():
@@ -133,11 +146,27 @@ def test_export_normalizes_only_projected_file_mtime():
     )
 
 
+def test_export_does_not_normalize_against_a_forged_incomplete_projection():
+    from human_feedback.adapters import runtime_installation_verifier as verifier
+
+    expected = verifier._capture_installation_tar(_chunks(_tar()))
+    forged = verifier._manifest(
+        tuple(record for record in expected.records if record[0] != "etc/hosts")
+    )
+    with pytest.raises(ValueError, match="recapture"):
+        verifier._verify_exported_installation(_chunks(_tar()), forged)
+
+
 def test_fourth_root_owned_projected_file_is_not_permitted():
     from human_feedback.adapters import runtime_installation_verifier as verifier
 
     with pytest.raises(ValueError, match="recapture"):
         verifier._capture_installation_tar(_chunks(_tar(extra="etc/fourth")))
+    expected = verifier._capture_installation_tar(_chunks(_tar()))
+    with pytest.raises(ValueError, match="recapture"):
+        verifier._verify_exported_installation(
+            _chunks(_tar(extra="etc/fourth")), expected
+        )
 
 
 @pytest.mark.parametrize("damage", ["truncated", "tail", "checksum", "duplicate"])
