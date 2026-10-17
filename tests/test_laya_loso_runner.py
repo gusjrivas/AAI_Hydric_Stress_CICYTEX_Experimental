@@ -7,11 +7,13 @@ claims.
 
 from __future__ import annotations
 
+import gc
 import importlib
 import inspect
 import json
 import re
 import threading
+import weakref
 from collections import Counter
 from dataclasses import dataclass
 
@@ -125,6 +127,15 @@ def _assert_non_scientific(result) -> None:
     assert result.production_enablement_authorized is False
 
 
+def _private_failure(error: BaseException, *private_values: object) -> None:
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert error.__suppress_context__ is True
+    rendered = repr((error.args, str(error), repr(error)))
+    for value in private_values:
+        assert str(value) not in rendered
+
+
 def test_public_preflight_is_blocked_before_protocol_or_port_consumption():
     module = _module()
     calls = []
@@ -236,12 +247,7 @@ def test_missing_release_never_opens_outer_test_and_resume_does_not_replay_calib
     _wire(module, monkeypatch, _FixtureGrant(events))
     result = module._run_human_loso_mechanical_fixture(protocol, port)
     assert events[0] == ("release", 0)
-    assert not any(
-        record.comment in comments
-        for kind, comments in events
-        if kind == "predict"
-        for record in first_fold.calibration_records
-    )
+    assert events == _expected_events(protocol)[1:]
     _assert_non_scientific(result)
 
 
@@ -302,3 +308,202 @@ def test_success_is_identity_stable_under_replay_and_concurrency(monkeypatch, tm
     assert results == [first, first]
     assert tuple(port.calls) == calls_after_first
     _assert_non_scientific(first)
+
+
+def test_concurrent_initial_execution_is_single_flight(monkeypatch, tmp_path):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    grant = _FixtureGrant(events)
+
+    class BlockingFirstPort(_FixturePort):
+        def __init__(self, observed_events):
+            super().__init__(observed_events)
+            self.entered = threading.Event()
+            self.duplicate_entered = threading.Event()
+            self.release = threading.Event()
+            self._calls_lock = threading.Lock()
+            self._entries = 0
+
+        def predict(self, canonical_request: bytes) -> bytes:
+            with self._calls_lock:
+                self._entries += 1
+                entry = self._entries
+            if entry == 1:
+                self.entered.set()
+                assert self.release.wait(timeout=5)
+            else:
+                self.duplicate_entered.set()
+            return super().predict(canonical_request)
+
+    port = BlockingFirstPort(events)
+    _wire(module, monkeypatch, grant)
+    start = threading.Barrier(3)
+    results = []
+    errors = []
+
+    def execute() -> None:
+        try:
+            start.wait(timeout=5)
+            results.append(module._run_human_loso_mechanical_fixture(protocol, port))
+        except BaseException as error:  # pragma: no cover - asserted below
+            errors.append(error)
+
+    threads = [threading.Thread(target=execute, daemon=False) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    start.wait(timeout=5)
+    assert port.entered.wait(timeout=5)
+    duplicate_before_release = port.duplicate_entered.wait(timeout=0.25)
+    port.release.set()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert duplicate_before_release is False
+    assert all(not thread.is_alive() for thread in threads)
+    assert errors == []
+    assert len(results) == 2 and results[0] is results[1]
+    assert events == _expected_events(protocol)
+
+
+@pytest.mark.parametrize("changed_binding", ("port", "runtime", "model"))
+def test_resume_rejects_changed_port_runtime_or_model_before_new_consumption(
+    monkeypatch, tmp_path, changed_binding
+):
+    module = _module()
+    case_path = tmp_path / changed_binding
+    case_path.mkdir()
+    protocol = _protocol(case_path)
+    events = []
+    runtime_identity = object()
+    model_identity = object()
+    grant = _FixtureGrant(
+        events,
+        runtime_identity=runtime_identity,
+        model_identity=model_identity,
+    )
+    failing_comment = protocol._plan.folds[0].calibration_records[0].comment
+    original_port = _FixturePort(events, fail_comment=failing_comment)
+    _wire(module, monkeypatch, grant)
+
+    with pytest.raises(ValueError):
+        module._run_human_loso_mechanical_fixture(protocol, original_port)
+    original_call_count = len(original_port.calls)
+    candidate_port = original_port
+    if changed_binding == "port":
+        candidate_port = _FixturePort(events)
+    elif changed_binding == "runtime":
+        _wire(
+            module,
+            monkeypatch,
+            _FixtureGrant(
+                events,
+                runtime_identity=object(),
+                model_identity=model_identity,
+            ),
+        )
+    else:
+        _wire(
+            module,
+            monkeypatch,
+            _FixtureGrant(
+                events,
+                runtime_identity=runtime_identity,
+                model_identity=object(),
+            ),
+        )
+
+    with pytest.raises(ValueError):
+        module._run_human_loso_mechanical_fixture(protocol, candidate_port)
+    assert len(original_port.calls) == original_call_count
+    if candidate_port is not original_port:
+        assert candidate_port.calls == []
+
+
+def test_invalid_partial_response_does_not_release_and_retry_repeats_whole_batch(
+    monkeypatch, tmp_path
+):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    grant = _FixtureGrant(events)
+
+    class PartialOncePort(_FixturePort):
+        def __init__(self, observed_events):
+            super().__init__(observed_events)
+            self.invalid_once = True
+
+        def predict(self, canonical_request: bytes) -> bytes:
+            response = super().predict(canonical_request)
+            if self.invalid_once:
+                self.invalid_once = False
+                decoded = json.loads(response)
+                decoded["predictions"].pop()
+                return json.dumps(decoded, sort_keys=True, separators=(",", ":")).encode()
+            return response
+
+    port = PartialOncePort(events)
+    _wire(module, monkeypatch, grant)
+    first_calibration = tuple(
+        record.comment for record in protocol._plan.folds[0].calibration_records
+    )
+
+    with pytest.raises(ValueError):
+        module._run_human_loso_mechanical_fixture(protocol, port)
+    assert events == [("predict", first_calibration)]
+
+    result = module._run_human_loso_mechanical_fixture(protocol, port)
+    assert events == [("predict", first_calibration), *_expected_events(protocol)]
+    assert tuple(comment for _token, comment in port.calls[0]) == first_calibration
+    assert tuple(comment for _token, comment in port.calls[1]) == first_calibration
+    _assert_non_scientific(result)
+
+
+def test_port_failure_does_not_expose_private_request_values(monkeypatch, tmp_path):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    _wire(
+        module,
+        monkeypatch,
+        _FixtureGrant(
+            events,
+            runtime_identity="PRIVATE-RUNTIME-CANARY",
+            model_identity="PRIVATE-MODEL-CANARY",
+        ),
+    )
+    observed = {}
+
+    class LeakingPort:
+        def predict(self, canonical_request: bytes) -> bytes:
+            item = json.loads(canonical_request)["items"][0]
+            observed.update(item)
+            raise RuntimeError(f"{item['token']}::{item['comment']}")
+
+    with pytest.raises(ValueError) as caught:
+        module._run_human_loso_mechanical_fixture(protocol, LeakingPort())
+
+    _private_failure(
+        caught.value,
+        observed["token"],
+        observed["comment"],
+        "PRIVATE-RUNTIME-CANARY",
+        "PRIVATE-MODEL-CANARY",
+    )
+
+
+def test_completed_protocol_state_is_weakly_released(monkeypatch, tmp_path):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    key = id(protocol)
+    reference = weakref.ref(protocol)
+    events = []
+    _wire(module, monkeypatch, _FixtureGrant(events))
+
+    module._run_human_loso_mechanical_fixture(protocol, _FixturePort(events))
+    assert key in module._STATES
+    del protocol
+    gc.collect()
+
+    assert reference() is None
+    assert key not in module._STATES
