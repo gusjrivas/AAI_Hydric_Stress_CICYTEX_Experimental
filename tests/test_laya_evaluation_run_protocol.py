@@ -8,18 +8,20 @@ from __future__ import annotations
 
 import inspect
 import json
+import weakref
 from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
+
+import human_feedback.evaluation_run_protocol as run_protocol
+from human_feedback.evaluation_preregistration import (
+    verify_human_evaluation_preregistration,
+)
 from human_feedback.evaluation_run_protocol import (
     HumanLosoExecutionProtocol,
     canonical_human_loso_execution_protocol_summary_bytes,
     prepare_human_loso_execution_protocol,
-)
-
-from human_feedback.evaluation_preregistration import (
-    verify_human_evaluation_preregistration,
 )
 from tests.test_laya_human_evaluation_preregistration import _inputs
 
@@ -171,6 +173,40 @@ def test_protocol_clone_and_dataclass_replace_cannot_gain_factory_authority(tmp_
     with pytest.raises((TypeError, ValueError)) as caught:
         canonical_human_loso_execution_protocol_summary_bytes(_clone_exact(protocol))
     _private_failure(caught.value, records[0]["comment"], records[0]["gold_category"])
+
+
+def test_registry_replacement_during_deep_validation_fails_privately(tmp_path, monkeypatch):
+    preregistration, records = _issued_preregistration(tmp_path)
+    protocol = prepare_human_loso_execution_protocol(preregistration)
+    registry = run_protocol._ISSUED_PROTOCOLS
+    original_record = registry[id(protocol)]
+    foreign = _clone_exact(protocol)
+    stale_record = replace(original_record, reference=weakref.ref(foreign))
+    original_require = (
+        run_protocol._preregistration._require_issued_human_evaluation_preregistration
+    )
+
+    def replace_record_during_deep_check(value):
+        issued = original_require(value)
+        registry[id(protocol)] = stale_record
+        return issued
+
+    monkeypatch.setattr(
+        run_protocol._preregistration,
+        "_require_issued_human_evaluation_preregistration",
+        replace_record_during_deep_check,
+    )
+    try:
+        with pytest.raises((TypeError, ValueError)) as caught:
+            canonical_human_loso_execution_protocol_summary_bytes(protocol)
+        _private_failure(
+            caught.value,
+            records[0]["comment"],
+            records[0]["gold_category"],
+            preregistration.loso_assignment_sha256,
+        )
+    finally:
+        registry[id(protocol)] = original_record
 
 
 def test_pure_preparation_does_not_read_files_or_import_execution_adapters(tmp_path, monkeypatch):
