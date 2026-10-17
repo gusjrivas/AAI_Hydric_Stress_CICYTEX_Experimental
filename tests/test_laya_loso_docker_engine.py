@@ -169,16 +169,16 @@ def test_offline_engine_surface_is_narrow_and_has_no_caller_selected_profile():
 
 def test_offline_container_profile_is_fixed_closed_and_stdin_only():
     from human_feedback.adapters._laya_offline_probe import (
-        LOSO_OFFLINE_ARGUMENTS,
-        LOSO_OFFLINE_ENVIRONMENT,
+        OFFLINE_PROBE_ARGUMENTS,
+        OFFLINE_PROBE_ENVIRONMENT,
     )
 
     _engine, transport, _container_id = _created_engine()
     payload = transport.created_payload
 
     assert payload["Entrypoint"] == ["/opt/laya-runtime/.venv/bin/python"]
-    assert payload["Cmd"] == list(LOSO_OFFLINE_ARGUMENTS)
-    assert payload["Env"] == list(LOSO_OFFLINE_ENVIRONMENT)
+    assert payload["Cmd"] == list(OFFLINE_PROBE_ARGUMENTS)
+    assert payload["Env"] == list(OFFLINE_PROBE_ENVIRONMENT)
     assert payload["OpenStdin"] is True
     assert payload["StdinOnce"] is True
     assert payload["AttachStdin"] is True
@@ -283,7 +283,7 @@ def test_offline_profile_cannot_use_legacy_probe_operations():
 def test_fixed_program_projects_pinned_laya_usage_without_host_estimation():
     from human_feedback.adapters import _laya_offline_probe as probe
 
-    program = probe.LOSO_OFFLINE_ARGUMENTS[-1]
+    program = probe.OFFLINE_PROBE_ARGUMENTS[-1]
     assert "router.predict" in program
     assert 'result["usage"]' in program or "result['usage']" in program
     assert all(field in program for field in ("state_tokens", "state_tokens_dropped", "truncated"))
@@ -291,5 +291,5 @@ def test_fixed_program_projects_pinned_laya_usage_without_host_estimation():
     assert "65537" in program
     assert REQUEST not in tuple(
         value.encode("utf-8") if type(value) is str else value
-        for value in probe.LOSO_OFFLINE_ARGUMENTS
+        for value in probe.OFFLINE_PROBE_ARGUMENTS
     )
