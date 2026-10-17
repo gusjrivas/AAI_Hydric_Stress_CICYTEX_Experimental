@@ -91,9 +91,10 @@ Independent review identified a test-only import-scanner bypass for `ImportFrom`
   real PASS. Later changes only clarified historical documentation and a test
   docstring; production source stayed identical to the reviewed freeze.
 - Ruff, Black (14 changed Python files), strict OpenSpec and diff checks passed.
-- Source is ready for exact-head CI and the fresh real synthetic gate. Neither
-  real inference acceptance nor scientific readiness is claimed by these unit
-  results. Tasks 3.2/3.3/3.4 remain open pending their actual results.
+- At that unit-only stage, source was ready for exact-head CI and the fresh real
+  gate; those results were not yet available. Tasks 3.2/3.3/3.4 were still open.
+  Their subsequent executable acceptance is recorded below, not inferred from
+  the unit results.
 
 Historical preparation hashes above predate the PR40 rebase; equivalent patches
 are retained in this branch history. Current acceptance uses the frozen source
