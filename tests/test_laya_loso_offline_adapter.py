@@ -135,8 +135,9 @@ def test_request_is_bounded_canonical_and_contains_only_opaque_tokens_and_commen
         ],
     }
     assert all(set(item) == {"token", "comment"} for item in decoded["items"])
-    forbidden = ("example_id", "group_id", "site_id", "gold", "model", "task", "command")
-    assert all(value not in first.decode("utf-8") for value in forbidden)
+    forbidden_keys = {"example_id", "group_id", "site_id", "gold", "model", "task", "command"}
+    assert not forbidden_keys.intersection(decoded)
+    assert all(not forbidden_keys.intersection(item) for item in decoded["items"])
     assert items[0].opaque_token not in repr(items[0])
     assert items[0].comment not in repr(items[0])
 
@@ -255,6 +256,7 @@ def test_usage_must_prove_no_truncation_no_dropped_tokens_and_fixed_host_limit()
         ),
         b" " * (1024 * 1024),
     ),
+    ids=("empty", "array", "multiple-json", "invalid-utf8", "duplicate-key", "oversized"),
 )
 def test_malformed_duplicate_and_oversized_stdout_fail_without_retaining_payload(payload):
     with pytest.raises((TypeError, ValueError)) as caught:
