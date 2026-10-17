@@ -44,6 +44,7 @@ class _MaterializedResource:
     name: str
     identity: tuple[int, int]
     disposed: bool = False
+    revoked: bool = False
 
 
 def _close_resource_descriptors(resource: _MaterializedResource) -> None:
@@ -102,6 +103,7 @@ def _secure_rootfs_materialization_available() -> bool:
         and os.open in os.supports_dir_fd
         and os.mkdir in os.supports_dir_fd
         and os.stat in os.supports_dir_fd
+        and _atomic_rename_function() is not None
     )
 
 
@@ -288,17 +290,32 @@ def _remove_owned_tree(
     os.rmdir(name, dir_fd=parent_fd)
 
 
-def _publish_noreplace(parent_fd: int, source: str, destination: str) -> None:
+def _atomic_rename_function():
     import ctypes
 
-    library = ctypes.CDLL(None, use_errno=True)
-    rename = getattr(library, "renameat2", None)
+    try:
+        library = ctypes.CDLL(None, use_errno=True)
+        rename = getattr(library, "renameat2", None)
+    except (OSError, AttributeError):
+        return None
+    if rename is not None:
+        rename.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        rename.restype = ctypes.c_int
+    return rename
+
+
+def _publish_noreplace(parent_fd: int, source: str, destination: str) -> None:
+    rename = _atomic_rename_function()
     if rename is None:
         _raise_private(
             SecureRootfsMaterializationUnavailableError, "atomic rootfs publication unavailable"
         )
-    rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
-    rename.restype = ctypes.c_int
     if rename(parent_fd, os.fsencode(source), parent_fd, os.fsencode(destination), 1) != 0:
         _raise_private(RootfsMaterializationError, "atomic rootfs publication failed")
 
@@ -715,7 +732,9 @@ def dispose_laya_runtime_rootfs(evidence: object) -> None:
                 raise RootfsMaterializationError("rootfs resource is not issued")
             if resource.disposed:
                 return
-            _authority._revoke_evidence(evidence)
+            if not resource.revoked:
+                _authority._revoke_evidence(evidence)
+                resource.revoked = True
             _require_root_binding(resource.parent_components, resource.parent_fd)
             _remove_owned_tree(
                 resource.parent_fd, resource.name, resource.root_fd, resource.identity

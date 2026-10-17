@@ -578,7 +578,8 @@ def _parse_gnu_payload(payload: bytes, *, link: bool) -> str:
 class _TarParser:
     def __init__(self, max_entries: int, payload_sink: object | None = None) -> None:
         if payload_sink is not None and any(
-            not callable(getattr(payload_sink, name, None)) for name in ("start", "chunk", "end")
+            not callable(method)
+            for method in (payload_sink.start, payload_sink.chunk, payload_sink.end)
         ):
             raise TypeError("OCI TAR payload sink is invalid")
         self.buffer = bytearray()
