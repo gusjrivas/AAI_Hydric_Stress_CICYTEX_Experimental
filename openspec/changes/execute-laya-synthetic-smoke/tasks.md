@@ -32,19 +32,19 @@ its exact child/intents. Scientific readiness and productive callers stay off.
 - [ ] 3.3 Historical/site/mock/backend/quality regressions.
 - [ ] 3.4 Independent critique/audit and exact-SHA CI; no open P0/P1/P2.
 
-## Preparation evidence
+## Historical preparation evidence
 
 RED: 7 missing-module failures before `runtime_execution.py` existed. GREEN:
 7 focal passes; PR40+PR41 core regression 27 passes. Ruff/Black/diff-check pass.
-This is unmerged preparatory code. There is no positive execution issuer, Docker
-call or inference in this slice; PR40 acceptance remains a blocking dependency.
+That preparatory stage had no positive execution issuer, Docker call or inference;
+PR40 acceptance had not yet closed. It is not the current implementation status.
 
 Updated preparation: PR40/PR41 pure contracts pass 27/27 after rebasing to the
 accepted executable. Image-lease RED `e595979`: 6 failures solely for the missing
 private lease helper. Synthetic-probe RED `2e97d39`: 41 failures solely for the
-missing module. These are expected unmerged REDs, not failures of PR40 or main.
+missing module. Those were expected unmerged REDs, not failures of PR40 or main.
 
-Unit GREEN, still unpublished and blocked on 1.5 for integration:
+Unit GREEN before dependency 1.5 closed:
 
 - Image lease RED `e595979` -> GREEN `062be9e`: 6 focal passes; Linux non-root
   lease/orchestration/core regression 51 passes. Independent architecture GO,
@@ -55,15 +55,15 @@ Unit GREEN, still unpublished and blocked on 1.5 for integration:
   independent re-review GO without open P0/P1/P2. Rounded ties accept any maximum.
 - Ruff, Black and diff checks passed. No daemon, network or model execution was
   performed in these unit slices. This evidence is not real inference acceptance;
-  repeat focal/static checks after rebasing to the exact PR40 merge commit.
+  The later post-merge focal/static checks are recorded above.
 
 Closed engine unit preparation: RED `0cf1209` had 7 missing-API failures. Binary
 log fixture correction `ad3c249` fixed a test oracle, not production behavior.
 GREEN `0720896` passed 70 new/existing fake-transport tests. Adversarial additions
 `644005e` passed 10 focal / 73 combined tests and independent GO without open
 P0/P1/P2. Profile crossover, lost-response wrong-profile reconciliation and exact
-post-run cleanup are covered. This slice never invoked Docker or a model. The
-2.3 positive issuer/orchestration and all real acceptance remain incomplete.
+post-run cleanup were covered. This slice never invoked Docker or a model; it
+did not implement 2.3 or provide real acceptance.
 
 Root verification on reviewed unit preparation `cb8f81f`: 96 combined Linux
 non-root core/lease/probe/materialization tests passed in 144.17 seconds. This

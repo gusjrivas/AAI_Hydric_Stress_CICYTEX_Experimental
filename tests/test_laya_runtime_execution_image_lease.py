@@ -1,7 +1,7 @@
-"""RED-only contract for a descriptor-free lease over one exact PR40 image.
+"""Unit contract for a descriptor-free lease over one exact PR40 image.
 
-This preparation remains blocked on OpenSpec dependency 1.5.  It uses only
-synthetically issued unit authority and never contacts Docker or runs inference.
+These tests use synthetically issued unit authority and never contact Docker
+or run inference. Real acceptance belongs to the separate opt-in release gate.
 """
 
 from __future__ import annotations
