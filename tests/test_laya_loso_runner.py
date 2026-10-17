@@ -16,7 +16,7 @@ import re
 import threading
 import weakref
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pytest
 
@@ -573,6 +573,75 @@ def test_sealed_batch_getter_rejects_mutated_bytes_or_commitment_privately(monke
             _private_failure(caught.value, private_comment, invalid)
         finally:
             object.__setattr__(receipt, name, original)
+
+
+def _alternate_canonical_response(receipt) -> bytes:
+    response = json.loads(receipt.canonical_response)
+    for prediction in response["predictions"]:
+        prediction["category"] = "model_behavior"
+        prediction["probabilities"] = {
+            "data_quality": 0.1,
+            "model_behavior": 0.6,
+            "agronomic_context": 0.1,
+            "usability": 0.1,
+            "other": 0.1,
+        }
+    return json.dumps(
+        response,
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+
+
+def test_sealed_batch_getter_rejects_joint_response_and_digest_mutation(monkeypatch, tmp_path):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    _wire(module, monkeypatch, _FixtureGrant(events))
+    module._run_human_loso_mechanical_fixture(protocol, _FixturePort(events))
+    receipt = module._sealed_human_loso_mechanical_batches(protocol)[0]
+    original_response = receipt.canonical_response
+    original_digest = receipt.response_sha256
+    replacement_response = _alternate_canonical_response(receipt)
+    replacement_digest = hashlib.sha256(replacement_response).hexdigest()
+
+    object.__setattr__(receipt, "canonical_response", replacement_response)
+    object.__setattr__(receipt, "response_sha256", replacement_digest)
+    try:
+        with pytest.raises((TypeError, ValueError)) as caught:
+            module._sealed_human_loso_mechanical_batches(protocol)
+        _private_failure(caught.value, replacement_digest)
+    finally:
+        object.__setattr__(receipt, "canonical_response", original_response)
+        object.__setattr__(receipt, "response_sha256", original_digest)
+
+
+def test_sealed_batch_getter_rejects_replacement_receipt_with_unissued_output(
+    monkeypatch, tmp_path
+):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    _wire(module, monkeypatch, _FixtureGrant(events))
+    module._run_human_loso_mechanical_fixture(protocol, _FixturePort(events))
+    original = module._sealed_human_loso_mechanical_batches(protocol)[0]
+    replacement_response = _alternate_canonical_response(original)
+    replacement = replace(
+        original,
+        canonical_response=replacement_response,
+        response_sha256=hashlib.sha256(replacement_response).hexdigest(),
+    )
+    progress = module._STATES[id(protocol)].folds[0]
+
+    progress.calibration_receipt = replacement
+    try:
+        with pytest.raises((TypeError, ValueError)) as caught:
+            module._sealed_human_loso_mechanical_batches(protocol)
+        _private_failure(caught.value, replacement.response_sha256)
+    finally:
+        progress.calibration_receipt = original
 
 
 def test_waiter_revalidates_protocol_after_owner_failure_before_new_consumption(
