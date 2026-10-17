@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import stat
 import sys
 
@@ -129,6 +130,113 @@ def _preflight_plan(plan: object) -> _authority.LayaRuntimeRootfsMaterialization
             "rootfs materialization authority validation failed",
         )
     return result
+
+
+def _directory_flags() -> int:
+    return os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _inode(metadata: os.stat_result) -> tuple[int, int]:
+    return metadata.st_dev, metadata.st_ino
+
+
+def _open_directory_chain(components: tuple[str, ...]) -> int:
+    descriptor = None
+    result = None
+    try:
+        descriptor = os.open("/", _directory_flags())
+        for component in components:
+            if type(component) is not str or component in {"", ".", ".."} or "/" in component:
+                raise ValueError("invalid directory component")
+            child = os.open(component, _directory_flags(), dir_fd=descriptor)
+            previous, descriptor = descriptor, child
+            os.close(previous)
+        result, descriptor = descriptor, None
+    except Exception:
+        result = None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if result is None:
+        _raise_private(RootfsMaterializationError, "secure directory traversal failed")
+    return result
+
+
+def _create_staging(parent_fd: int) -> tuple[str, int, tuple[int, int]]:
+    name = ".laya-staging-" + secrets.token_hex(16)
+    os.mkdir(name, STAGING_MODE, dir_fd=parent_fd)
+    try:
+        descriptor = os.open(name, _directory_flags(), dir_fd=parent_fd)
+        metadata = os.fstat(descriptor)
+        if stat.S_IMODE(metadata.st_mode) != STAGING_MODE or metadata.st_uid != os.geteuid():
+            os.close(descriptor)
+            raise RootfsMaterializationError("private staging verification failed")
+        return name, descriptor, _inode(metadata)
+    except Exception:
+        os.rmdir(name, dir_fd=parent_fd)
+        raise
+
+
+def _require_owned_name(parent_fd: int, name: str, descriptor: int, identity: tuple[int, int]):
+    metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or _inode(metadata) != identity
+        or _inode(os.fstat(descriptor)) != identity
+        or metadata.st_uid != os.geteuid()
+    ):
+        _raise_private(RootfsMaterializationError, "owned rootfs identity changed")
+
+
+def _remove_owned_tree(
+    parent_fd: int, name: str, descriptor: int, identity: tuple[int, int]
+) -> None:
+    _require_owned_name(parent_fd, name, descriptor, identity)
+    # Keep traversal bounded and descriptor-relative; symlinks are unlinked as leaves.
+    remaining = 131072
+
+    def remove_children(directory: int, depth: int) -> None:
+        nonlocal remaining
+        if depth > 128:
+            raise RootfsMaterializationError("rootfs cleanup depth exceeded")
+        os.fchmod(directory, STAGING_MODE)
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                remaining -= 1
+                if remaining < 0:
+                    raise RootfsMaterializationError("rootfs cleanup entry budget exceeded")
+                metadata = os.stat(entry.name, dir_fd=directory, follow_symlinks=False)
+                if stat.S_ISDIR(metadata.st_mode):
+                    child = os.open(entry.name, _directory_flags(), dir_fd=directory)
+                    try:
+                        if _inode(os.fstat(child)) != _inode(metadata):
+                            raise RootfsMaterializationError("rootfs cleanup identity changed")
+                        remove_children(child, depth + 1)
+                        _require_owned_name(directory, entry.name, child, _inode(metadata))
+                        os.rmdir(entry.name, dir_fd=directory)
+                    finally:
+                        os.close(child)
+                else:
+                    os.unlink(entry.name, dir_fd=directory)
+
+    remove_children(descriptor, 0)
+    _require_owned_name(parent_fd, name, descriptor, identity)
+    os.rmdir(name, dir_fd=parent_fd)
+
+
+def _publish_noreplace(parent_fd: int, source: str, destination: str) -> None:
+    import ctypes
+
+    library = ctypes.CDLL(None, use_errno=True)
+    rename = getattr(library, "renameat2", None)
+    if rename is None:
+        _raise_private(
+            SecureRootfsMaterializationUnavailableError, "atomic rootfs publication unavailable"
+        )
+    rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    rename.restype = ctypes.c_int
+    if rename(parent_fd, os.fsencode(source), parent_fd, os.fsencode(destination), 1) != 0:
+        _raise_private(RootfsMaterializationError, "atomic rootfs publication failed")
 
 
 def materialize_laya_runtime_rootfs(
