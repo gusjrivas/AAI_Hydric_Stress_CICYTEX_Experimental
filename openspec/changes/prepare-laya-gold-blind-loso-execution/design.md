@@ -22,6 +22,12 @@ ordinals privately and verifies exact order/coverage, runtime/model and protocol
 commitments. A public preflight with missing authorities consumes no comment and
 does not invoke the port.
 
+The pinned upstream reports token usage and truncation. Corpus execution must
+not silently score a prefix as the complete comment: the closed response must
+carry bounded usage/truncation metadata and reject dropped/truncated input unless
+an externally frozen protocol explicitly authorizes that exact preprocessing.
+A byte-size cap alone does not prove that text fits the tokenizer/model budget.
+
 ## Lifecycle and phase order
 
 Per fold: freeze exact calibration cohort -> predict -> seal mechanical receipt
