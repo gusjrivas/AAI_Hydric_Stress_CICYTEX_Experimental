@@ -130,12 +130,15 @@ def _container_inspect(*, nonce: str = NONCE, readonly: bool = True):
         "HostConfig": {
             "ReadonlyRootfs": readonly,
             "NetworkMode": "none",
+            "CapAdd": [],
             "CapDrop": ["ALL"],
             "SecurityOpt": ["no-new-privileges", "seccomp=builtin"],
             "Privileged": False,
             "Binds": [],
             "Mounts": [],
             "Devices": [],
+            "DeviceRequests": [],
+            "DeviceCgroupRules": [],
             "PortBindings": {},
             "PublishAllPorts": False,
             "AutoRemove": False,
@@ -167,7 +170,16 @@ def _container_inspect(*, nonce: str = NONCE, readonly: bool = True):
         },
         "NetworkSettings": {"Ports": {}, "Networks": {}},
         "Mounts": [],
-        "State": {"Running": False},
+        "State": {
+            "Status": "created",
+            "Running": False,
+            "Paused": False,
+            "Restarting": False,
+            "OOMKilled": False,
+            "Dead": False,
+            "StartedAt": "0001-01-01T00:00:00Z",
+            "FinishedAt": "0001-01-01T00:00:00Z",
+        },
     }
 
 
@@ -186,6 +198,21 @@ def _image_inspect(*, nonce: str = NONCE):
     }
 
 
+def _completed_container_inspect(**state_changes):
+    value = _container_inspect()
+    value["State"] = {
+        "Status": "exited",
+        "Running": False,
+        "Paused": False,
+        "Restarting": False,
+        "OOMKilled": False,
+        "Dead": False,
+        "ExitCode": 0,
+        **state_changes,
+    }
+    return value
+
+
 def test_closed_probe_bounds_daemon_disk_logs_and_rejects_unbounded_logging():
     from human_feedback.adapters import local_docker_engine as module
 
@@ -196,6 +223,121 @@ def test_closed_probe_bounds_daemon_disk_logs_and_rejects_unbounded_logging():
     assert not module._matches_closed_probe(
         inspected, image_id=IMAGE_ID, container_id=CONTAINER_ID, nonce=NONCE
     )
+
+
+def test_closed_probe_requests_and_requires_no_added_capabilities_or_devices():
+    from human_feedback.adapters import local_docker_engine as module
+
+    host = module._closed_probe_payload(IMAGE_ID, NONCE)["HostConfig"]
+    assert host["CapAdd"] == []
+    assert host["DeviceRequests"] == []
+    assert host["DeviceCgroupRules"] == []
+    for field, unsafe in (
+        ("CapAdd", ["SYS_ADMIN"]),
+        ("Devices", [{"PathOnHost": "/dev/kvm"}]),
+        ("DeviceRequests", [{"Capabilities": [["gpu"]]}]),
+        ("DeviceCgroupRules", ["c 10:232 rwm"]),
+    ):
+        inspected = _container_inspect()
+        inspected["HostConfig"][field] = unsafe
+        assert not module._matches_closed_probe(
+            inspected, image_id=IMAGE_ID, container_id=CONTAINER_ID, nonce=NONCE
+        )
+
+
+@pytest.mark.parametrize(
+    "security",
+    [
+        ["no-new-privileges=false", "seccomp=builtin"],
+        ["no-new-privileges", "seccomp=unconfined"],
+        ["no-new-privileges", "seccomp=builtin", "label=disable"],
+        ["no-new-privileges", "no-new-privileges=true", "seccomp=builtin"],
+    ],
+)
+def test_closed_probe_security_options_are_an_exact_normalized_whitelist(security):
+    from human_feedback.adapters import local_docker_engine as module
+
+    inspected = _container_inspect()
+    inspected["HostConfig"]["SecurityOpt"] = security
+    assert not module._matches_closed_probe(
+        inspected, image_id=IMAGE_ID, container_id=CONTAINER_ID, nonce=NONCE
+    )
+
+    normalized = _container_inspect()
+    normalized["HostConfig"]["SecurityOpt"] = ["seccomp=builtin", "no-new-privileges=true"]
+    assert module._matches_closed_probe(
+        normalized, image_id=IMAGE_ID, container_id=CONTAINER_ID, nonce=NONCE
+    )
+
+
+@pytest.mark.parametrize(
+    "field,unsafe",
+    [
+        ("Status", "exited"),
+        ("Running", True),
+        ("Paused", True),
+        ("Restarting", True),
+        ("OOMKilled", True),
+        ("Dead", True),
+        ("StartedAt", "2026-10-17T12:00:00Z"),
+        ("FinishedAt", "2026-10-17T12:00:01Z"),
+    ],
+)
+def test_closed_probe_export_and_start_require_fresh_created_state(field, unsafe):
+    from human_feedback.adapters import local_docker_engine as module
+
+    inspected = _container_inspect()
+    inspected["State"][field] = unsafe
+    assert not module._matches_closed_probe(
+        inspected, image_id=IMAGE_ID, container_id=CONTAINER_ID, nonce=NONCE
+    )
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"Status": "running"},
+        {"Running": True},
+        {"Paused": True},
+        {"Restarting": True},
+        {"OOMKilled": True},
+        {"Dead": True},
+        {"ExitCode": 9},
+    ],
+)
+def test_completed_probe_state_requires_clean_exit_without_oom(override):
+    from human_feedback.adapters import local_docker_engine as module
+
+    state = {
+        "Status": "exited",
+        "Running": False,
+        "Paused": False,
+        "Restarting": False,
+        "OOMKilled": False,
+        "Dead": False,
+        "ExitCode": 0,
+    }
+    assert module._matches_completed_probe_state(state)
+    state.update(override)
+    assert not module._matches_completed_probe_state(state)
+
+
+def test_wait_rejects_daemon_success_response_when_completed_inspect_reports_oom():
+    from human_feedback.adapters import local_docker_engine as module
+
+    transport = FakeTransport(
+        [
+            _response(200, {"StatusCode": 0, "Error": None}),
+            _response(200, _completed_container_inspect(OOMKilled=True)),
+        ]
+    )
+    engine = _engine(transport)
+    engine._ready = True
+    engine._started.add(CONTAINER_ID)
+
+    with pytest.raises(module.LocalDockerEngineError, match="completed probe state changed"):
+        engine.wait_probe(CONTAINER_ID)
+    assert CONTAINER_ID not in engine._waited
 
 
 def _log_frame(stream: int, payload: bytes) -> bytes:
@@ -682,6 +824,7 @@ def test_run_closed_probe_reinspects_starts_waits_and_returns_bounded_logs(monke
             _response(200, _container_inspect()),
             _response(204),
             _response(200, {"StatusCode": 0, "Error": None}),
+            _response(200, _completed_container_inspect()),
             module.DockerHttpResponse(status=200, body=framed),
         ]
     )
@@ -692,17 +835,18 @@ def test_run_closed_probe_reinspects_starts_waits_and_returns_bounded_logs(monke
         observation,
         b"bounded warning\n",
     )
-    assert [(call["method"], call["path"]) for call in transport.calls[-5:]] == [
+    assert [(call["method"], call["path"]) for call in transport.calls[-6:]] == [
         ("GET", f"/v1.44/containers/{CONTAINER_ID}/json"),
         ("GET", f"/v1.44/containers/{CONTAINER_ID}/json"),
         ("POST", f"/v1.44/containers/{CONTAINER_ID}/start"),
         ("POST", f"/v1.44/containers/{CONTAINER_ID}/wait?condition=not-running"),
+        ("GET", f"/v1.44/containers/{CONTAINER_ID}/json"),
         (
             "GET",
             f"/v1.44/containers/{CONTAINER_ID}/logs?stdout=1&stderr=1&timestamps=0&follow=0",
         ),
     ]
-    assert transport.calls[-2]["timeout"] == 300.0
+    assert transport.calls[-3]["timeout"] == 300.0
 
 
 @pytest.mark.parametrize(
