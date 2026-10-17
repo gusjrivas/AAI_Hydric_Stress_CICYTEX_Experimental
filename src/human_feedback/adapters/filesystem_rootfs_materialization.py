@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import os
 import hashlib
+import json
+import os
 import re
 import secrets
 import stat
 import sys
+from collections import Counter
 
+from human_feedback import runtime_oci_rootfs as _rootfs
 from human_feedback import runtime_rootfs_materialization as _authority
 
 __all__ = (
@@ -362,6 +365,150 @@ class _RegularPayloadSink:
         self.owner.active.discard(self)
         if descriptor is not None:
             os.close(descriptor)
+
+
+def _terminal(node: object, namespace: dict[str, object]) -> object:
+    return _rootfs._resolve_hardlink_target(node.link_target, namespace)
+
+
+def _create_final_links(root_fd: int, nodes: tuple[object, ...]) -> None:
+    namespace = {node.path: node for node in nodes}
+    for node in nodes:
+        if node.typeflag != "1":
+            continue
+        terminal = _terminal(node, namespace)
+        source_parent, source_name = _open_relative_parent(root_fd, terminal.path)
+        try:
+            parent, name = _open_relative_parent(root_fd, node.path)
+            try:
+                os.link(
+                    source_name,
+                    name,
+                    src_dir_fd=source_parent,
+                    dst_dir_fd=parent,
+                    follow_symlinks=False,
+                )
+            finally:
+                os.close(parent)
+        finally:
+            os.close(source_parent)
+    # Symlinks, including absolute OCI targets, are leaves and are never traversed.
+    for node in nodes:
+        if node.typeflag == "2":
+            parent, name = _open_relative_parent(root_fd, node.path)
+            try:
+                os.symlink(node.link_target, name, dir_fd=parent)
+            finally:
+                os.close(parent)
+
+
+def _hash_regular(parent: int, name: str, node: object, links: int) -> tuple[str, tuple[int, int]]:
+    descriptor = os.open(
+        name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent
+    )
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_size != node.size_bytes
+            or before.st_nlink != links
+            or before.st_uid != os.geteuid()
+            or stat.S_IMODE(before.st_mode) != 0o600 | (node.mode & 0o100)
+        ):
+            raise RootfsMaterializationError("staged regular metadata mismatch")
+        digest = hashlib.sha256()
+        remaining = node.size_bytes
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                raise RootfsMaterializationError("staged regular payload truncated")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1) or os.fstat(descriptor) != before:
+            raise RootfsMaterializationError("staged regular payload changed")
+        os.fsync(descriptor)
+        return digest.hexdigest(), _inode(before)
+    finally:
+        os.close(descriptor)
+
+
+def _verify_staged_tree(
+    root_fd: int, nodes: tuple[object, ...], hashes: dict[str, str], logical_digest: str
+) -> str:
+    namespace = {node.path: node for node in nodes}
+    groups = Counter(_terminal(node, namespace).path for node in nodes if node.typeflag == "1")
+    children: dict[str, set[str]] = {"": set()}
+    for node in nodes:
+        parent, _, name = node.path.rpartition("/")
+        children.setdefault(parent, set()).add(name)
+        if node.typeflag == "5":
+            children.setdefault(node.path, set())
+    for path, expected in children.items():
+        descriptor = None
+        try:
+            if path:
+                parent, name = _open_relative_parent(root_fd, path)
+                try:
+                    descriptor = os.open(name, _directory_flags(), dir_fd=parent)
+                finally:
+                    os.close(parent)
+            else:
+                descriptor = os.dup(root_fd)
+            metadata = os.fstat(descriptor)
+            if (
+                set(os.listdir(descriptor)) != expected
+                or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != STAGING_MODE
+            ):
+                raise RootfsMaterializationError("staged directory inventory mismatch")
+            os.fsync(descriptor)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+    verified: dict[str, tuple[str, tuple[int, int]]] = {}
+    for node in nodes:
+        if node.typeflag == "0":
+            parent, name = _open_relative_parent(root_fd, node.path)
+            try:
+                verified[node.path] = _hash_regular(parent, name, node, 1 + groups[node.path])
+            finally:
+                os.close(parent)
+            if verified[node.path][0] != hashes.get(node.path):
+                raise RootfsMaterializationError("staged content commitment mismatch")
+    commitment = hashlib.sha256(b"laya-rootfs-content-v1\x00" + logical_digest.encode("ascii"))
+    for node in sorted(nodes, key=lambda item: item.path):
+        terminal = _terminal(node, namespace) if node.typeflag == "1" else None
+        parent, name = _open_relative_parent(root_fd, node.path)
+        try:
+            metadata = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if node.typeflag == "1" and (
+                not stat.S_ISREG(metadata.st_mode) or _inode(metadata) != verified[terminal.path][1]
+            ):
+                raise RootfsMaterializationError("staged hardlink topology mismatch")
+            if node.typeflag == "2" and (
+                not stat.S_ISLNK(metadata.st_mode)
+                or os.readlink(name, dir_fd=parent) != node.link_target
+            ):
+                raise RootfsMaterializationError("staged symlink topology mismatch")
+        finally:
+            os.close(parent)
+        record = [
+            node.path,
+            node.typeflag,
+            node.size_bytes,
+            node.link_target,
+            node.mode,
+            node.uid,
+            node.gid,
+            node.mtime,
+            node.source_layer_position,
+            None if terminal is None else terminal.path,
+            hashes.get(node.path if terminal is None else terminal.path),
+        ]
+        encoded = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+        commitment.update(len(encoded).to_bytes(8, "big"))
+        commitment.update(encoded)
+    return commitment.hexdigest()
 
 
 def materialize_laya_runtime_rootfs(

@@ -1,9 +1,9 @@
 """Real descriptor and publication tests for the Linux mutation boundary."""
 
+import hashlib
 import os
 import stat
 import sys
-import hashlib
 from types import SimpleNamespace
 
 import pytest
