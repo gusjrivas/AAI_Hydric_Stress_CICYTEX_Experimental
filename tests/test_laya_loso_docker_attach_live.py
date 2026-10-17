@@ -53,7 +53,7 @@ def test_real_attach_round_trip_is_bounded_and_disposes_only_its_child(payload):
             path,
             body=body,
             headers={"Content-Type": "application/json"} if body is not None else {},
-            response_limit=1024 * 1024,
+            response_limit=256 * 1024,
             timeout=30.0,
         )
 
