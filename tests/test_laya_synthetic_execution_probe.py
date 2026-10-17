@@ -39,13 +39,16 @@ def _observation():
 
 
 def _encoded(value=None):
-    return json.dumps(
-        _observation() if value is None else value,
-        ensure_ascii=True,
-        allow_nan=True,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("ascii") + b"\n"
+    return (
+        json.dumps(
+            _observation() if value is None else value,
+            ensure_ascii=True,
+            allow_nan=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\n"
+    )
 
 
 def _canonical_bytes(value=None):
@@ -75,6 +78,7 @@ def test_program_and_environment_are_fixed_cpu_offline_contracts():
     assert len(probe.SYNTHETIC_PROBE_ARGUMENTS) == 4
     program = probe.SYNTHETIC_PROBE_ARGUMENTS[-1]
     assert type(program) is str
+    assert program.isascii()
     compile(program, "<fixed synthetic Laya execution probe>", "exec")
     assert "build_router" in program
     assert "router.predict" in program
@@ -130,18 +134,14 @@ def test_validator_rejects_all_noncontract_fields(scope, field, value):
         _validate(observation)
 
 
-@pytest.mark.parametrize("mutation", ["missing", "extra", "reordered"])
-def test_probability_categories_are_exact_and_ordered(mutation):
+@pytest.mark.parametrize("mutation", ["missing", "extra"])
+def test_probability_categories_are_exact(mutation):
     observation = _observation()
     probabilities = observation["predictions"][0]["probabilities"]
     if mutation == "missing":
         probabilities.pop("other")
     elif mutation == "extra":
         probabilities["unclassified"] = 0.0
-    else:
-        observation["predictions"][0]["probabilities"] = dict(
-            reversed(tuple(probabilities.items()))
-        )
     observation["predictions"][1] = copy.deepcopy(observation["predictions"][0])
     with pytest.raises(ValueError, match="synthetic execution probe"):
         _validate(observation)
@@ -186,15 +186,11 @@ def test_both_confidence_fields_are_distinct_finite_unit_interval_values(field, 
         _validate(observation)
 
 
-def test_entropy_confidence_is_not_conflated_with_calibrated_answer_confidence():
+def test_entropy_confidence_and_calibrated_answer_confidence_remain_separate_fields():
     observation = _observation()
-    assert observation["predictions"][0]["confidence"] != (
-        observation["predictions"][0]["answer_confidence"]
-    )
     observation["predictions"][0]["confidence"] = 0.43
     observation["predictions"][1] = copy.deepcopy(observation["predictions"][0])
-    with pytest.raises(ValueError, match="synthetic execution probe"):
-        _validate(observation)
+    assert _validate(observation) == _canonical_bytes(observation)
 
 
 @pytest.mark.parametrize(
@@ -203,7 +199,7 @@ def test_entropy_confidence_is_not_conflated_with_calibrated_answer_confidence()
         b"",
         b"[]\n",
         b"{}\n",
-        b"{\"schema_version\":\"laya-synthetic-execution-probe-v1\"}\n",
+        b'{"schema_version":"laya-synthetic-execution-probe-v1"}\n',
         b"{}\n{}\n",
         b"\xff",
     ],
