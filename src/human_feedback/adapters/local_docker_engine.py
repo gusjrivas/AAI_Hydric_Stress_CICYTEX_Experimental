@@ -12,6 +12,7 @@ import json
 import re
 import secrets
 import socket
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -62,14 +63,86 @@ class DockerHttpResponse:
     body: bytes
 
 
+class _DeadlineWatchdog:
+    """Close one connection when its total monotonic budget expires."""
+
+    def __init__(self, connection, deadline: float) -> None:
+        self._connection = connection
+        self._expired = threading.Event()
+        delay = max(0.0, deadline - time.monotonic())
+        self._timer = threading.Timer(delay, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    @property
+    def expired(self) -> bool:
+        return self._expired.is_set()
+
+    def _expire(self) -> None:
+        self._expired.set()
+        descriptor = getattr(self._connection, "sock", None)
+        if descriptor is not None:
+            try:
+                descriptor.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+        try:
+            self._connection.close()
+        except Exception:
+            pass
+
+    def cancel(self) -> None:
+        self._timer.cancel()
+        if threading.current_thread() is not self._timer:
+            self._timer.join(1.0)
+
+
+def _remaining_timeout(connection, deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise LocalDockerEngineError("local Docker total deadline exceeded")
+    connection.timeout = remaining
+    descriptor = getattr(connection, "sock", None)
+    if descriptor is not None:
+        descriptor.settimeout(remaining)
+    return remaining
+
+
+def _response_read(response, size: int) -> bytes:
+    reader = response.read1 if isinstance(response, http.client.HTTPResponse) else response.read
+    chunk = reader(size)
+    if type(chunk) is not bytes:
+        raise LocalDockerEngineError("local Docker response schema is invalid")
+    return chunk
+
+
+def _bounded_response_body(connection, response, *, limit: int, deadline: float) -> bytes:
+    chunks = []
+    remaining = limit + 1
+    while remaining:
+        _remaining_timeout(connection, deadline)
+        chunk = _response_read(response, min(64 * 1024, remaining))
+        if time.monotonic() > deadline:
+            raise LocalDockerEngineError("local Docker total deadline exceeded")
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    payload = b"".join(chunks)
+    if len(payload) > limit:
+        raise LocalDockerEngineError("local Docker response exceeded its bound")
+    return payload
+
+
 class DockerByteStream:
     """One bounded daemon response whose connection is closed on EOF or exit."""
 
-    def __init__(self, connection, response, *, byte_limit: int, deadline: float) -> None:
+    def __init__(self, connection, response, *, byte_limit: int, deadline: float, watchdog) -> None:
         self._connection = connection
         self._response = response
         self._remaining = byte_limit
         self._deadline = deadline
+        self._watchdog = watchdog
         self._closed = False
 
     def __enter__(self):
@@ -81,9 +154,14 @@ class DockerByteStream:
     def __iter__(self):
         try:
             while True:
-                if time.monotonic() > self._deadline:
+                if self._watchdog.expired or time.monotonic() > self._deadline:
                     raise LocalDockerEngineError("local Docker stream deadline exceeded")
-                chunk = self._response.read(min(_ARCHIVE_CHUNK_LIMIT, self._remaining + 1))
+                _remaining_timeout(self._connection, self._deadline)
+                chunk = _response_read(
+                    self._response, min(_ARCHIVE_CHUNK_LIMIT, self._remaining + 1)
+                )
+                if self._watchdog.expired or time.monotonic() > self._deadline:
+                    raise LocalDockerEngineError("local Docker stream deadline exceeded")
                 if not chunk:
                     self.close()
                     return
@@ -91,6 +169,12 @@ class DockerByteStream:
                     raise LocalDockerEngineError("local Docker stream exceeded its bound")
                 self._remaining -= len(chunk)
                 yield chunk
+        except LocalDockerEngineError:
+            self.close()
+            raise
+        except Exception:
+            self.close()
+            raise LocalDockerEngineError("local Docker streaming download failed") from None
         except BaseException:
             self.close()
             raise
@@ -98,6 +182,7 @@ class DockerByteStream:
     def close(self) -> None:
         if not self._closed:
             self._closed = True
+            self._watchdog.cancel()
             self._connection.close()
 
 
@@ -123,6 +208,7 @@ class _ChunkedRequestWriter:
             raise LocalDockerEngineError("local Docker upload exceeded its bound")
         payload = view[:count]
         try:
+            _remaining_timeout(self._connection, self._deadline)
             self._connection.send(f"{count:x}\r\n".encode("ascii"))
             self._connection.send(payload)
             self._connection.send(b"\r\n")
@@ -184,26 +270,25 @@ class _LocalUnixTransport:
         ):
             raise LocalDockerEngineError("local Docker headers are invalid")
         connection = _UnixSocketHTTPConnection(float(timeout))
+        deadline = time.monotonic() + timeout
+        watchdog = _DeadlineWatchdog(connection, deadline)
         try:
+            _remaining_timeout(connection, deadline)
             connection.request(method, path, body=body, headers=safe_headers)
+            _remaining_timeout(connection, deadline)
             response = connection.getresponse()
-            chunks = []
-            remaining = response_limit + 1
-            while remaining:
-                chunk = response.read(min(64 * 1024, remaining))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            payload = b"".join(chunks)
-            if len(payload) > response_limit:
-                raise LocalDockerEngineError("local Docker response exceeded its bound")
+            _remaining_timeout(connection, deadline)
+            payload = _bounded_response_body(
+                connection, response, limit=response_limit, deadline=deadline
+            )
+            _remaining_timeout(connection, deadline)
             return DockerHttpResponse(status=response.status, body=payload)
         except LocalDockerEngineError:
             raise
         except Exception:
             raise LocalDockerEngineError("local Docker transport failed") from None
         finally:
+            watchdog.cancel()
             connection.close()
 
     def upload_producer(
@@ -226,8 +311,11 @@ class _LocalUnixTransport:
             or not 0 < response_limit <= _CONTROL_RESPONSE_LIMIT
         ):
             raise LocalDockerEngineError("local Docker upload path is invalid")
+        deadline = time.monotonic() + timeout
         connection = _UnixSocketHTTPConnection(float(timeout))
+        watchdog = _DeadlineWatchdog(connection, deadline)
         try:
+            _remaining_timeout(connection, deadline)
             connection.putrequest("POST", path)
             connection.putheader("Content-Type", "application/x-tar")
             connection.putheader("Transfer-Encoding", "chunked")
@@ -235,32 +323,29 @@ class _LocalUnixTransport:
             writer = _ChunkedRequestWriter(
                 connection,
                 byte_limit=total_limit,
-                deadline=time.monotonic() + timeout,
+                deadline=deadline,
             )
             reported = producer(writer)
             if type(reported) is not int or reported != writer.total:
                 raise LocalDockerEngineError("local Docker upload count changed")
             if time.monotonic() > writer._deadline:
                 raise LocalDockerEngineError("local Docker upload deadline exceeded")
+            _remaining_timeout(connection, deadline)
             connection.send(b"0\r\n\r\n")
+            _remaining_timeout(connection, deadline)
             response = connection.getresponse()
-            chunks = []
-            remaining = response_limit + 1
-            while remaining:
-                chunk = response.read(min(64 * 1024, remaining))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            payload = b"".join(chunks)
-            if len(payload) > response_limit:
-                raise LocalDockerEngineError("local Docker response exceeded its bound")
+            _remaining_timeout(connection, deadline)
+            payload = _bounded_response_body(
+                connection, response, limit=response_limit, deadline=deadline
+            )
+            _remaining_timeout(connection, deadline)
             return DockerHttpResponse(status=response.status, body=payload)
         except LocalDockerEngineError:
             raise
         except Exception:
             raise LocalDockerEngineError("local Docker streaming upload failed") from None
         finally:
+            watchdog.cancel()
             connection.close()
 
     def open_stream(self, path: str, *, byte_limit: int, timeout: float) -> DockerByteStream:
@@ -272,22 +357,31 @@ class _LocalUnixTransport:
             or not 0 < timeout <= _ARCHIVE_TIMEOUT_SECONDS
         ):
             raise LocalDockerEngineError("local Docker download bound is invalid")
+        deadline = time.monotonic() + timeout
         connection = _UnixSocketHTTPConnection(float(timeout))
+        watchdog = _DeadlineWatchdog(connection, deadline)
         try:
+            _remaining_timeout(connection, deadline)
             connection.request("GET", path, headers={})
+            _remaining_timeout(connection, deadline)
             response = connection.getresponse()
+            _remaining_timeout(connection, deadline)
             if response.status != 200:
                 raise LocalDockerEngineError("local Docker export failed")
+            _remaining_timeout(connection, deadline)
             return DockerByteStream(
                 connection,
                 response,
                 byte_limit=byte_limit,
-                deadline=time.monotonic() + timeout,
+                deadline=deadline,
+                watchdog=watchdog,
             )
         except LocalDockerEngineError:
+            watchdog.cancel()
             connection.close()
             raise
         except Exception:
+            watchdog.cancel()
             connection.close()
             raise LocalDockerEngineError("local Docker streaming download failed") from None
 
