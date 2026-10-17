@@ -1,0 +1,28 @@
+# Change: congelar el protocolo de evaluación humana de Laya
+
+## Por qué
+
+El corpus humano y el plan LOSO ya tienen contratos estructurales, pero aún no
+existe una autoridad preregistrada que fije tamaño, balance, acuerdo, artefactos
+externos y análisis antes de observar predicciones. Sin ese cierre, cualquier
+resultado podría depender de decisiones tomadas después de inspeccionarlo.
+
+## Qué cambia
+
+- Se agrega un verificador puro, basado en bytes, para un manifest cerrado.
+- El manifest queda ligado por digest al corpus privado y al plan LOSO.
+- Se verifican por contenido cinco artefactos externos: muestreo, guía de
+  anotación, adjudicación, desidentificación y cadena de custodia.
+- Se fijan pisos de cohorte y acuerdo nominal pre-adjudicación.
+- Se fijan macro-F1, baseline, delta pareado, bootstrap y Holm, junto con los
+  umbrales legacy vigentes, sin ejecutar ni evaluar modelos.
+- El summary público no contiene texto ni identificadores privados.
+
+## Fuera de alcance
+
+- No se versiona el corpus real ni los artefactos externos reales.
+- No se ejecuta Laya, baseline, bootstrap ni inferencia estadística.
+- No se acredita autenticidad científica, suficiencia, shadow readiness ni
+  habilitación productiva.
+- Los N de fixtures son sintéticos y no constituyen una decisión de potencia; sin
+  corpus privado externo el estudio permanece `BLOCKED_CORPUS_NOT_PROVIDED`.
