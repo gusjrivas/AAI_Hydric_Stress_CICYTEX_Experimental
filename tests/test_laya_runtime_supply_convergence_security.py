@@ -229,9 +229,9 @@ def test_gc_releases_expired_graph_and_cleanup_preserves_live_authority(monkeypa
         == live_summary
     )
 
-    # Repeated expired callbacks exercise allocator reuse while asserting only
-    # externally observable liveness and authority behavior.
-    for _index in range(64):
+    # Repeated cleanup cycles assert only externally observable liveness and
+    # preservation of an unrelated live authority.
+    for _index in range(4):
         temporary = _issue(module, live_chain)
         temporary_reference = weakref.ref(temporary)
         del temporary

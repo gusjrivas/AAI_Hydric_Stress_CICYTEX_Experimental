@@ -45,13 +45,13 @@ Un registro privado module-side protegido por lock conserva la autoridad por
 identidad y una firma semántica profunda. Clones, mutaciones de ancestors,
 mix-and-match y evidencia no registrada fallan en creación y summary.
 
-Cada entrada usa weakref y conserva la identidad esperada. El callback de cleanup
-primero libera la retención fuerte de su propio record expirado con
-`record.semantics = ()`; después hace pop sólo si la entrada actual sigue apuntando
-al mismo weakref/objeto. Nunca modifica el record replacement. Así, un callback
-stale no puede borrar ni vaciar una entrada posterior tras reutilización de `id`.
-Cada lookup comprueba liveness bajo lock y rechaza weakrefs muertas o registros
-reemplazados antes de comparar la firma semántica.
+La implementación actual usa referencias débiles y comprobaciones identity-safe
+para liberar autoridad expirada sin alterar evidencia viva. Es una decisión interna,
+no un contrato de representación: no se fijan nombre o tipo del registro, campos,
+layout de callbacks, estrategia de cleanup ni reutilización de identificadores.
+El contrato observable es que evidencia y predecessors expirados no retienen sus
+grafos, que cleanup no revoca ni altera evidencia viva y que clones, aliases o
+objetos unissued no adquieren autoridad.
 
 El anti-mix por identidad se aplica exclusivamente a PR36→PR22. Una evidencia PR35
 issued de otra captura es válida si los cinco artefactos, manifest, bindings y
@@ -61,7 +61,8 @@ esa convergencia de contenido falla.
 No existe un flag global one-shot ni una sesión global consumible. Llamadas válidas
 independientes pueden ejecutarse concurrentemente; cada resultado tiene su propio
 registro. El lock protege sólo la transición del registro y nunca se mantiene al
-invocar validadores de predecessors o código que pueda pertenecer al caller.
+invocar validadores de predecessors o código que pueda pertenecer al caller. Los
+summaries repetidos o concurrentes de evidencia viva producen bytes deterministas.
 
 ## Claims
 

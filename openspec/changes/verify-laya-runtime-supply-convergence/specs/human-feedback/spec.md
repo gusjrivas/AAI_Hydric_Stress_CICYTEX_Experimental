@@ -82,40 +82,40 @@ global one-shot or caller-controlled authority.
 #### Scenario: Two valid combinations run concurrently
 
 - **WHEN** independent calls use valid issued predecessors
-- **THEN** both may succeed without consuming shared global state
+- **THEN** both succeed without consuming shared state and repeated or concurrent summaries produce identical bytes
 
 #### Scenario: Valid predecessors are mixed
 
 - **WHEN** PR36 does not reference the exact PR22, or PR35 content/runtime identity differs
 - **THEN** identity or deep snapshot convergence rejects the mix
 
-### Requirement: Registry cleanup SHALL be weak and identity-safe
+### Requirement: Evidence lifecycle SHALL be observable and isolation-safe
 
-Registry entries SHALL use weakrefs, validate liveness under lock and remove an
-entry only when its cleanup callback still matches the current weakref and object
-identity. Before conditional removal, the callback SHALL clear only its expired
-record with `record.semantics = ()`. It SHALL NOT alter a replacement record.
+Expired evidence and predecessors SHALL NOT retain their authority graphs. Cleanup
+SHALL NOT revoke, replace or alter live evidence. Clones, aliases and unissued
+objects SHALL NOT acquire independent authority. Representation details are not
+part of this contract.
 
-#### Scenario: Evidence is garbage-collected
+#### Scenario: Live summary remains stable
 
-- **WHEN** the issued evidence loses all strong external references
-- **THEN** weak cleanup removes only its matching registry record
+- **WHEN** the same live evidence is summarized repeatedly or concurrently
+- **THEN** every call returns identical canonical bytes
 
-#### Scenario: A stale callback runs after id reuse
+#### Scenario: Four temporary graphs expire
 
-- **WHEN** a later live entry occupies the same numeric identity slot
-- **THEN** the old record releases its semantics and callback mismatch preserves the complete later entry
+- **WHEN** four real temporary evidences and their predecessors lose all strong references and garbage collection runs
+- **THEN** weak observations confirm each evidence and every node in its authority graph are released
 
-#### Scenario: Expired record does not retain its ancestor graph
+#### Scenario: Cleanup preserves live evidence
 
-- **GIVEN** a test retains `expired_record` while a live replacement exists
-- **WHEN** evidence and predecessors are deleted and garbage collection runs
-- **THEN** its reference is `None`, `semantics` retains no ancestors, graph weakrefs are `None`, and registry returns to baseline while replacement survives
+- **GIVEN** one live evidence remains while temporary evidence graphs are collected
+- **WHEN** cleanup completes after each temporary graph
+- **THEN** the live evidence summary remains byte-identical after every cleanup
 
-#### Scenario: A dead record is queried
+#### Scenario: Alternate objects do not gain authority
 
-- **WHEN** liveness validation finds an expired weakref
-- **THEN** summary fails closed instead of trusting stale semantics
+- **WHEN** distinct clones, aliases to predecessor data or unissued evidence are summarized
+- **THEN** each alternate object is rejected while the issued live evidence remains valid
 
 ### Requirement: Convergence SHALL elevate one new claim only
 

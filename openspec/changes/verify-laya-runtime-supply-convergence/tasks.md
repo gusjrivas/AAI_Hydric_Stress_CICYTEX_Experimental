@@ -23,7 +23,7 @@
 - [ ] 3.1 Registrar tests fallidos para clones, ancestors mutados, identidad PR36→PR22 y PR35 issued independiente equivalente.
 - [ ] 3.2 Registrar tests fallidos para registro module-side protegido por lock.
 - [ ] 3.3 Registrar tests fallidos para concurrencia sin estado global one-shot.
-- [ ] 3.4 Registrar tests fallidos para weakref/GC, liberación `record.semantics = ()`, callback stale, reutilización de `id`, replacement intacto, grafo sin retención y liveness bajo lock.
+- [ ] 3.4 Registrar RED observable para GC sin retención de cuatro grafos reales, evidencia viva estable tras cada cleanup y clones, aliases o unissued rechazados.
 
 ## 4. RED D — claims, privacidad y aislamiento
 
