@@ -108,58 +108,67 @@ def _validate_prediction(value) -> None:
         _fail()
     if not math.isclose(sum(values), 1.0, rel_tol=0.0, abs_tol=_MASS_TOLERANCE):
         _fail()
+    if probabilities[value["choice"]] != max(values):
+        _fail()
     if not _finite_probability(value["confidence"]):
         _fail()
     if not _finite_probability(value["answer_confidence"]):
         _fail()
 
 
+def _validated_observation(stdout: bytes) -> bytes:
+    if type(stdout) is not bytes or not 0 < len(stdout) <= _MAX_STDOUT_BYTES:
+        _fail()
+    decoded = stdout.decode("ascii")
+    observation = json.loads(
+        decoded,
+        object_pairs_hook=_closed_object,
+        parse_constant=_reject_nonfinite,
+    )
+    if type(observation) is not dict or set(observation) != {
+        "schema_version",
+        "predictions",
+    }:
+        _fail()
+    if observation["schema_version"] != _SCHEMA_VERSION:
+        _fail()
+    predictions = observation["predictions"]
+    if type(predictions) is not list or len(predictions) != 2:
+        _fail()
+    for prediction in predictions:
+        _validate_prediction(prediction)
+    first = json.dumps(
+        predictions[0],
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    second = json.dumps(
+        predictions[1],
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if first != second:
+        _fail()
+    return json.dumps(
+        observation,
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+
+
 def validate_synthetic_probe_observation(stdout: bytes) -> bytes:
     """Validate bounded child output and return immutable canonical observation bytes."""
 
     try:
-        if type(stdout) is not bytes or not 0 < len(stdout) <= _MAX_STDOUT_BYTES:
-            _fail()
-        decoded = stdout.decode("ascii")
-        observation = json.loads(
-            decoded,
-            object_pairs_hook=_closed_object,
-            parse_constant=_reject_nonfinite,
-        )
-        if type(observation) is not dict or set(observation) != {
-            "schema_version",
-            "predictions",
-        }:
-            _fail()
-        if observation["schema_version"] != _SCHEMA_VERSION:
-            _fail()
-        predictions = observation["predictions"]
-        if type(predictions) is not list or len(predictions) != 2:
-            _fail()
-        for prediction in predictions:
-            _validate_prediction(prediction)
-        first = json.dumps(
-            predictions[0],
-            ensure_ascii=True,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        second = json.dumps(
-            predictions[1],
-            ensure_ascii=True,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        if first != second:
-            _fail()
-        return json.dumps(
-            observation,
-            ensure_ascii=True,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("ascii")
+        return _validated_observation(stdout)
     except Exception:
-        _fail()
+        pass
+    # Raise outside the handler so parser exceptions cannot retain child bytes
+    # through ``__context__`` even when traceback rendering ignores suppression.
+    _fail()
