@@ -1,0 +1,320 @@
+"""Fail-closed preparation for the gold-blind LOSO evaluation runner.
+
+The public surface intentionally remains blocked until the real corpus-custody
+authority exists.  The private runner below is only a mechanical state-machine
+fixture: it proves ordering, resumability, and gold-blind transport boundaries;
+it cannot confer scientific authority.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import secrets
+import threading
+import weakref
+from dataclasses import dataclass, field
+from typing import Any
+
+from human_feedback import evaluation_run_protocol as _run_protocol
+
+__all__ = (
+    "HumanLosoRunnerPreflight",
+    "preflight_human_loso_runner",
+)
+
+_BLOCKED_CORPUS_STATUS = "BLOCKED_CORPUS_NOT_PROVIDED"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class HumanLosoRunnerPreflight:
+    """Public, non-authoritative status for the not-yet-supplied real corpus."""
+
+    status: str = _BLOCKED_CORPUS_STATUS
+    ready: bool = False
+    comment_consumed: bool = False
+    inference_invoked: bool = False
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _AcceptedBatchReceipt:
+    phase: str
+    fold_index: int
+    item_count: int
+    request_sha256: str
+    response_sha256: str
+    runtime_identity: object
+    model_identity: object
+    inference_port: object
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _HumanLosoMechanicalRunEvidence:
+    mechanical_execution_verified: bool = True
+    scientific_execution_completed: bool = False
+    calibration_fitted: bool = False
+    gold_blind_execution_attested: bool = False
+    scientifically_sufficient: bool = False
+    eligible_for_shadow_review: bool = False
+    production_enablement_authorized: bool = False
+
+
+@dataclass(slots=True, repr=False)
+class _FoldProgress:
+    calibration_receipt: _AcceptedBatchReceipt | None = None
+    outer_test_released: bool = False
+    test_receipt: _AcceptedBatchReceipt | None = None
+
+
+@dataclass(slots=True, repr=False)
+class _ProtocolRunState:
+    protocol_ref: weakref.ReferenceType[object]
+    condition: threading.Condition = field(
+        default_factory=lambda: threading.Condition(threading.RLock())
+    )
+    owner_thread: int | None = None
+    inference_port: object | None = None
+    runtime_identity: object | None = None
+    model_identity: object | None = None
+    folds: list[_FoldProgress] = field(default_factory=list)
+    result: _HumanLosoMechanicalRunEvidence | None = None
+
+
+_STATES_LOCK = threading.Lock()
+_STATES: dict[int, _ProtocolRunState] = {}
+
+
+def _raise_private_failure() -> None:
+    raise ValueError("human LOSO mechanical execution is unavailable") from None
+
+
+def preflight_human_loso_runner(
+    protocol: object,
+    inference_port: object,
+) -> HumanLosoRunnerPreflight:
+    """Report the real runner as blocked without inspecting either argument."""
+
+    del protocol, inference_port
+    return HumanLosoRunnerPreflight()
+
+
+def _require_mechanical_fixture_authority(protocol: object) -> object:
+    """Private test seam; production has no mechanical-fixture authority."""
+
+    del protocol
+    _raise_private_failure()
+
+
+def _remove_expired_state(
+    key: int,
+    expected: _ProtocolRunState,
+) -> None:
+    with _STATES_LOCK:
+        if _STATES.get(key) is expected:
+            _STATES.pop(key, None)
+
+
+def _state_for(protocol: object) -> _ProtocolRunState:
+    key = id(protocol)
+    with _STATES_LOCK:
+        existing = _STATES.get(key)
+        if existing is not None:
+            if existing.protocol_ref() is protocol:
+                return existing
+            if existing.protocol_ref() is not None:
+                _raise_private_failure()
+
+        state: _ProtocolRunState
+
+        def _expired(_reference: weakref.ReferenceType[object]) -> None:
+            _remove_expired_state(key, state)
+
+        try:
+            protocol_ref = weakref.ref(protocol, _expired)
+        except TypeError:
+            _raise_private_failure()
+        state = _ProtocolRunState(protocol_ref=protocol_ref)
+        _STATES[key] = state
+        return state
+
+
+def _identity_from(grant: object, name: str) -> object:
+    value = getattr(grant, name, None)
+    if value is None:
+        _raise_private_failure()
+    return value
+
+
+def _bind_state(
+    state: _ProtocolRunState,
+    *,
+    inference_port: object,
+    runtime_identity: object,
+    model_identity: object,
+    fold_count: int,
+) -> None:
+    if state.inference_port is None:
+        state.inference_port = inference_port
+        state.runtime_identity = runtime_identity
+        state.model_identity = model_identity
+        state.folds = [_FoldProgress() for _ in range(fold_count)]
+        return
+    if (
+        state.inference_port is not inference_port
+        or state.runtime_identity is not runtime_identity
+        or state.model_identity is not model_identity
+        or len(state.folds) != fold_count
+    ):
+        _raise_private_failure()
+
+
+def _opaque_token(used: set[str]) -> str:
+    for _ in range(4):
+        token = secrets.token_hex(32)
+        if token not in used:
+            used.add(token)
+            return token
+    _raise_private_failure()
+
+
+def _accepted_batch(
+    *,
+    adapter: Any,
+    inference_port: object,
+    records: tuple[object, ...],
+    phase: str,
+    fold_index: int,
+    runtime_identity: object,
+    model_identity: object,
+) -> _AcceptedBatchReceipt:
+    used_tokens: set[str] = set()
+    inputs = tuple(
+        adapter.GoldBlindOfflineInput(
+            opaque_token=_opaque_token(used_tokens),
+            comment=record.comment,
+        )
+        for record in records
+    )
+    request = adapter.canonical_laya_loso_offline_request_bytes(inputs)
+    if type(request) is not bytes:
+        _raise_private_failure()
+    output = inference_port.predict(request)
+    canonical_response = adapter.validate_laya_loso_offline_response(
+        output,
+        expected_count=len(records),
+    )
+    if type(canonical_response) is not bytes:
+        _raise_private_failure()
+    return _AcceptedBatchReceipt(
+        phase=phase,
+        fold_index=fold_index,
+        item_count=len(records),
+        request_sha256=hashlib.sha256(request).hexdigest(),
+        response_sha256=hashlib.sha256(canonical_response).hexdigest(),
+        runtime_identity=runtime_identity,
+        model_identity=model_identity,
+        inference_port=inference_port,
+    )
+
+
+def _execute_mechanical_state_machine(
+    *,
+    protocol: object,
+    grant: object,
+    inference_port: object,
+    state: _ProtocolRunState,
+    runtime_identity: object,
+    model_identity: object,
+) -> _HumanLosoMechanicalRunEvidence:
+    from human_feedback import loso_offline_adapter as adapter
+
+    for fold_index, fold in enumerate(protocol._plan.folds):
+        progress = state.folds[fold_index]
+        if progress.calibration_receipt is None:
+            progress.calibration_receipt = _accepted_batch(
+                adapter=adapter,
+                inference_port=inference_port,
+                records=fold.calibration_records,
+                phase="calibration",
+                fold_index=fold_index,
+                runtime_identity=runtime_identity,
+                model_identity=model_identity,
+            )
+        if not progress.outer_test_released:
+            release = grant.authorize_outer_test(
+                fold_index,
+                (progress.calibration_receipt,),
+            )
+            if release is None:
+                _raise_private_failure()
+            progress.outer_test_released = True
+        if progress.test_receipt is None:
+            progress.test_receipt = _accepted_batch(
+                adapter=adapter,
+                inference_port=inference_port,
+                records=fold.test_records,
+                phase="test",
+                fold_index=fold_index,
+                runtime_identity=runtime_identity,
+                model_identity=model_identity,
+            )
+    return _HumanLosoMechanicalRunEvidence()
+
+
+def _run_human_loso_mechanical_fixture(
+    protocol: object,
+    inference_port: object,
+) -> _HumanLosoMechanicalRunEvidence:
+    """Run the private, non-scientific mechanical fixture exactly once."""
+
+    failed = False
+    result: _HumanLosoMechanicalRunEvidence | None = None
+    state: _ProtocolRunState | None = None
+    acquired = False
+    try:
+        _run_protocol._require_issued_human_loso_execution_protocol(protocol)
+        grant = _require_mechanical_fixture_authority(protocol)
+        runtime_identity = _identity_from(grant, "runtime_identity")
+        model_identity = _identity_from(grant, "model_identity")
+        if not callable(getattr(inference_port, "predict", None)):
+            _raise_private_failure()
+        state = _state_for(protocol)
+        owner = threading.get_ident()
+        with state.condition:
+            while state.owner_thread is not None:
+                if state.owner_thread == owner:
+                    _raise_private_failure()
+                state.condition.wait()
+            _bind_state(
+                state,
+                inference_port=inference_port,
+                runtime_identity=runtime_identity,
+                model_identity=model_identity,
+                fold_count=len(protocol._plan.folds),
+            )
+            if state.result is not None:
+                return state.result
+            state.owner_thread = owner
+            acquired = True
+
+        result = _execute_mechanical_state_machine(
+            protocol=protocol,
+            grant=grant,
+            inference_port=inference_port,
+            state=state,
+            runtime_identity=runtime_identity,
+            model_identity=model_identity,
+        )
+        with state.condition:
+            if state.result is None:
+                state.result = result
+            result = state.result
+    except Exception:
+        failed = True
+    finally:
+        if acquired and state is not None:
+            with state.condition:
+                state.owner_thread = None
+                state.condition.notify_all()
+    if failed or result is None:
+        _raise_private_failure()
+    return result
