@@ -12,6 +12,7 @@ import math
 from dataclasses import fields
 
 import pytest
+
 from human_feedback.loso_offline_adapter import (
     GoldBlindOfflineInput,
     GoldBlindOfflinePort,
@@ -247,8 +248,7 @@ def test_boolean_scalars_and_invalid_expected_counts_are_rejected():
 
 def test_request_cardinality_is_bounded_even_when_each_item_is_small():
     too_many = tuple(
-        GoldBlindOfflineInput(opaque_token=f"{index:064x}", comment="x")
-        for index in range(513)
+        GoldBlindOfflineInput(opaque_token=f"{index:064x}", comment="x") for index in range(513)
     )
 
     with pytest.raises((TypeError, ValueError)):
