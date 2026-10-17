@@ -179,6 +179,59 @@ def test_mutated_issued_convergence_evidence_fails_deep_revalidation(monkeypatch
     module.canonical_laya_runtime_supply_convergence_summary_bytes(_issue(module, good_chain))
 
 
+def test_summary_rejects_evidence_mutated_during_predecessor_revalidation(monkeypatch):
+    module = _module()
+    evidence = _issue(module, _chain(monkeypatch))
+    target_code = module._validate_predecessors.__code__
+    mutated = False
+
+    def profile(frame, event, _arg):
+        nonlocal mutated
+        if event == "call" and frame.f_code is target_code and not mutated:
+            object.__setattr__(evidence, "runtime_supply_content_convergence_verified", False)
+            mutated = True
+
+    previous = sys.getprofile()
+    sys.setprofile(profile)
+    try:
+        with pytest.raises(ValueError) as captured:
+            module.canonical_laya_runtime_supply_convergence_summary_bytes(evidence)
+    finally:
+        sys.setprofile(previous)
+        object.__setattr__(evidence, "runtime_supply_content_convergence_verified", True)
+
+    assert mutated is True
+    _private_error(captured.value, "runtime_supply_content_convergence_verified")
+
+
+def test_verify_rejects_layer_mutated_after_predecessor_validators(monkeypatch):
+    module = _module()
+    chain = _chain(monkeypatch)
+    target_code = module._validate_cardinalities.__code__
+    mutated = False
+
+    def profile(frame, event, _arg):
+        nonlocal mutated
+        if event == "call" and frame.f_code is target_code and not mutated:
+            object.__setattr__(chain.layer_evidence, "oci_layer_diff_ids_verified", False)
+            mutated = True
+
+    previous = sys.getprofile()
+    sys.setprofile(profile)
+    try:
+        with pytest.raises(ValueError) as captured:
+            _issue(module, chain)
+    finally:
+        sys.setprofile(previous)
+        object.__setattr__(chain.layer_evidence, "oci_layer_diff_ids_verified", True)
+
+    assert mutated is True
+    _private_error(captured.value, "oci_layer_diff_ids_verified")
+    # A failed attempt has no observable partial-authority or one-shot effect:
+    # the restored issued graph can still produce valid evidence.
+    module.canonical_laya_runtime_supply_convergence_summary_bytes(_issue(module, chain))
+
+
 def test_valid_convergence_is_repeatable_concurrent_and_summary_deterministic(monkeypatch):
     module = _module()
     chain = _chain(monkeypatch)
