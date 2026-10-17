@@ -168,6 +168,43 @@ jobs:
           tests/test_laya_runtime_oci_layout_filesystem.py
           tests/test_laya_runtime_oci_rootfs.py
 
+  laya-runtime-materialization-contract:
+    needs: laya-rootfs-materialization-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Require non-root Linux runner
+        run: python -c "import os; assert os.geteuid() != 0"
+
+      - name: Test runtime materialization contracts
+        run: >-
+          python -m pytest
+          tests/test_laya_runtime_materialization.py
+          tests/test_laya_runtime_materialization_lease.py
+          tests/test_laya_runtime_installation_archive.py
+          tests/test_laya_runtime_installation_verifier.py
+          tests/test_laya_docker_runtime_materialization.py
+          tests/test_laya_local_docker_engine.py
+
+      # This exercises only a tiny synthetic TAR against the runner's local
+      # trusted daemon. It does not fetch the 677 MiB OCI source, checkpoints,
+      # model weights, or any network input and never executes inference.
+      - name: Test synthetic local Docker Engine mechanics
+        env:
+          LAYA_LOCAL_DOCKER_LIVE: "1"
+        run: python -m pytest tests/test_laya_local_docker_engine_live.py
+
   experiment-v4-container:
     runs-on: ubuntu-latest
     steps:
