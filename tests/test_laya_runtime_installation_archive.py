@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import sys
@@ -75,6 +76,7 @@ def test_archive_is_reproducible_bounded_and_has_exact_normalized_topology(monke
         with tarfile.open(fileobj=io.BytesIO(first.getvalue()), mode="r:") as archive:
             members = archive.getmembers()
             by_name = {item.name: item for item in members}
+            projected_paths = {"etc/hostname", "etc/hosts", "etc/resolv.conf"}
             assert len(by_name) == len(members)
             assert "app/old.txt" not in by_name
             assert archive.extractfile("app/target.txt").read() == b"version-two\n"
@@ -83,9 +85,23 @@ def test_archive_is_reproducible_bounded_and_has_exact_normalized_topology(monke
             assert by_name["app/link.txt"].issym()
             assert by_name["app/link.txt"].linkname == "target.txt"
             for item in members:
-                assert (item.uid, item.gid, item.mtime) == (65532, 65532, 0)
+                expected_owner = (0, 0) if item.name in projected_paths else (65532, 65532)
+                assert (item.uid, item.gid) == expected_owner
+                assert item.mtime == 0
+            assert by_name["etc"].isdir()
+            assert (by_name["etc"].mode, by_name["etc"].uid, by_name["etc"].gid) == (
+                0o700,
+                65532,
+                65532,
+            )
+            for path in projected_paths:
+                assert by_name[path].isreg()
+                assert (by_name[path].mode, by_name[path].size) == (0o755, 0)
+                assert archive.extractfile(path).read() == b""
             for node in rootfs._plan._rootfs_evidence.nodes:
                 item = by_name[node.path]
+                if node.path in projected_paths:
+                    continue
                 if node.typeflag == "5":
                     assert item.mode == 0o700
                 elif node.typeflag == "0":
@@ -185,11 +201,230 @@ def test_hardlink_archive_mode_preserves_terminal_owner_execute_bit():
     assert entries["bin/tool-alias"].mode == 0o700
 
 
-def test_ustar_splittable_long_path_uses_one_header_and_verifier_equivalent():
+def test_docker_managed_files_are_explicit_empty_root_owned_projection():
     from human_feedback.adapters import runtime_installation_archive as module
-    from human_feedback.adapters.runtime_installation_verifier import (
-        _capture_installation_tar,
+
+    etc = SimpleNamespace(path="etc", typeflag="5", mode=0o755, size_bytes=0, link_target=None)
+    hostname = SimpleNamespace(
+        path="etc/hostname",
+        typeflag="0",
+        mode=0o644,
+        size_bytes=14,
+        link_target=None,
     )
+    resolv = SimpleNamespace(
+        path="etc/resolv.conf",
+        typeflag="0",
+        mode=0o640,
+        size_bytes=104,
+        link_target=None,
+    )
+
+    entries = {entry.path: entry for entry in module._rootfs_entries((etc, hostname, resolv))}
+
+    assert set(("etc/hostname", "etc/hosts", "etc/resolv.conf")) <= set(entries)
+    assert entries["etc/hostname"].source is hostname
+    assert entries["etc/resolv.conf"].source is resolv
+    assert entries["etc/hosts"].source is None
+    for path in ("etc/hostname", "etc/hosts", "etc/resolv.conf"):
+        entry = entries[path]
+        assert entry.kind == "regular"
+        assert entry.projected_empty is True
+        assert (entry.mode, entry.size_bytes, entry.uid, entry.gid, entry.mtime) == (
+            0o755,
+            0,
+            0,
+            0,
+            0,
+        )
+        info = module._tar_info(entry)
+        assert (info.type, info.mode, info.size, info.uid, info.gid, info.mtime) == (
+            tarfile.REGTYPE,
+            0o755,
+            0,
+            0,
+            0,
+            0,
+        )
+
+
+def test_docker_managed_projection_adds_safe_etc_parent_when_absent():
+    from human_feedback.adapters import runtime_installation_archive as module
+
+    app = SimpleNamespace(path="app", typeflag="5", mode=0o755, size_bytes=0, link_target=None)
+    entries = {entry.path: entry for entry in module._rootfs_entries((app,))}
+
+    assert entries["etc"].kind == "directory"
+    assert (entries["etc"].mode, entries["etc"].uid, entries["etc"].gid) == (
+        0o700,
+        65532,
+        65532,
+    )
+    assert all(
+        entries[path].projected_empty for path in ("etc/hostname", "etc/hosts", "etc/resolv.conf")
+    )
+
+
+@pytest.mark.parametrize(
+    "nodes",
+    [
+        (SimpleNamespace(path="etc", typeflag="0", mode=0o644, size_bytes=1, link_target=None),),
+        (
+            SimpleNamespace(path="etc", typeflag="5", mode=0o755, size_bytes=0, link_target=None),
+            SimpleNamespace(
+                path="etc/hostname",
+                typeflag="2",
+                mode=0o777,
+                size_bytes=0,
+                link_target="elsewhere",
+            ),
+        ),
+        (
+            SimpleNamespace(path="etc", typeflag="5", mode=0o755, size_bytes=0, link_target=None),
+            SimpleNamespace(
+                path="source",
+                typeflag="0",
+                mode=0o600,
+                size_bytes=1,
+                link_target=None,
+            ),
+            SimpleNamespace(
+                path="etc/hosts",
+                typeflag="1",
+                mode=0o600,
+                size_bytes=0,
+                link_target="source",
+            ),
+        ),
+        (
+            SimpleNamespace(path="etc", typeflag="5", mode=0o755, size_bytes=0, link_target=None),
+            SimpleNamespace(
+                path="etc/hostname",
+                typeflag="0",
+                mode=0o644,
+                size_bytes=1,
+                link_target=None,
+            ),
+            SimpleNamespace(
+                path="alias",
+                typeflag="1",
+                mode=0o644,
+                size_bytes=0,
+                link_target="etc/hostname",
+            ),
+        ),
+        (
+            SimpleNamespace(path="etc", typeflag="5", mode=0o755, size_bytes=0, link_target=None),
+            SimpleNamespace(
+                path="etc/resolv.conf",
+                typeflag="0",
+                mode=0o644,
+                size_bytes=1,
+                link_target=None,
+            ),
+            SimpleNamespace(
+                path="alias",
+                typeflag="2",
+                mode=0o777,
+                size_bytes=0,
+                link_target="etc/resolv.conf",
+            ),
+        ),
+        (
+            SimpleNamespace(path="a", typeflag="2", mode=0o777, size_bytes=0, link_target="etc"),
+            SimpleNamespace(
+                path="b",
+                typeflag="2",
+                mode=0o777,
+                size_bytes=0,
+                link_target="a/hostname",
+            ),
+        ),
+        (
+            SimpleNamespace(path="a", typeflag="2", mode=0o777, size_bytes=0, link_target="/"),
+            SimpleNamespace(
+                path="b",
+                typeflag="2",
+                mode=0o777,
+                size_bytes=0,
+                link_target="a/etc/hostname",
+            ),
+        ),
+        (
+            SimpleNamespace(path="a", typeflag="2", mode=0o777, size_bytes=0, link_target="b"),
+            SimpleNamespace(path="b", typeflag="2", mode=0o777, size_bytes=0, link_target="a"),
+        ),
+        tuple(
+            SimpleNamespace(
+                path=f"link-{position}",
+                typeflag="2",
+                mode=0o777,
+                size_bytes=0,
+                link_target=(f"link-{position + 1}" if position < 16 else "outside"),
+            )
+            for position in range(17)
+        ),
+    ],
+    ids=(
+        "etc-not-directory",
+        "managed-symlink",
+        "managed-hardlink",
+        "hardlink-alias",
+        "symlink-alias",
+        "component-alias-via-etc",
+        "component-alias-via-root",
+        "symlink-cycle",
+        "symlink-hop-budget",
+    ),
+)
+def test_docker_managed_projection_rejects_unsafe_source_topology(nodes):
+    from human_feedback.adapters import runtime_installation_archive as module
+
+    with pytest.raises(module.RuntimeInstallationArchiveError):
+        module._rootfs_entries(nodes)
+
+
+def test_source_bytes_replaced_by_projection_are_still_hashed_read_only(tmp_path):
+    from human_feedback.adapters import runtime_installation_archive as module
+
+    etc = tmp_path / "etc"
+    etc.mkdir(mode=0o700)
+    payloads = {
+        "etc/hostname": b"source-hostname\n",
+        "etc/resolv.conf": b"source-resolver\n",
+    }
+    nodes = []
+    for path, payload in payloads.items():
+        target = tmp_path / path
+        target.write_bytes(payload)
+        target.chmod(0o600)
+        nodes.append(
+            SimpleNamespace(
+                path=path,
+                typeflag="0",
+                mode=0o600,
+                size_bytes=len(payload),
+                link_target=None,
+            )
+        )
+    root_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        hashes = module._rootfs_hashes(root_fd, tuple(nodes))
+    finally:
+        os.close(root_fd)
+
+    assert hashes == {
+        path: hashlib.sha256(payload).hexdigest() for path, payload in payloads.items()
+    }
+    entries = {entry.path: entry for entry in module._rootfs_entries(tuple(nodes))}
+    for path in payloads:
+        assert entries[path].projected_empty is True
+        assert entries[path].size_bytes == 0
+        assert (tmp_path / path).read_bytes() == payloads[path]
+
+
+def test_ustar_splittable_long_path_uses_one_readable_header():
+    from human_feedback.adapters import runtime_installation_archive as module
 
     parent = "a" * 80
     path = parent + "/" + "b" * 40
@@ -203,19 +438,21 @@ def test_ustar_splittable_long_path_uses_one_header_and_verifier_equivalent():
     assert len(encoded) == 512
     assert header_count == 1
     assert parent_header_count == 1
-    observed = _capture_installation_tar((parent_encoded + encoded + b"\0" * 1024,))
-    assert observed.records == (
-        (parent, "5", 0o700, 65532, 65532, 0, ()),
-        (path, "5", 0o700, 65532, 65532, 0, ()),
-    )
+    with tarfile.open(
+        fileobj=io.BytesIO(parent_encoded + encoded + b"\0" * 1024), mode="r:"
+    ) as archive:
+        assert tuple(
+            (item.name, item.type, item.mode, item.uid, item.gid, item.mtime)
+            for item in archive.getmembers()
+        ) == (
+            (parent, tarfile.DIRTYPE, 0o700, 65532, 65532, 0),
+            (path, tarfile.DIRTYPE, 0o700, 65532, 65532, 0),
+        )
 
 
 def test_gnu_fallback_is_bounded_and_counts_longname_and_longlink_headers():
     from human_feedback import runtime_oci_tar
     from human_feedback.adapters import runtime_installation_archive as module
-    from human_feedback.adapters.runtime_installation_verifier import (
-        _capture_installation_tar,
-    )
 
     long_path = "p" * 513
     long_target = "t" * 513
@@ -228,8 +465,14 @@ def test_gnu_fallback_is_bounded_and_counts_longname_and_longlink_headers():
     encoded, header_count = module._encoded_header(entry)
 
     assert header_count == 3
-    observed = _capture_installation_tar((encoded + b"\0" * 1024,))
-    assert observed.records == ((long_path, "2", 0o777, 65532, 65532, 0, (long_target,)),)
+    with tarfile.open(fileobj=io.BytesIO(encoded + b"\0" * 1024), mode="r:") as archive:
+        observed = archive.getmembers()
+        assert tuple(
+            (item.name, item.type, item.linkname, item.mode, item.uid, item.gid, item.mtime)
+            for item in observed
+        ) == (
+            (long_path, tarfile.SYMTYPE, long_target, 0o600, 65532, 65532, 0),
+        )
 
     bounded = module._InstallationEntry(
         "p" * runtime_oci_tar.MAX_OCI_TAR_PATH_BYTES,
