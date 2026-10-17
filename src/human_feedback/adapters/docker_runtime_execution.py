@@ -170,7 +170,10 @@ def execute_laya_runtime(plan: _authority.LayaRuntimeExecutionPlan):
                 try:
                     _authority._revoke_evidence(evidence)
                 except Exception:
-                    pass
+                    try:
+                        _authority._discard_issued_evidence(evidence)
+                    except Exception:
+                        pass
             if engine is not None and not cleanup_succeeded:
                 if cleanup_attempted:
                     pending_engine = engine

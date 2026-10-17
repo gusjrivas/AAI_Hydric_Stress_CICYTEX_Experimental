@@ -121,7 +121,6 @@ def _wire(
     """Install only explicit seams; production authority validation remains real."""
 
     import human_feedback.adapters.docker_runtime_execution as adapter
-
     from human_feedback import runtime_execution as authority
 
     materialization, runtime, resource, parent_engine, image_id, installation, *_ = (
