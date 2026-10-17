@@ -225,9 +225,13 @@ def test_opt_in_real_artifact_chain_materializes_closed_offline_runtime(tmp_path
         runtime_plan = runtime_materialization.prepare_laya_runtime_materialization_plan(
             rootfs_evidence, exact_checkpoint
         )
-        runtime_evidence = docker_runtime_materialization.materialize_laya_runtime(
-            runtime_plan, str(CHECKPOINT_ROOT)
-        )
+        try:
+            runtime_evidence = docker_runtime_materialization.materialize_laya_runtime(
+                runtime_plan, str(CHECKPOINT_ROOT)
+            )
+        except docker_runtime_materialization.LayaRuntimeMaterializationError as error:
+            error.add_note(f"failure_stage={error.failure_stage.value}")
+            raise
         summary = json.loads(
             runtime_materialization.canonical_laya_runtime_materialization_summary_bytes(
                 runtime_evidence
