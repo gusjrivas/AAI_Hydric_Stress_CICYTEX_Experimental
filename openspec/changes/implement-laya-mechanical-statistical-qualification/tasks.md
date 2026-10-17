@@ -2,8 +2,15 @@
 
 - [x] 1.1 Read frozen analysis, legacy metrics and PR42 sealed-output contracts.
 - [x] 1.2 Record mechanical fixture conventions without changing study protocol.
-- [ ] 1.3 PR42 accepted/merged, exact-merge rebase, actual evidence recorded.
-- [ ] 1.4 Close PR42 result-dependent tasks historically after its accepted merge.
+- [x] 1.3 PR42 accepted/merged, exact-merge rebase, actual evidence recorded.
+- [x] 1.4 Close PR42 result-dependent tasks historically after its accepted merge.
+
+PR42 merged as `4b06a3c97f7067fdc33f58637c3bc746dd48f0da` on 2026-10-17 at
+16:18:11 UTC after exact-head CI 16/16 and genuine pinned gate 1 PASS/1344.20s.
+PR43 rebased from accepted `3903a1d` onto that exact merge with no conflicts;
+range-diff shows all 15 preparation patches equivalent. Merge and accepted parent
+trees are identical. PR42 technical task closure and actual commands/results are
+recorded in its tasks file; scientific prerequisites remain open.
 
 Before 1.3 only isolated pure synthetic unit/TDD preparation is permitted.
 No PR42 edits, publication, real model/corpus run or scientific result.
