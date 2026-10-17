@@ -319,6 +319,10 @@ def test_verified_authority_cannot_be_directly_constructed_or_replaced(tmp_path:
     protocol = verify_human_evaluation_preregistration(
         raw, corpus=corpus, plan=plan, external_artifacts=artifacts
     )
+    rendered = repr(protocol)
+    assert protocol.evaluation_corpus_sha256 not in rendered
+    assert protocol.loso_plan_sha256 not in rendered
+    assert all(artifact.sha256 not in rendered for artifact in protocol.artifacts)
     constructor_values = {
         item.name: getattr(protocol, item.name) for item in fields(protocol) if item.init
     }
