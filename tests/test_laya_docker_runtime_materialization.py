@@ -99,8 +99,12 @@ def test_only_recaptured_loaded_image_produces_runtime_authority(monkeypatch, tm
         authority.canonical_laya_runtime_materialization_summary_bytes(evidence)
 
 
-@pytest.mark.parametrize("failure", ["import", "create", "export", "recapture", "load", "remove-container"])
-def test_failure_never_issues_runtime_and_cleans_only_owned_resources(monkeypatch, tmp_path, failure):
+@pytest.mark.parametrize(
+    "failure", ["import", "create", "export", "recapture", "load", "remove-container"]
+)
+def test_failure_never_issues_runtime_and_cleans_only_owned_resources(
+    monkeypatch, tmp_path, failure
+):
     _, adapter, filesystem, rootfs, plan, source, engine = _setup(monkeypatch, tmp_path, failure)
     baseline = len(os.listdir("/proc/self/fd"))
     try:
