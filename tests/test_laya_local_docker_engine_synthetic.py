@@ -282,3 +282,126 @@ def test_cleanup_never_adopts_a_lost_synthetic_create_with_wrong_nonce(monkeypat
 
     assert all(call["method"] != "DELETE" for call in transport.calls)
     _assert_no_broad_or_image_operations(transport)
+
+
+def test_synthetic_and_materialization_lifecycle_entrypoints_cannot_cross_profiles():
+    _synthetic_surface()
+    from human_feedback.adapters.local_docker_engine import LocalDockerEngineError
+
+    synthetic_transport = FakeTransport(
+        [
+            _response(200, _version()),
+            _response(200, _info()),
+            _response(201, {"Id": CONTAINER_ID}),
+            _response(200, _synthetic_container_inspect()),
+        ]
+    )
+    synthetic_engine = _engine(synthetic_transport)
+    synthetic_engine.create_closed_synthetic_probe_container(IMAGE_ID)
+    synthetic_engine.inspect_closed_synthetic_probe_container(
+        CONTAINER_ID, expected_image_id=IMAGE_ID
+    )
+    calls_before_rejections = len(synthetic_transport.calls)
+
+    with pytest.raises(LocalDockerEngineError):
+        synthetic_engine.export_stopped_container_stream(CONTAINER_ID)
+    with pytest.raises(LocalDockerEngineError):
+        synthetic_engine.start_probe(CONTAINER_ID)
+    synthetic_engine._waited.add(CONTAINER_ID)
+    synthetic_engine._waited_profiles[CONTAINER_ID] = "synthetic-execution-v1"
+    with pytest.raises(LocalDockerEngineError):
+        synthetic_engine.probe_logs_bounded(CONTAINER_ID)
+    with pytest.raises(LocalDockerEngineError):
+        synthetic_engine.run_closed_probe(CONTAINER_ID, expected_image_id=IMAGE_ID)
+
+    assert len(synthetic_transport.calls) == calls_before_rejections
+    assert not any(
+        marker in call["path"]
+        for call in synthetic_transport.calls[calls_before_rejections:]
+        for marker in ("/start", "/wait", "/logs", "/export")
+    )
+
+    materialization_transport = FakeTransport(
+        [
+            _response(200, _version()),
+            _response(200, _info()),
+            _response(201, {"Id": CONTAINER_ID}),
+        ]
+    )
+    materialization_engine = _engine(materialization_transport)
+    materialization_engine.create_closed_probe_container(IMAGE_ID)
+    calls_before_rejection = len(materialization_transport.calls)
+    with pytest.raises(LocalDockerEngineError):
+        materialization_engine.run_closed_synthetic_probe(CONTAINER_ID, expected_image_id=IMAGE_ID)
+    assert len(materialization_transport.calls) == calls_before_rejection
+
+
+def test_cleanup_never_adopts_lost_synthetic_intent_with_loader_profile(monkeypatch):
+    _synthetic_surface()
+    from human_feedback.adapters import local_docker_engine as module
+    from human_feedback.adapters.local_docker_engine import LocalDockerEngineError
+
+    monkeypatch.setattr(module.secrets, "token_hex", lambda _size: "9" * 32)
+    transport = FakeTransport(
+        [
+            _response(200, _version()),
+            _response(200, _info()),
+            TimeoutError("reply lost"),
+            _response(200, _container_inspect()),
+        ]
+    )
+    engine = _engine(transport)
+    with pytest.raises(TimeoutError, match="reply lost"):
+        engine.create_closed_synthetic_probe_container(IMAGE_ID)
+
+    with pytest.raises(LocalDockerEngineError, match="cleanup is incomplete"):
+        engine.cleanup_owned_resources()
+
+    assert engine._owned_containers == set()
+    assert engine._container_profiles == {}
+    assert all(call["method"] != "DELETE" for call in transport.calls)
+    _assert_no_broad_or_image_operations(transport)
+
+
+def test_successful_synthetic_run_cleanup_targets_exact_child_and_clears_profile_state():
+    _synthetic_surface()
+    from human_feedback.adapters.local_docker_engine import DockerHttpResponse
+
+    stdout, canonical = _synthetic_observation()
+    transport = FakeTransport(
+        [
+            _response(200, _version()),
+            _response(200, _info()),
+            _response(201, {"Id": CONTAINER_ID}),
+            _response(200, _synthetic_container_inspect()),
+            _response(200, _synthetic_container_inspect()),
+            _response(204),
+            _response(200, {"StatusCode": 0}),
+            _response(200, _synthetic_container_inspect(completed=True)),
+            DockerHttpResponse(status=200, body=_log_frame(1, stdout)),
+            _response(200, _synthetic_container_inspect(completed=True)),
+            _response(204),
+        ]
+    )
+    engine = _engine(transport)
+    container_id = engine.create_closed_synthetic_probe_container(IMAGE_ID)
+    assert engine.run_closed_synthetic_probe(container_id, expected_image_id=IMAGE_ID) == canonical
+
+    engine.cleanup_owned_resources()
+    calls_after_cleanup = len(transport.calls)
+    engine.cleanup_owned_resources()
+
+    lifecycle_paths = [call["path"] for call in transport.calls]
+    assert any(path.endswith(f"/containers/{CONTAINER_ID}/start") for path in lifecycle_paths)
+    assert any(
+        path.endswith(f"/containers/{CONTAINER_ID}/wait?condition=not-running")
+        for path in lifecycle_paths
+    )
+    assert transport.calls[-1]["method"] == "DELETE"
+    assert transport.calls[-1]["path"].endswith(f"/{CONTAINER_ID}?force=1&v=1")
+    assert len(transport.calls) == calls_after_cleanup
+    assert CONTAINER_ID not in engine._container_profiles
+    assert CONTAINER_ID not in engine._inspected_profiles
+    assert CONTAINER_ID not in engine._started_profiles
+    assert CONTAINER_ID not in engine._waited_profiles
+    _assert_no_broad_or_image_operations(transport)
