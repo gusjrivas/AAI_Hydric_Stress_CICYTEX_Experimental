@@ -328,3 +328,49 @@ def test_dispose_refuses_rebound_destination_inode_without_deleting_either_tree(
 
     assert marker.read_bytes() == b"replacement sentinel"
     assert _fingerprint(original) == original_before
+
+
+def test_dispose_retries_cleanup_after_transient_failure_even_when_authority_is_revoked(
+    monkeypatch,
+    tmp_path,
+):
+    from human_feedback import runtime_rootfs_materialization
+    from human_feedback.adapters import filesystem_rootfs_materialization as filesystem
+
+    _chain, source, plan = _issued_materialization_plan(monkeypatch, tmp_path)
+    parent = tmp_path / "private-output"
+    parent.mkdir(mode=0o700)
+    parent.chmod(0o700)
+    descriptors_before = _open_descriptor_count()
+    evidence = filesystem.materialize_laya_runtime_rootfs(
+        plan,
+        str(source),
+        str(parent),
+        "rootfs",
+    )
+    native_remove = filesystem._remove_owned_tree
+    calls = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("private-transient-cleanup-failure")
+        return native_remove(*args, **kwargs)
+
+    monkeypatch.setattr(filesystem, "_remove_owned_tree", fail_once)
+
+    with pytest.raises(filesystem.RootfsMaterializationError) as captured:
+        filesystem.dispose_laya_runtime_rootfs(evidence)
+    assert "private-transient-cleanup-failure" not in str(captured.value)
+    assert (parent / "rootfs").is_dir()
+    with pytest.raises((TypeError, ValueError)):
+        runtime_rootfs_materialization.canonical_laya_runtime_rootfs_materialization_summary_bytes(
+            evidence
+        )
+
+    assert filesystem.dispose_laya_runtime_rootfs(evidence) is None
+    assert filesystem.dispose_laya_runtime_rootfs(evidence) is None
+    assert tuple(parent.iterdir()) == ()
+    assert calls == 2
+    assert _open_descriptor_count() == descriptors_before
