@@ -43,7 +43,7 @@
 - [x] 6.2 Ejecutar regresiones Melchor Romero, Pergamino, CICYTEX y laboratorio mock.
 - [x] 6.3 Ejecutar Black, Ruff, OpenSpec strict y diff checks.
 - [x] 6.4 Añadir CI focal Linux/Windows con dependencias base ancestry + provenance.
-- [ ] 6.5 Obtener gate independiente GO P0/P1/P2=0.
+- [x] 6.5 Obtener gate independiente GO P0/P1/P2=0.
 
 Evidencia: RED funcional `9a0f029` + correcciones de contrato/race
 `23f94b6`/`df8ddcc`/`61bbc0d`; GREEN `3698428`; RED/GREEN CI
@@ -52,7 +52,10 @@ Windows `5a4b447`. Focal PR37 `34 passed`; CI contract `5 passed`;
 PR22/PR35/PR36 + checkout integrity `176 passed`; Laya completa en checkout limpio
 `1415 passed, 127 skipped`; Melchor Romero/Pergamino `65 passed`;
 CICYTEX/laboratorio mock `187 passed, 7 skipped`; Black `333 files unchanged`,
-Ruff PASS, OpenSpec strict PASS y diff check PASS.
+Ruff PASS, OpenSpec strict PASS y diff check PASS. El gate final detectó una brecha
+heredada en el scanner de consumidores PR22; RED `4afbf5f` la expuso y GREEN
+`3dd7c0e` congeló los cuatro consumidores autorizados. Dos revisiones independientes
+cerraron HEAD con GO y P0/P1/P2 = 0/0/0.
 
 ## 7. Deferred
 
