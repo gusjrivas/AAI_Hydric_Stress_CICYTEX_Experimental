@@ -74,6 +74,8 @@ class IssuedLayaSupplyChain:
     checkpoint_payloads: tuple[bytes, ...]
     layer_payloads: tuple[bytes, ...]
     provenance_payloads: dict[str, bytes]
+    control_payloads: tuple[bytes, bytes]
+    blob_payloads: tuple[bytes, ...]
 
 
 def _provenance_graph(checkpoint_payloads: dict[str, bytes]):
@@ -193,6 +195,7 @@ def issue_laya_supply_chain(
     monkeypatch,
     *,
     artifact_overrides: dict[str, bytes] | None = None,
+    raw_layer_payloads: tuple[bytes, ...] | None = None,
 ) -> IssuedLayaSupplyChain:
     """Emit PR22, PR35 and PR36 through their real public verifiers/sealers.
 
@@ -276,7 +279,16 @@ def issue_laya_supply_chain(
         }
     )
 
-    raw_layers = tuple(f"supply-layer-{position:02d}".encode("ascii") for position in range(10))
+    if raw_layer_payloads is None:
+        raw_layers = tuple(f"supply-layer-{position:02d}".encode("ascii") for position in range(10))
+    else:
+        if (
+            type(raw_layer_payloads) is not tuple
+            or len(raw_layer_payloads) != 10
+            or any(type(payload) is not bytes or not payload for payload in raw_layer_payloads)
+        ):
+            raise TypeError("raw layer payloads must be ten nonempty exact-bytes values")
+        raw_layers = raw_layer_payloads
     compressed_layers = tuple(gzip.compress(payload, mtime=0) for payload in raw_layers)
     layer_digests = tuple("sha256:" + _digest(payload) for payload in compressed_layers)
     diff_ids = tuple("sha256:" + _digest(payload) for payload in raw_layers)
@@ -552,4 +564,6 @@ def issue_laya_supply_chain(
         checkpoint_payloads=tuple(checkpoint_by_role[role] for role, _path in checkpoint_files),
         layer_payloads=compressed_layers,
         provenance_payloads=provenance_payloads,
+        control_payloads=(layout_bytes, index_bytes),
+        blob_payloads=blob_payloads,
     )
