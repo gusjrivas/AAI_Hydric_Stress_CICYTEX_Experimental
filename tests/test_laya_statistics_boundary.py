@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import importlib
 import inspect
+from dataclasses import replace
 
 import pytest
 
@@ -285,6 +286,60 @@ def test_issued_evidence_snapshot_rejects_nested_aggregate_and_profile_tamper(
             with pytest.raises(ValueError) as caught:
                 module._require_issued_mechanical_statistics(evidence)
             _assert_private_failure(caught.value, forged)
+        finally:
+            object.__setattr__(target, field, original)
+        assert module._require_issued_mechanical_statistics(evidence) is evidence
+
+
+def test_require_rechecks_binding_after_parent_receipt_validation(monkeypatch, tmp_path):
+    runner, protocol, _receipts = _executed_protocol(monkeypatch, tmp_path)
+    module = _module()
+    _authorize(module, monkeypatch)
+    evidence = module._run_laya_mechanical_statistics_fixture(protocol)
+    original_profile = evidence.fixture_profile_id
+    real_sealed = runner._sealed_human_loso_mechanical_batches
+    calls = []
+
+    def mutate_after_precheck(value):
+        calls.append(value)
+        object.__setattr__(evidence, "fixture_profile_id", "forged-during-revalidation")
+        return real_sealed(value)
+
+    monkeypatch.setattr(runner, "_sealed_human_loso_mechanical_batches", mutate_after_precheck)
+    try:
+        with pytest.raises(ValueError) as caught:
+            module._require_issued_mechanical_statistics(evidence)
+        _assert_private_failure(caught.value, "forged-during-revalidation")
+    finally:
+        object.__setattr__(evidence, "fixture_profile_id", original_profile)
+    assert calls == [protocol]
+
+
+def test_issued_snapshot_preserves_exact_bool_int_and_float_types(monkeypatch, tmp_path):
+    _runner, protocol, _receipts = _executed_protocol(monkeypatch, tmp_path)
+    module = _module()
+    _authorize(module, monkeypatch)
+    real_raw_metrics = module._raw_metrics
+
+    def exact_one_accuracy(rows, *, source):
+        result = real_raw_metrics(rows, source=source)
+        return replace(result, accuracy=1.0) if source == "laya" else result
+
+    monkeypatch.setattr(module, "_raw_metrics", exact_one_accuracy)
+    evidence = module._run_laya_mechanical_statistics_fixture(protocol)
+    assert type(evidence.raw_laya.accuracy) is float
+    assert evidence.raw_laya.accuracy == 1.0
+    mutations = (
+        (evidence, "scientifically_sufficient", 0),
+        (evidence.raw_laya, "accuracy", True),
+    )
+    for target, field, forged in mutations:
+        original = getattr(target, field)
+        object.__setattr__(target, field, forged)
+        try:
+            with pytest.raises(ValueError) as caught:
+                module._require_issued_mechanical_statistics(evidence)
+            _assert_private_failure(caught.value)
         finally:
             object.__setattr__(target, field, original)
         assert module._require_issued_mechanical_statistics(evidence) is evidence
