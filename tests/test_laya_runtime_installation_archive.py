@@ -384,6 +384,60 @@ def test_docker_managed_projection_rejects_unsafe_source_topology(nodes):
         module._rootfs_entries(nodes)
 
 
+def test_symlink_parent_traversal_is_anchored_at_rootfs_root():
+    from human_feedback.adapters import runtime_installation_archive as module
+
+    direct = SimpleNamespace(
+        path="a/b",
+        typeflag="2",
+        mode=0o777,
+        size_bytes=0,
+        link_target="../../etc/hostname",
+    )
+    bridge = SimpleNamespace(
+        path="bridge",
+        typeflag="2",
+        mode=0o777,
+        size_bytes=0,
+        link_target="../../etc",
+    )
+    via_component = SimpleNamespace(
+        path="a/c",
+        typeflag="2",
+        mode=0o777,
+        size_bytes=0,
+        link_target="../../bridge/hostname",
+    )
+    etc = SimpleNamespace(path="etc", typeflag="5", mode=0o755, size_bytes=0, link_target=None)
+    deep = SimpleNamespace(
+        path="etc/deep", typeflag="5", mode=0o755, size_bytes=0, link_target=None
+    )
+    nested_bridge = SimpleNamespace(
+        path="a", typeflag="2", mode=0o777, size_bytes=0, link_target="etc/deep"
+    )
+    parent_after_symlink = SimpleNamespace(
+        path="b",
+        typeflag="2",
+        mode=0o777,
+        size_bytes=0,
+        link_target="a/../hostname",
+    )
+
+    assert module._resolved_symlink_target(direct, {direct.path: direct}) == "etc/hostname"
+    namespace = {node.path: node for node in (bridge, via_component)}
+    assert module._resolved_symlink_target(via_component, namespace) == "etc/hostname"
+    nested_namespace = {
+        node.path: node for node in (etc, deep, nested_bridge, parent_after_symlink)
+    }
+    assert module._resolved_symlink_target(parent_after_symlink, nested_namespace) == "etc/hostname"
+    with pytest.raises(module.RuntimeInstallationArchiveError):
+        module._rootfs_entries((direct,))
+    with pytest.raises(module.RuntimeInstallationArchiveError):
+        module._rootfs_entries((bridge, via_component))
+    with pytest.raises(module.RuntimeInstallationArchiveError):
+        module._rootfs_entries((etc, deep, nested_bridge, parent_after_symlink))
+
+
 def test_source_bytes_replaced_by_projection_are_still_hashed_read_only(tmp_path):
     from human_feedback.adapters import runtime_installation_archive as module
 
