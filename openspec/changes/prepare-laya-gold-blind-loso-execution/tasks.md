@@ -27,8 +27,8 @@ corpus/holdout execution, positive scientific authority or publication.
 
 - [x] 2.1 RED/GREEN zero-consume scientific preflight and gold-blind port.
 - [x] 2.2 RED/GREEN per-fold state machine, phase release, exact coverage and resume.
-- [ ] 2.3 RED/GREEN separately versioned fixed offline stdin/stdout adapter.
-- [ ] 2.4 RED/GREEN lease/cleanup/fault/privacy/concurrency and private receipts.
+- [x] 2.3 RED/GREEN separately versioned fixed offline stdin/stdout adapter.
+- [x] 2.4 RED/GREEN lease/cleanup/fault/privacy/concurrency and private receipts.
 - [ ] 2.5 Mechanical-only integration verification with fixed synthetic fixtures.
 
 Pure preparation only (rebased SHAs): runner RED `3c44e55` -> GREEN `9aa76c0`;
@@ -54,16 +54,36 @@ synthetic bytes and Python only, not Laya or a scientific corpus. A first attemp
 used a mismatched test timeout and was corrected without changing production.
 
 Engine review then found a P1 response-descriptor leak on invalid upgrade / begin
-failure. Its correction and independent re-audit remain REQUIRED before adapter
-acceptance. Concrete runtime-bound port RED `d5e4e8f` has 14 expected missing-module
-failures; GREEN and lease/cleanup integration are still in progress. No scientific
-execution is implied by any mechanical or transport gate.
+failure: RED `dee173c` (5 causal failures) -> GREEN `c0ff8bc`, independent GO,
+21 focal and 73 legacy tests passed. Fresh real transport repeat after this fix:
+2 passed in 3.50 seconds; no fixture child remained.
+
+Concrete runtime-bound port RED `d5e4e8f` -> GREEN `14189aa`: 14 focal tests
+passed; independent peer GO without P0/P1/P2, 14 passed in 50.64 seconds.
+Separate test-oracle corrections `9184d2a` / `c828195` preserve valid fixture
+digests and mirror the real keyword-only engine signature, not production changes.
+Mechanical end-to-end wiring `37b3c2e`: real runner/port/codec/registered lease,
+fake Docker backend only, 3 folds / 6 ordered batches; focal 1 passed in 6.18 s,
+combined runner/port 33 passed in 53.82 s. Replay is idempotent and public preflight
+consumes nothing. Linux non-root/network-none new-code suite before that final
+integration test: 107 passed / 3 opt-in skips in 54.73 s. No skip is real PASS.
+Ruff/Black 16 changed Python files, strict OpenSpec and diff checks passed.
+No scientific execution is implied by any mechanical or transport gate.
 
 ## 3. Technical acceptance
 
 - [ ] 3.1 Historical/site/mock/backend/quality regression gates.
 - [ ] 3.2 Independent critique/audit, no open P0/P1/P2, exact-head CI.
-- [ ] 3.3 Record implementation status separately from scientific BLOCKED status.
+- [x] 3.3 Record implementation status separately from scientific BLOCKED status.
+
+Final acceptance remains pending: the genuine pinned-runtime gate uses only two
+fixed synthetic comments, never corpus/holdout data, fitting or scoring. It and
+exact-head CI must both PASS on one frozen SHA before merge, alongside independent
+review. Any tree change invalidates the acceptance runs. Commands/results and the
+exact SHA are recorded in the PR/checkpoint; result-dependent checkboxes stay open
+until the first PR43 documentation commit records the already-observed evidence.
+The change is not archived early. This avoids a duplicate documentation-only CI
+without skipping any executable or audit gate.
 
 ## 4. Scientific execution — explicitly BLOCKED, never inferred from fixtures
 
