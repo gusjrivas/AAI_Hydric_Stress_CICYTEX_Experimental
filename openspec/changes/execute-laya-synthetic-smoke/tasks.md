@@ -53,3 +53,15 @@ Unit GREEN, still unpublished and blocked on 1.5 for integration:
 - Ruff, Black and diff checks passed. No daemon, network or model execution was
   performed in these unit slices. This evidence is not real inference acceptance;
   repeat focal/static checks after rebasing to the exact PR40 merge commit.
+
+Closed engine unit preparation: RED `0cf1209` had 7 missing-API failures. Binary
+log fixture correction `ad3c249` fixed a test oracle, not production behavior.
+GREEN `0720896` passed 70 new/existing fake-transport tests. Adversarial additions
+`644005e` passed 10 focal / 73 combined tests and independent GO without open
+P0/P1/P2. Profile crossover, lost-response wrong-profile reconciliation and exact
+post-run cleanup are covered. This slice never invoked Docker or a model. The
+2.3 positive issuer/orchestration and all real acceptance remain incomplete.
+
+Root verification on reviewed unit preparation `cb8f81f`: 96 combined Linux
+non-root core/lease/probe/materialization tests passed in 144.17 seconds. This
+does not replace post-merge rebasing and exact-head verification.
