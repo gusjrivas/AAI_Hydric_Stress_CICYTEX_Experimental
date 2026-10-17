@@ -3,8 +3,15 @@
 - [x] 1.1 Read existing corpus/split/preregistration/execution contracts and ADR-0014.
 - [x] 1.2 Independent scope decision: implement runner mechanics, no scientific claims.
 - [ ] 1.3 PR41 accepted/merged; exact merge rebase and repeated gates.
-- [ ] 1.4 RED/GREEN exact-issued preregistration authority; v1 regressions unchanged.
-- [ ] 1.5 RED/GREEN pure bound execution protocol and privacy-safe projection.
+- [x] 1.4 RED/GREEN exact-issued preregistration authority; v1 regressions unchanged.
+- [x] 1.5 RED/GREEN pure bound execution protocol and privacy-safe projection.
+
+Preparation evidence: authority RED `246eb2e` -> GREEN `61157aa`; protocol RED
+`7955f94` -> GREEN `2eaebcf`. Independent critique found one concurrent issuance
+replacement defect: causal RED `c93cb04` -> GREEN `c38f7b4`. Integrated bounded
+regression: 145 passed; independent re-audit: 95 passed, Ruff/Black/diff PASS,
+GO with no open P0/P1/P2 in this authority/protocol scope. This does not accept
+the still-unimplemented runner/adapter or satisfy dependency 1.3.
 
 Only isolated pure/unit preparation is permitted before 1.3; no real inference,
 corpus/holdout execution, positive scientific authority or publication.
