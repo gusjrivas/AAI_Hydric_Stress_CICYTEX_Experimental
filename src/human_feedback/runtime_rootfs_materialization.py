@@ -23,9 +23,38 @@ __all__ = (
 MATERIALIZATION_PROFILE = "nonroot-disposable-v1"
 MATERIALIZATION_CLAIMS = _MappingProxyType(
     {
+        "artifact_integrity_verified": True,
+        "oci_manifest_semantics_verified": True,
+        "oci_layout_controls_bytes_verified": True,
+        "oci_blob_inventory_verified": True,
+        "oci_same_root_capture_verified": True,
+        "oci_manifest_blob_bytes_verified": True,
+        "oci_config_blob_bytes_verified": True,
+        "oci_layer_blobs_bytes_verified": True,
+        "oci_bytes_verified": True,
+        "oci_config_semantics_verified": True,
+        "oci_layer_diff_ids_verified": True,
+        "base_ancestry_verified": True,
+        "runtime_config_semantics_verified": True,
+        "checkpoint_manifest_semantics_verified": True,
+        "checkpoint_bytes_verified": True,
+        "provenance_objects_verified": True,
+        "source_git_content_verified": True,
+        "checkpoint_git_content_verified": True,
+        "source_license_declaration_observed": True,
+        "checkpoint_license_declaration_observed": True,
+        "runtime_supply_content_convergence_verified": True,
         "tar_semantics_verified": True,
         "oci_rootfs_verified": True,
         "rootfs_materialized": True,
+        "lock_verified": False,
+        "sbom_verified": False,
+        "lock_sbom_consistent": False,
+        "origin_verified": False,
+        "license_verified": False,
+        "runtime_build_recipe_verified": False,
+        "build_process_attested": False,
+        "reproducible_build_verified": False,
         "runtime_materialized": False,
         "executor_available": False,
         "inference_executed": False,
@@ -39,12 +68,22 @@ _EVIDENCE_TOKEN = object()
 
 
 class _IssuedEvidenceRecord:
-    __slots__ = ("reference", "plan", "commitment")
+    __slots__ = (
+        "reference",
+        "plan",
+        "commitment",
+        "rootfs_evidence",
+        "supply_evidence",
+        "runtime_identity",
+    )
 
     def __init__(self, reference, plan, commitment: str) -> None:
         self.reference = reference
         self.plan = plan
         self.commitment = commitment
+        self.rootfs_evidence = plan._rootfs_evidence
+        self.supply_evidence = plan._supply_evidence
+        self.runtime_identity = plan._runtime_identity
 
 
 _ISSUED_EVIDENCE: dict[int, _IssuedEvidenceRecord] = {}
@@ -106,9 +145,38 @@ class LayaRuntimeRootfsMaterializationEvidence:
     _content_manifest_sha256: str = _field(repr=False)
     _factory_token: _InitVar[object]
     materialization_profile: str = _field(default=MATERIALIZATION_PROFILE, init=False)
+    artifact_integrity_verified: bool = _field(default=True, init=False)
+    oci_manifest_semantics_verified: bool = _field(default=True, init=False)
+    oci_layout_controls_bytes_verified: bool = _field(default=True, init=False)
+    oci_blob_inventory_verified: bool = _field(default=True, init=False)
+    oci_same_root_capture_verified: bool = _field(default=True, init=False)
+    oci_manifest_blob_bytes_verified: bool = _field(default=True, init=False)
+    oci_config_blob_bytes_verified: bool = _field(default=True, init=False)
+    oci_layer_blobs_bytes_verified: bool = _field(default=True, init=False)
+    oci_bytes_verified: bool = _field(default=True, init=False)
+    oci_config_semantics_verified: bool = _field(default=True, init=False)
+    oci_layer_diff_ids_verified: bool = _field(default=True, init=False)
+    base_ancestry_verified: bool = _field(default=True, init=False)
+    runtime_config_semantics_verified: bool = _field(default=True, init=False)
+    checkpoint_manifest_semantics_verified: bool = _field(default=True, init=False)
+    checkpoint_bytes_verified: bool = _field(default=True, init=False)
+    provenance_objects_verified: bool = _field(default=True, init=False)
+    source_git_content_verified: bool = _field(default=True, init=False)
+    checkpoint_git_content_verified: bool = _field(default=True, init=False)
+    source_license_declaration_observed: bool = _field(default=True, init=False)
+    checkpoint_license_declaration_observed: bool = _field(default=True, init=False)
+    runtime_supply_content_convergence_verified: bool = _field(default=True, init=False)
     tar_semantics_verified: bool = _field(default=True, init=False)
     oci_rootfs_verified: bool = _field(default=True, init=False)
     rootfs_materialized: bool = _field(default=True, init=False)
+    lock_verified: bool = _field(default=False, init=False)
+    sbom_verified: bool = _field(default=False, init=False)
+    lock_sbom_consistent: bool = _field(default=False, init=False)
+    origin_verified: bool = _field(default=False, init=False)
+    license_verified: bool = _field(default=False, init=False)
+    runtime_build_recipe_verified: bool = _field(default=False, init=False)
+    build_process_attested: bool = _field(default=False, init=False)
+    reproducible_build_verified: bool = _field(default=False, init=False)
     runtime_materialized: bool = _field(default=False, init=False)
     executor_available: bool = _field(default=False, init=False)
     inference_executed: bool = _field(default=False, init=False)
@@ -132,8 +200,28 @@ class LayaRuntimeRootfsMaterializationEvidence:
         ):
             raise ValueError("rootfs materialization evidence binding is invalid")
         self._plan.__post_init__(_FACTORY_TOKEN)
+        _validate_predecessor_claim_union(self._plan)
 
     __repr__ = _private_repr
+
+
+def _validate_predecessor_claim_union(
+    plan: LayaRuntimeRootfsMaterializationPlan,
+) -> None:
+    predecessors = (plan._rootfs_evidence, plan._supply_evidence)
+    for claim, expected in MATERIALIZATION_CLAIMS.items():
+        observed = tuple(
+            getattr(predecessor, claim)
+            for predecessor in predecessors
+            if hasattr(predecessor, claim)
+        )
+        if not observed or any(type(value) is not bool for value in observed):
+            raise ValueError("rootfs materialization predecessor claim is invalid")
+        if claim == "rootfs_materialized":
+            if expected is not True or any(observed):
+                raise ValueError("rootfs materialization claim is not newly elevated")
+        elif any(observed) is not expected:
+            raise ValueError("rootfs materialization predecessor claim union is invalid")
 
 
 def _revalidate_plan(value: object) -> LayaRuntimeRootfsMaterializationPlan:
@@ -156,6 +244,7 @@ def _revalidate_plan(value: object) -> LayaRuntimeRootfsMaterializationPlan:
         or rebuilt.inference_executed is not value.inference_executed
     ):
         raise ValueError("rootfs materialization plan revalidation failed")
+    _validate_predecessor_claim_union(value)
     return value
 
 
@@ -175,6 +264,9 @@ def _register_issued_evidence(
                 retained_plan = current.plan
                 current.plan = None
                 current.commitment = ""
+                current.rootfs_evidence = None
+                current.supply_evidence = None
+                current.runtime_identity = None
                 _ISSUED_EVIDENCE.pop(identity, None)
         del retained_plan
 
@@ -197,6 +289,9 @@ def _require_issued_evidence(
             or record.reference() is not evidence
             or record.plan is not evidence._plan
             or record.commitment != evidence._content_manifest_sha256
+            or record.rootfs_evidence is not evidence._plan._rootfs_evidence
+            or record.supply_evidence is not evidence._plan._supply_evidence
+            or record.runtime_identity is not evidence._plan._runtime_identity
         ):
             raise ValueError("rootfs materialization evidence lacks issued authority")
     _revalidate_plan(evidence._plan)
@@ -207,9 +302,31 @@ def _require_issued_evidence(
             or current.reference() is not evidence
             or current.plan is not evidence._plan
             or current.commitment != evidence._content_manifest_sha256
+            or current.rootfs_evidence is not evidence._plan._rootfs_evidence
+            or current.supply_evidence is not evidence._plan._supply_evidence
+            or current.runtime_identity is not evidence._plan._runtime_identity
         ):
             raise ValueError("rootfs materialization evidence authority changed")
     return evidence
+
+
+def _revoke_evidence(evidence: object) -> None:
+    """Revoke one exact issued authority after owned filesystem disposal."""
+
+    value = _require_issued_evidence(evidence)
+    retained_plan = None
+    with _ISSUANCE_LOCK:
+        record = _ISSUED_EVIDENCE.get(id(value))
+        if record is None or record.reference() is not value:
+            raise ValueError("rootfs materialization evidence revocation is invalid")
+        retained_plan = record.plan
+        record.plan = None
+        record.commitment = ""
+        record.rootfs_evidence = None
+        record.supply_evidence = None
+        record.runtime_identity = None
+        _ISSUED_EVIDENCE.pop(id(value), None)
+    del retained_plan
 
 
 def prepare_laya_runtime_rootfs_materialization_plan(

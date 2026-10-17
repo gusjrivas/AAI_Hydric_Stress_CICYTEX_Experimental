@@ -7,6 +7,44 @@ from types import MappingProxyType
 
 import pytest
 
+EXPECTED_MATERIALIZATION_CLAIMS = {
+    "artifact_integrity_verified": True,
+    "oci_manifest_semantics_verified": True,
+    "oci_layout_controls_bytes_verified": True,
+    "oci_blob_inventory_verified": True,
+    "oci_same_root_capture_verified": True,
+    "oci_manifest_blob_bytes_verified": True,
+    "oci_config_blob_bytes_verified": True,
+    "oci_layer_blobs_bytes_verified": True,
+    "oci_bytes_verified": True,
+    "oci_config_semantics_verified": True,
+    "oci_layer_diff_ids_verified": True,
+    "base_ancestry_verified": True,
+    "runtime_config_semantics_verified": True,
+    "checkpoint_manifest_semantics_verified": True,
+    "checkpoint_bytes_verified": True,
+    "provenance_objects_verified": True,
+    "source_git_content_verified": True,
+    "checkpoint_git_content_verified": True,
+    "source_license_declaration_observed": True,
+    "checkpoint_license_declaration_observed": True,
+    "runtime_supply_content_convergence_verified": True,
+    "tar_semantics_verified": True,
+    "oci_rootfs_verified": True,
+    "rootfs_materialized": True,
+    "lock_verified": False,
+    "sbom_verified": False,
+    "lock_sbom_consistent": False,
+    "origin_verified": False,
+    "license_verified": False,
+    "runtime_build_recipe_verified": False,
+    "build_process_attested": False,
+    "reproducible_build_verified": False,
+    "runtime_materialized": False,
+    "executor_available": False,
+    "inference_executed": False,
+}
+
 
 def _clone_exact(value, **changes):
     clone = object.__new__(type(value))
@@ -76,14 +114,8 @@ def test_rootfs_materialization_claim_profile_is_closed_and_conservative():
     module = importlib.import_module("human_feedback.runtime_rootfs_materialization")
 
     assert module.MATERIALIZATION_PROFILE == "nonroot-disposable-v1"
-    assert module.MATERIALIZATION_CLAIMS == {
-        "tar_semantics_verified": True,
-        "oci_rootfs_verified": True,
-        "rootfs_materialized": True,
-        "runtime_materialized": False,
-        "executor_available": False,
-        "inference_executed": False,
-    }
+    assert module.MATERIALIZATION_CLAIMS == EXPECTED_MATERIALIZATION_CLAIMS
+    assert len(module.MATERIALIZATION_CLAIMS) == 35
 
 
 def test_materialization_claims_are_public_but_immutable():
@@ -193,7 +225,7 @@ def test_private_sealer_issues_summary_authority_without_leaking_commitment(monk
     assert payload == {
         "schema_version": "laya-runtime-rootfs-materialization-evidence-v1",
         "materialization_profile": "nonroot-disposable-v1",
-        **dict(module.MATERIALIZATION_CLAIMS),
+        **EXPECTED_MATERIALIZATION_CLAIMS,
     }
 
 
@@ -243,5 +275,32 @@ def test_summary_rejects_postseal_commitment_plan_and_predecessor_mutation(monke
 
     rootfs, _plan, evidence = issue()
     object.__setattr__(rootfs, "rootfs_manifest_sha256", "f" * 64)
+    with pytest.raises((TypeError, ValueError)):
+        module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
+
+
+def test_dispose_revocation_removes_summary_authority(monkeypatch):
+    module = importlib.import_module("human_feedback.runtime_rootfs_materialization")
+    _chain, rootfs, supply = _paired_authorities(monkeypatch)
+    plan = module.prepare_laya_runtime_rootfs_materialization_plan(rootfs, supply)
+    evidence = module._seal_laya_runtime_rootfs_materialization_evidence(plan, "a" * 64)
+    module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
+
+    assert module._revoke_evidence(evidence) is None
+    with pytest.raises((TypeError, ValueError)):
+        module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
+
+
+def test_registry_rejects_rebinding_issued_plan_to_another_valid_pair(monkeypatch):
+    module = importlib.import_module("human_feedback.runtime_rootfs_materialization")
+    _left_chain, left_rootfs, left_supply = _paired_authorities(monkeypatch)
+    plan = module.prepare_laya_runtime_rootfs_materialization_plan(left_rootfs, left_supply)
+    evidence = module._seal_laya_runtime_rootfs_materialization_evidence(plan, "b" * 64)
+    _right_chain, right_rootfs, right_supply = _paired_authorities(monkeypatch)
+
+    object.__setattr__(plan, "_rootfs_evidence", right_rootfs)
+    object.__setattr__(plan, "_supply_evidence", right_supply)
+    object.__setattr__(plan, "_runtime_identity", right_rootfs.runtime_identity)
+
     with pytest.raises((TypeError, ValueError)):
         module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
