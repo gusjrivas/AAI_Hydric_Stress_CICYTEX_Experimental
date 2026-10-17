@@ -18,6 +18,16 @@
 
 ## 4. Gates
 
-- [ ] 4.1 Pass focal, predecessor, historical and mock-sensor regressions.
-- [ ] 4.2 Pass Ruff, Black, OpenSpec strict and Linux CI.
-- [ ] 4.3 Obtain independent critic and mechanical GO on the exact SHA.
+- [x] 4.1 Pass focal, predecessor, historical and mock-sensor regressions.
+- [x] 4.2 Pass Ruff, Black, OpenSpec strict and Linux CI.
+- [x] 4.3 Obtain independent critic and mechanical GO on the exact SHA.
+
+PR39 merged on 2026-10-17: reviewed executable SHA
+`841f6fe6a8daa8868e74ae36d57565b9858d0644`, CI 15/15 green,
+independent GO P0/P1/P2=0; main merge
+`4f6e19b839949b90180849f65339a693a991e0cb`.
+Local Linux gate: 350 passed, 30 external opt-in skips; backend 251 passed,
+1 skipped; historical runners 31 passed; CICYTEX/mock 82 passed.
+Full remote Python/backend/frontend/contract/container gates passed on the
+reviewed SHA. Real OCI mapping was reverified separately (56,114 logical nodes);
+no real checkpoint/runtime execution or scientific acceptance is claimed by PR39.
