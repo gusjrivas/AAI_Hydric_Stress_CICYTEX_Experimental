@@ -445,6 +445,197 @@ def test_unix_transport_bounds_control_responses_and_rejects_nonlocal_request_sh
         transport.request("GET", "http://remote/version", response_limit=4, timeout=1.0)
 
 
+def test_control_response_uses_read1_and_total_deadline_across_fragments(monkeypatch):
+    from human_feedback.adapters import local_docker_engine as module
+
+    clock = {"now": 0.0}
+
+    class Watchdog:
+        def __init__(self, _connection, _deadline):
+            self.expired = False
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    class Response:
+        status = 200
+
+        def read1(self, _size):
+            clock["now"] += 0.4
+            return b"x"
+
+        def read(self, _size):
+            pytest.fail("HTTPResponse must use read1 for bounded fragmented reads")
+
+    class Connection:
+        instance = None
+
+        def __init__(self, timeout):
+            self.timeout = timeout
+            self.sock = None
+            self.closed = False
+            Connection.instance = self
+
+        def request(self, *_args, **_kwargs):
+            pass
+
+        def getresponse(self):
+            return Response()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(module, "_DeadlineWatchdog", Watchdog)
+    monkeypatch.setattr(module, "_UnixSocketHTTPConnection", Connection)
+    monkeypatch.setattr(module.http.client, "HTTPResponse", Response)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock["now"])
+
+    with pytest.raises(module.LocalDockerEngineError, match="deadline"):
+        module._LocalUnixTransport().request("GET", "/version", response_limit=16, timeout=1.0)
+    assert Connection.instance.closed is True
+
+
+@pytest.mark.parametrize("operation", ["request", "upload", "export"])
+def test_total_deadline_includes_response_headers_for_every_transport_path(monkeypatch, operation):
+    from human_feedback.adapters import local_docker_engine as module
+
+    clock = {"now": 0.0}
+
+    class Watchdog:
+        instances = []
+
+        def __init__(self, _connection, _deadline):
+            self.expired = False
+            self.cancelled = False
+            self.instances.append(self)
+
+        def cancel(self):
+            self.cancelled = True
+
+    class Response:
+        status = 200
+
+        def read(self, _size):
+            return b""
+
+    class Connection:
+        instance = None
+
+        def __init__(self, timeout):
+            self.timeout = timeout
+            self.sock = None
+            self.closed = False
+            Connection.instance = self
+
+        def request(self, *_args, **_kwargs):
+            pass
+
+        def putrequest(self, *_args):
+            pass
+
+        def putheader(self, *_args):
+            pass
+
+        def endheaders(self):
+            pass
+
+        def send(self, _payload):
+            pass
+
+        def getresponse(self):
+            clock["now"] = 2.0
+            return Response()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(module, "_DeadlineWatchdog", Watchdog)
+    monkeypatch.setattr(module, "_UnixSocketHTTPConnection", Connection)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock["now"])
+    transport = module._LocalUnixTransport()
+
+    with pytest.raises(module.LocalDockerEngineError, match="deadline"):
+        if operation == "request":
+            transport.request("GET", "/version", response_limit=16, timeout=1.0)
+        elif operation == "upload":
+            transport.upload_producer(
+                "/v1.44/images/create?fromSrc=-",
+                _write_all(b"tar"),
+                total_limit=module._ARCHIVE_BYTES_LIMIT,
+                response_limit=module._CONTROL_RESPONSE_LIMIT,
+                timeout=1.0,
+                headers={"Content-Type": "application/x-tar"},
+            )
+        else:
+            transport.open_stream(
+                f"/v1.44/containers/{CONTAINER_ID}/export",
+                byte_limit=module._ARCHIVE_BYTES_LIMIT,
+                timeout=1.0,
+            )
+    assert Connection.instance.closed is True
+    assert Watchdog.instances[-1].cancelled is True
+
+
+def test_deadline_watchdog_shutdown_close_and_cancel_leave_no_live_timer():
+    from human_feedback.adapters import local_docker_engine as module
+
+    class Descriptor:
+        def __init__(self):
+            self.shutdowns = []
+
+        def shutdown(self, how):
+            self.shutdowns.append(how)
+
+    class Connection:
+        def __init__(self):
+            self.sock = Descriptor()
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    watchdog = module._DeadlineWatchdog(connection, module.time.monotonic() + 0.01)
+    assert watchdog._expired.wait(1.0)
+    watchdog.cancel()
+    assert connection.sock.shutdowns == [module.socket.SHUT_RDWR]
+    assert connection.closed is True
+    assert watchdog._timer.is_alive() is False
+
+    cancelled_connection = Connection()
+    cancelled = module._DeadlineWatchdog(cancelled_connection, module.time.monotonic() + 60.0)
+    cancelled.cancel()
+    assert cancelled._timer.is_alive() is False
+    assert cancelled_connection.closed is False
+
+
+def test_expired_watchdog_closes_its_real_socket_descriptor():
+    from human_feedback.adapters import local_docker_engine as module
+
+    owned, peer = module.socket.socketpair()
+
+    class Connection:
+        def __init__(self, descriptor):
+            self.sock = descriptor
+
+        def close(self):
+            descriptor, self.sock = self.sock, None
+            if descriptor is not None:
+                descriptor.close()
+
+    try:
+        connection = Connection(owned)
+        watchdog = module._DeadlineWatchdog(connection, module.time.monotonic() + 0.01)
+        assert watchdog._expired.wait(1.0)
+        watchdog.cancel()
+        assert owned.fileno() == -1
+        assert watchdog._timer.is_alive() is False
+    finally:
+        owned.close()
+        peer.close()
+
+
 def test_chunked_upload_is_push_streamed_with_short_writes_and_exact_count(monkeypatch):
     from human_feedback.adapters import local_docker_engine as module
 
