@@ -15,6 +15,9 @@
 /tests/fixtures/laya/runtime_oci/oci-manifest.json -text
 /tests/fixtures/laya/runtime_oci_layout/oci-layout -text
 /tests/fixtures/laya/runtime_oci_layout/index.json -text
+/tests/fixtures/laya/runtime_base_ancestry/root.json -text
+/tests/fixtures/laya/runtime_base_ancestry/linux-amd64-manifest.json -text
+/tests/fixtures/laya/runtime_base_ancestry/linux-amd64-config.json -text
 
 # OpenAPI TypeScript artifacts are content-addressed and must retain exact LF bytes.
 /frontend/src/api/generated/manifest.json -text

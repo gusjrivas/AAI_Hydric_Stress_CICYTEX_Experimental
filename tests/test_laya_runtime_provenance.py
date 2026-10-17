@@ -1429,7 +1429,7 @@ def test_evidence_claims_and_summary_remain_conservative_private_and_deep():
     assert all(term not in summary_source for term in ('"path"', '"sha1"', '"sha256"', '"payload"'))
 
 
-def test_module_is_pure_and_has_no_productive_callers():
+def test_module_is_pure_and_has_only_the_pr37_convergence_caller():
     provenance = _provenance()
     source = Path(provenance.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -1519,4 +1519,4 @@ def test_module_is_pure_and_has_no_productive_callers():
                 ):
                     offenders.append(path.as_posix())
                     break
-    assert offenders == []
+    assert offenders == ["src/human_feedback/runtime_supply_convergence.py"]

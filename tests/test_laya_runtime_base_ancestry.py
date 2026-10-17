@@ -1581,7 +1581,7 @@ def test_issuance_registries_cleanup_and_deterministically_reject_stale_id_recor
     assert {name: len(registry) for name, registry in registries.items()} == baseline
 
 
-def test_module_has_no_product_callers_or_lateral_pr35_dependency():
+def test_module_has_only_the_pr37_convergence_caller_and_no_lateral_pr35_dependency():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_base_ancestry.py"
     forbidden_symbols = {
@@ -1601,7 +1601,7 @@ def test_module_has_no_product_callers_or_lateral_pr35_dependency():
             source = path.read_text(encoding="utf-8")
             if any(symbol in source for symbol in forbidden_symbols):
                 offenders.append(path.relative_to(repository).as_posix())
-    assert offenders == []
+    assert offenders == ["src/human_feedback/runtime_supply_convergence.py"]
     if owner.is_file():
         source = owner.read_text(encoding="utf-8")
         assert "runtime_provenance" not in source
