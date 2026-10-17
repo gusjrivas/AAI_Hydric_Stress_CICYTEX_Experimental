@@ -28,9 +28,9 @@ its exact child/intents. Scientific readiness and productive callers stay off.
 ## 3. Acceptance
 
 - [x] 3.1 Synthetic failure/resource/schema/privacy regression gates.
-- [ ] 3.2 Explicit real pinned smoke acceptance without scientific data.
-- [ ] 3.3 Historical/site/mock/backend/quality regressions.
-- [ ] 3.4 Independent critique/audit and exact-SHA CI; no open P0/P1/P2.
+- [x] 3.2 Explicit real pinned smoke acceptance without scientific data.
+- [x] 3.3 Historical/site/mock/backend/quality regressions.
+- [x] 3.4 Independent critique/audit and exact-SHA CI; no open P0/P1/P2.
 
 ## Historical preparation evidence
 
@@ -98,3 +98,27 @@ Independent review identified a test-only import-scanner bypass for `ImportFrom`
 Historical preparation hashes above predate the PR40 rebase; equivalent patches
 are retained in this branch history. Current acceptance uses the frozen source
 and the actual final-head CI/real evidence, not those historical preparations.
+
+## Final executable acceptance — 17 October 2026
+
+- Candidate SHA: `087d0389ac235337d9922e9a0686e601e2db15c1`; its production
+  source is identical to independently reviewed `1a69a27` (GO, no P0/P1/P2).
+- CI `39030095587`: **16/16 PASS** on that exact candidate. Full Python:
+  **3473 passed, 58 skipped in 1035.33 seconds**; Ruff and Black (372 files)
+  passed, along with backend/frontend/API, Linux/Windows, historical/scientific
+  container and runtime contract gates.
+- Fresh original opt-in `test_laya_runtime_execution_real.py`: **1 passed in
+  994.00 seconds (16:34)**. Complete real PR40 predecessor chain, source rootfs,
+  independently verified derivative and offline CPU load were followed by the
+  fixed synthetic execution. Two canonical-equal predictions and the exact
+  schema/profile/35-claim summary passed. Runtime/source were disposed and the
+  private parent was empty. No validation monkeypatch or tracer was used.
+- Trusted helper image:
+  `sha256:90d42f3d776d8d3434982bd00bd815166d496dd3195cea2fa6b6bbcb0d934475`;
+  Docker29.5.2 Linux/amd64. Child isolation remained closed and host-mount-free.
+- Only synthetic executor/inference capability is established. No human corpus,
+  scientific evaluation, calibration, sufficiency, shadow or production is
+  asserted. Corpus remains `BLOCKED_CORPUS_NOT_PROVIDED`.
+- This closing change is documentation only. Its own checks and documentary
+  review must pass before merge; no second model run is required for unchanged
+  production source. The working local Codebase Memory artifacts are not staged.
