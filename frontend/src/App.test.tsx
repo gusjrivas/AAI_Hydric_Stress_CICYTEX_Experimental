@@ -179,6 +179,30 @@ describe("App — navegación por hash (Entrega 2)", () => {
     expect(screen.getByRole("link", { name: "Reproducción histórica" })).toBeInTheDocument();
   });
 
+  it("shows the architecture view as its own destination with the design-documentation mode", async () => {
+    window.location.hash = "#arquitectura";
+    render(<App />);
+    expect(screen.getByRole("heading", { name: "Arquitectura del sistema", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(/documentación de diseño/i);
+    const primary = screen.getByRole("navigation", { name: /secciones principales/i });
+    expect(within(primary).getByRole("link", { name: "Arquitectura" })).toHaveAttribute("aria-current", "page");
+    expect(within(primary).getByRole("link", { name: "Herramientas técnicas" })).not.toHaveAttribute("aria-current");
+    // El mapa deja de estar escondido en un <details> colapsado de Herramientas.
+    expect(screen.getByRole("navigation", { name: /etapas de la arquitectura/i })).toBeVisible();
+  });
+
+  it.each([
+    ["#defensa-cicytex", /replay histórico/i],
+    ["#laboratorio-sensores", /laboratorio sintético/i],
+    ["#productor", /operación/i],
+  ])("labels the mode of %s so replay, lab and operation are never confused", async (hash, text) => {
+    window.location.hash = hash;
+    vi.spyOn(catalogApi, "listSectors").mockResolvedValue({ items: [], next_cursor: null });
+    vi.spyOn(catalogApi, "listSensors").mockResolvedValue({ items: [], next_cursor: null });
+    render(<App />);
+    expect(screen.getAllByRole("note").some((note) => text.test(note.textContent ?? ""))).toBe(true);
+  });
+
   it("opens the Evidencia section with the governance status visible", async () => {
     window.location.hash = "#evidencia-resultados";
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));

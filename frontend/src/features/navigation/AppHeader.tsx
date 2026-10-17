@@ -54,6 +54,16 @@ const PRIMARY_ITEMS: PrimaryItem[] = [
     ),
   },
   {
+    group: "arquitectura",
+    href: "#arquitectura",
+    label: "Arquitectura",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M4 5h6v5H4zM14 5h6v5h-6zM9 14h6v5H9zM7 10v2h10v-2M12 12v2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     group: "herramientas",
     href: "#resumen",
     label: "Herramientas técnicas",
