@@ -169,14 +169,16 @@ def _open_directory_chain(components: tuple[str, ...]) -> int:
 def _create_staging(parent_fd: int) -> tuple[str, int, tuple[int, int]]:
     name = ".laya-staging-" + secrets.token_hex(16)
     os.mkdir(name, STAGING_MODE, dir_fd=parent_fd)
+    descriptor = None
     try:
         descriptor = os.open(name, _directory_flags(), dir_fd=parent_fd)
         metadata = os.fstat(descriptor)
         if stat.S_IMODE(metadata.st_mode) != STAGING_MODE or metadata.st_uid != os.geteuid():
-            os.close(descriptor)
             raise RootfsMaterializationError("private staging verification failed")
         return name, descriptor, _inode(metadata)
     except Exception:
+        if descriptor is not None:
+            os.close(descriptor)
         os.rmdir(name, dir_fd=parent_fd)
         raise
 
@@ -195,7 +197,13 @@ def _require_owned_name(parent_fd: int, name: str, descriptor: int, identity: tu
 def _remove_owned_tree(
     parent_fd: int, name: str, descriptor: int, identity: tuple[int, int]
 ) -> None:
-    _require_owned_name(parent_fd, name, descriptor, identity)
+    try:
+        _require_owned_name(parent_fd, name, descriptor, identity)
+    except FileNotFoundError:
+        metadata = os.fstat(descriptor)
+        if _inode(metadata) == identity and metadata.st_nlink == 0:
+            return
+        _raise_private(RootfsMaterializationError, "owned rootfs name disappeared")
     # Keep traversal bounded and descriptor-relative; symlinks are unlinked as leaves.
     remaining = 131072
 
