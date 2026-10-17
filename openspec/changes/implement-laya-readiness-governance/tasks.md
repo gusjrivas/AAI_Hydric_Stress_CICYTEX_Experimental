@@ -49,6 +49,19 @@ Fixture reports evaluate available gates and remain BLOCKED with no scientific,
 shadow or production claim. Raw ECE is not relabeled as calibrated/policy ECE;
 latency remains NOT_EVALUATED, not zero or bootstrap/batch time.
 
+After exact PR43-merge rebase, the same Linux directed regression repeated:
+253 passed in 27.50 seconds. Full source/test Ruff and Black checks passed
+(394 files unchanged). Independent architecture-board scope audit found no open
+P0/P1/P2 and confirmed actual runner/statistical/government mechanics, not a
+constant preflight masquerading as scientific evaluation. Its GO is conditional
+on exact-head PR44 CI and final acceptance, not a human GitHub approval.
+
+Codebase Memory `AAI_Hydric_Stress_PR44_FINAL`, generation 2026-10-17T16:37:04Z:
+21001 nodes / 68031 edges, zero skipped/unusable source parses, five pre-existing
+partial configuration parses and 28 binary images excluded by design. Four
+critical paths reported metadata_changed, so claims used exact source fallback;
+no complete-coverage claim. Both generated caches stay outside the PR.
+
 ## 3. Technical acceptance and handoff
 
 - [ ] 3.1 Directed Linux and historical/site/mock/backend/frontend regressions.
