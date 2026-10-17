@@ -184,7 +184,9 @@ def test_plan_rejects_rebinding_and_deep_parent_mutation_privately(monkeypatch):
         object.__setattr__(runtime, "_image_id", original_image)
 
 
-def test_evidence_is_only_a_private_scaffold_without_positive_issuer(monkeypatch):
+def test_direct_evidence_scaffold_remains_unissued_private_and_outside_public_api(
+    monkeypatch,
+):
     module = importlib.import_module("human_feedback.runtime_execution")
 
     _chain, _supply, runtime, image_id, installation_sha256 = _issued_runtime(
@@ -192,8 +194,8 @@ def test_evidence_is_only_a_private_scaffold_without_positive_issuer(monkeypatch
     )
     plan = module.prepare_laya_runtime_execution_plan(runtime)
 
-    assert "_seal_laya_runtime_execution_evidence" not in vars(module)
     assert "_seal_laya_runtime_execution_evidence" not in module.__all__
+    assert "_issue_laya_runtime_execution_receipt" not in module.__all__
     direct = module.LayaRuntimeExecutionEvidence(
         schema_version="laya-runtime-execution-evidence-v1",
         _plan=plan,
