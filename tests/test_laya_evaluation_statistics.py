@@ -149,6 +149,33 @@ def test_policy_diagnostics_use_selected_probability_fallback_without_calibratio
     assert baseline.mean_cost == 1.0
 
 
+def test_ece_weights_bins_by_row_count_and_places_confidence_one_in_last_bin() -> None:
+    specifications = (
+        (CATEGORIES[0], CATEGORIES[0], 1.0),
+        (CATEGORIES[1], CATEGORIES[1], 0.9),
+        (CATEGORIES[2], CATEGORIES[2], 0.9),
+        (CATEGORIES[4], CATEGORIES[3], 0.6),
+    )
+    rows = tuple(
+        _pair(
+            site_id="cicytex",
+            group_id=f"g-{index}",
+            gold=gold,
+            laya=choice,
+            baseline="unclassified",
+            laya_probabilities=_probabilities(choice, confidence),
+        )
+        for index, (gold, choice, confidence) in enumerate(specifications)
+    )
+
+    metrics = _raw_metrics(rows, source="laya")
+
+    # Bin 9 contains confidences 1.0, 0.9 and 0.9, all correct; bin 6
+    # contains one incorrect prediction at 0.6.  ECE is row-weighted, not
+    # the unweighted average of the two bin errors.
+    assert metrics.ece == pytest.approx(0.2)
+
+
 def test_nearest_rank_interval_has_no_interpolation() -> None:
     values = tuple(float(value) for value in range(1, 41))
 
@@ -203,6 +230,95 @@ def test_paired_cluster_bootstrap_matches_frozen_mt19937_profile() -> None:
         assert summary.replicate_count == 10_000
 
 
+def test_global_estimand_gives_sites_equal_weight_when_row_counts_differ() -> None:
+    rows: list[_MechanicalPair] = []
+    for site, repetitions, laya_is_better in (
+        ("cicytex", 1, True),
+        ("melchor-romero", 20, False),
+        ("pergamino", 2, False),
+    ):
+        for repetition in range(repetitions):
+            for index, gold in enumerate(CATEGORIES):
+                wrong = CATEGORIES[(index + 1) % len(CATEGORIES)]
+                rows.append(
+                    _pair(
+                        site_id=site,
+                        group_id="only-group",
+                        gold=gold,
+                        laya=gold if laya_is_better else gold,
+                        baseline=wrong if laya_is_better else gold,
+                    )
+                )
+
+    summaries = _paired_group_bootstrap(tuple(rows))
+
+    assert summaries[0].hypothesis == "global_equal_site_macro_f1_superiority"
+    assert summaries[0].observed_delta == pytest.approx(1.0 / 3.0)
+
+
+def test_bootstrap_samples_unequal_groups_as_paired_clusters_not_rows() -> None:
+    rows: list[_MechanicalPair] = []
+    for site in REQUIRED_SITES:
+        if site == "cicytex":
+            group_specs = (("small-good", 1, True), ("large-bad", 10, False))
+        else:
+            group_specs = (("only-neutral", 1, None),)
+        for group_id, repetitions, laya_is_better in group_specs:
+            for _ in range(repetitions):
+                for index, gold in enumerate(CATEGORIES):
+                    wrong = CATEGORIES[(index + 1) % len(CATEGORIES)]
+                    if laya_is_better is True:
+                        laya, baseline = gold, wrong
+                    elif laya_is_better is False:
+                        laya, baseline = wrong, gold
+                    else:
+                        laya = baseline = gold
+                    rows.append(
+                        _pair(
+                            site_id=site,
+                            group_id=group_id,
+                            gold=gold,
+                            laya=laya,
+                            baseline=baseline,
+                        )
+                    )
+
+    summaries = _paired_group_bootstrap(tuple(rows))
+    by_hypothesis = {summary.hypothesis: summary for summary in summaries}
+
+    global_summary = by_hypothesis["global_equal_site_macro_f1_superiority"]
+    site_summary = by_hypothesis["cicytex_macro_f1_noninferiority"]
+    assert global_summary.observed_delta == pytest.approx(-3.0 / 11.0)
+    assert (global_summary.lower, global_summary.upper) == pytest.approx((-1.0 / 3.0, 1.0 / 3.0))
+    assert global_summary.tail_probability == pytest.approx(7531 / 10001)
+    assert site_summary.observed_delta == pytest.approx(-9.0 / 11.0)
+    assert (site_summary.lower, site_summary.upper) == (-1.0, 1.0)
+    assert site_summary.tail_probability == pytest.approx(7531 / 10001)
+
+
+def test_tail_probability_counts_replicates_exactly_equal_to_site_margin() -> None:
+    rows: list[_MechanicalPair] = []
+    for site in REQUIRED_SITES:
+        for index, gold in enumerate(CATEGORIES):
+            wrong = CATEGORIES[(index + 1) % len(CATEGORIES)]
+            for repetition in range(50):
+                rows.append(
+                    _pair(
+                        site_id=site,
+                        group_id="only-group",
+                        gold=gold,
+                        laya=wrong,
+                        baseline=gold if repetition == 0 else wrong,
+                    )
+                )
+
+    summaries = _paired_group_bootstrap(tuple(rows))
+
+    for summary in summaries[1:]:
+        assert summary.observed_delta == -0.02
+        assert summary.tail_probability == 1.0
+
+
 def _summary(hypothesis: str, p_value: float) -> _BootstrapSummary:
     return _BootstrapSummary(
         hypothesis=hypothesis,
@@ -248,3 +364,17 @@ def test_holm_stops_after_first_non_rejection() -> None:
 
     assert tuple(item.rejected for item in decisions) == (True, False, False, False)
     assert all(math.isfinite(item.threshold) for item in decisions)
+
+
+def test_holm_rejects_when_p_value_equals_step_down_boundary() -> None:
+    summaries = (
+        _summary("global_equal_site_macro_f1_superiority", 0.0125),
+        _summary("cicytex_macro_f1_noninferiority", 0.0125),
+        _summary("melchor-romero_macro_f1_noninferiority", 0.0125),
+        _summary("pergamino_macro_f1_noninferiority", 0.0125),
+    )
+
+    decisions = _holm_step_down(summaries)
+
+    assert decisions[0].threshold == 0.0125
+    assert all(item.rejected for item in decisions)
