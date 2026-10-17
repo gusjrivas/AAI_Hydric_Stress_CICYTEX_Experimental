@@ -20,7 +20,7 @@
 - [x] 3.3 Predecessor, historical/site/mock, backend and quality regressions.
 - [x] 3.4 Independent critic/auditor GO and CI on the exact reviewed SHA.
 
-## Development evidence (not final acceptance)
+## Historical development evidence (not final acceptance)
 
 - Pure authority first RED: 8 missing-module failures; initial GREEN: 8 passes.
 - Lease RED: 3 missing-helper failures; GREEN: 3 Linux non-root passes.
@@ -30,11 +30,12 @@
 - Orchestration RED: 8 missing-module failures; synthetic Linux GREEN: 8 passes.
   This uses a fake daemon with real source capture and archive assembly, not a
   real model-load acceptance or scientific execution.
-- Engine transport/probe and positive issuance remain under development/review.
-  No runtime authority, scientific readiness, PR approval or merge is claimed by
-  this checkpoint. Final gates require the exact reviewed executable SHA.
+- At that earlier development checkpoint, engine transport/probe and positive
+  issuance remained under development/review. No runtime acceptance, scientific
+  readiness, PR approval or merge was claimed there. Final executable acceptance
+  is recorded separately below.
 
-## Real-artifact correction evidence (acceptance still open)
+## Historical real-artifact correction evidence (acceptance closed later)
 
 - CI run `39020156188` was 16/16 green on prior HEAD `b819db7`; Linux non-root
   PR40/checkpoint regressions were 212 passed, 5 skipped on that executable tree.
