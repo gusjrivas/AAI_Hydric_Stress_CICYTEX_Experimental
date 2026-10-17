@@ -10,10 +10,11 @@ PR44 retains the readiness decision. Do not move the calculations into PR44.
 
 ## Dependency and preparation boundary
 
-Prepare in isolation from PR42 HEAD `3903a1d`, whose CI and genuine pinned-runtime
-gate are still pending. Only specification and pure synthetic unit/TDD work may
-proceed. No publication or scientific execution before PR42 acceptance, merge,
-exact-merge rebase and repeated gates. PR42's tracked tree stays frozen.
+Initial preparation was isolated from PR42 HEAD `3903a1d` while its CI and genuine
+pinned-runtime gate were pending. Only specification and pure synthetic unit/TDD
+work was permitted before PR42 acceptance, merge, exact-merge rebase and repeated
+gates. PR42's tracked tree stayed frozen. Its subsequent acceptance/merge and the
+completed PR43 technical acceptance are recorded historically in tasks.md.
 
 After accepted PR42 merge, first record its actual CI/real/audit results and close
 its result-dependent tasks historically. Do not mark them before they occur.
