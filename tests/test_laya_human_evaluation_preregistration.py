@@ -2,6 +2,7 @@ import hashlib
 import inspect
 import json
 from copy import deepcopy
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -311,6 +312,21 @@ def test_external_roles_are_exact_and_bytes_never_appear_in_repr_or_errors(tmp_p
         )
     assert secret.decode() not in repr(altered[0])
     assert secret.decode() not in str(error.value)
+
+
+def test_verified_authority_cannot_be_directly_constructed_or_replaced(tmp_path: Path):
+    raw, corpus, plan, artifacts, _ = _inputs(tmp_path)
+    protocol = verify_human_evaluation_preregistration(
+        raw, corpus=corpus, plan=plan, external_artifacts=artifacts
+    )
+    constructor_values = {
+        item.name: getattr(protocol, item.name) for item in fields(protocol) if item.init
+    }
+
+    with pytest.raises((TypeError, ValueError), match="seal|verif|InitVar|required"):
+        type(protocol)(**constructor_values)
+    with pytest.raises((TypeError, ValueError), match="seal|verif|InitVar|required"):
+        replace(protocol, protocol_id="post-hoc-protocol")
 
 
 def test_parser_is_bytes_only_and_module_remains_isolated():
