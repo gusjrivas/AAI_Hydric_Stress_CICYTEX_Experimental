@@ -12,6 +12,7 @@ export const ROUTES = [
   "calidad",
   "linaje",
   "evidencia",
+  "arquitectura",
 ] as const;
 export type RouteId = (typeof ROUTES)[number];
 
@@ -30,15 +31,16 @@ export const DESTINATION_LABELS: Record<RouteId, string> = {
   calidad: "Datos disponibles",
   linaje: "Ajustar próximos pronósticos",
   evidencia: "Acerca de esta herramienta",
+  arquitectura: "Arquitectura del sistema",
 };
 
 /**
- * Las cinco secciones estables de la navegación principal (Seguimiento histórico, Mi cultivo, Laboratorio, Evidencia y
+ * Las seis secciones estables de la navegación principal (Seguimiento histórico, Mi cultivo, Laboratorio, Evidencia, Arquitectura y
  * Herramientas técnicas). Cada ruta
  * pertenece a exactamente una: el rediseño reorganiza la entrada, no elimina
  * ni renombra ninguna capacidad ni ningún ancla (`#resumen`, `#calidad`, etc.).
  */
-export type NavGroup = "seguimiento" | "cultivo" | "laboratorio" | "evidencia" | "herramientas";
+export type NavGroup = "seguimiento" | "cultivo" | "laboratorio" | "evidencia" | "arquitectura" | "herramientas";
 
 export const ROUTE_GROUP: Record<RouteId, NavGroup> = {
   resumen: "herramientas",
@@ -52,6 +54,7 @@ export const ROUTE_GROUP: Record<RouteId, NavGroup> = {
   calidad: "herramientas",
   linaje: "herramientas",
   evidencia: "herramientas",
+  arquitectura: "arquitectura",
 };
 
 export const TOOL_ROUTES: readonly RouteId[] = ROUTES.filter((id) => ROUTE_GROUP[id] === "herramientas");
