@@ -159,6 +159,10 @@ def _container_inspect(*, nonce: str = NONCE, readonly: bool = True):
                 {"Name": "core", "Soft": 0, "Hard": 0},
             ],
             "Tmpfs": {"/tmp": "rw,nosuid,nodev,noexec,size=67108864,mode=1777"},
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {"max-size": "64k", "max-file": "1"},
+            },
             "IpcMode": "private",
         },
         "NetworkSettings": {"Ports": {}, "Networks": {}},
@@ -180,6 +184,18 @@ def _image_inspect(*, nonce: str = NONCE):
             "Labels": {"org.aai-hydric.runtime.owner-nonce": nonce},
         },
     }
+
+
+def test_closed_probe_bounds_daemon_disk_logs_and_rejects_unbounded_logging():
+    from human_feedback.adapters import local_docker_engine as module
+
+    expected = {"Type": "json-file", "Config": {"max-size": "64k", "max-file": "1"}}
+    assert module._closed_probe_payload(IMAGE_ID, NONCE)["HostConfig"].get("LogConfig") == expected
+    inspected = _container_inspect()
+    inspected["HostConfig"]["LogConfig"] = {"Type": "json-file", "Config": {}}
+    assert not module._matches_closed_probe(
+        inspected, image_id=IMAGE_ID, container_id=CONTAINER_ID, nonce=NONCE
+    )
 
 
 def _log_frame(stream: int, payload: bytes) -> bytes:
