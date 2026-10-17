@@ -12,8 +12,8 @@ Sin impacto sobre hipótesis, datos, modelos, umbrales, política del ensamble n
 | Ruta nueva | `#arquitectura` (grupo `arquitectura`): `ArchitectureFlow` evolucionado, fuera del `<details>` colapsado. Es la única ruta añadida. |
 | Indicador de modo | Componente `ModeBadge` común, derivado sólo de la ruta: **Operación**, **Replay histórico**, **Laboratorio sintético**, **Documentación de diseño**. No consulta backend y no cambia estado. |
 | Cambio de vista | No ejecuta modelos, no borra sesiones, no recalibra. Las acciones mutantes conservan su confirmación y alcance actuales. |
-| Lecturas | Operación = `cultivo`, `laboratorio`, `herramientas`. Trazabilidad = `seguimiento` (tres recorridos) y `#linaje`. Arquitectura y defensa = `evidencia`, `arquitectura`. |
-| Spec | `alerting-ui` fija cinco destinos y valores de `ArchitectureFlow` idénticos. Se añade el change OpenSpec `add-architecture-view-and-mode-indicator` (delta ADDED: destino «Arquitectura» e indicador de modo); los cinco destinos y las etapas de `ArchitectureFlow` no cambian. |
+| Lecturas | Operación = `cultivo` y `herramientas` (el modo «Laboratorio sintético» rotula `laboratorio`, `#demo` y sensores simulados). Trazabilidad = `seguimiento` (tres recorridos) y `#linaje`. Arquitectura y defensa = `evidencia`, `arquitectura`. |
+| Spec | `alerting-ui` fija cinco destinos y valores de `ArchitectureFlow` idénticos. Se añade el change OpenSpec `add-architecture-view-and-mode-indicator` (delta ADDED: destino «Arquitectura» e indicador de modo; MODIFIED: seis secciones en lugar de cinco, con escenarios intactos); los cinco destinos y las etapas de `ArchitectureFlow` no cambian. |
 | Retiro | Nada se retira en este ciclo; se unifica sólo con equivalencia probada (CICYTEX → componentes compartidos, en F5). |
 
 ## Mapa de navegación
@@ -35,7 +35,7 @@ Nivel 2: ficha del nodo seleccionado (botón, no zoom):
   responsabilidad · entrada/salida · frontera · evidencia (ruta versionada) · límites
 Categorías visibles: Diseño documentado | Estado observado | Recorrido guiado
 Alternativa textual: la misma lista como tabla accesible.
-Laya: adaptador consultivo integrado y desactivado por defecto (ADR-0014). La evaluación científica de su utilidad no está habilitada: el corpus humano requerido no existe (plan maestro, sección «Continuidad científica de Laya»); la vista sólo explica sus pruebas sintéticas con límites, sin sugerencias reales.
+Laya: adaptador consultivo integrado y desactivado por defecto (ADR-0014). La evaluación científica de su utilidad no está habilitada: el corpus humano requerido no existe (ADR-0014); la vista sólo explica sus pruebas sintéticas con límites, sin sugerencias reales.
 ```
 
 Un mapa estático versionado no es descubrimiento en vivo; ninguna salud, métrica ni traza se simula.
