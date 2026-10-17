@@ -3,6 +3,8 @@
 import io
 import os
 import sys
+import threading
+import weakref
 from contextlib import contextmanager
 
 import pytest
@@ -182,3 +184,51 @@ def test_failed_attempt_retains_private_retry_handle_not_runtime_authority(monke
             adapter.retry_laya_runtime_materialization_cleanup(ValueError("forged"))
     finally:
         filesystem.dispose_laya_runtime_rootfs(rootfs)
+
+
+def test_disposing_one_runtime_does_not_block_an_independent_runtime(monkeypatch):
+    from human_feedback.adapters import docker_runtime_materialization as adapter
+
+    class Evidence:
+        pass
+
+    first, second = Evidence(), Evidence()
+    entered, release, independent = threading.Event(), threading.Event(), threading.Event()
+    errors = []
+
+    class Engine:
+        def __init__(self, blocked):
+            self.blocked = blocked
+
+        def remove_owned_image(self, _identity):
+            if self.blocked:
+                entered.set()
+                assert release.wait(5)
+            else:
+                independent.set()
+
+    monkeypatch.setattr(adapter._authority, "_revoke_evidence", lambda value: None)
+    for token, blocked in ((first, True), (second, False)):
+        resource = adapter._RuntimeResource(weakref.ref(token), Engine(blocked), "sha256:" + "a" * 64)
+        monkeypatch.setitem(adapter._RESOURCES, id(token), resource)
+
+    def dispose(token):
+        try:
+            adapter.dispose_laya_runtime(token)
+        except Exception as error:
+            errors.append(error)
+
+    one = threading.Thread(target=dispose, args=(first,))
+    two = threading.Thread(target=dispose, args=(second,))
+    one.start()
+    try:
+        assert entered.wait(2)
+        two.start()
+        assert independent.wait(2), "unrelated runtime cleanup blocked by global I/O lock"
+    finally:
+        release.set()
+        one.join(5)
+        if two.ident is not None:
+            two.join(5)
+    assert not one.is_alive() and not two.is_alive()
+    assert not errors
