@@ -29,7 +29,7 @@ corpus/holdout execution, positive scientific authority or publication.
 - [x] 2.2 RED/GREEN per-fold state machine, phase release, exact coverage and resume.
 - [x] 2.3 RED/GREEN separately versioned fixed offline stdin/stdout adapter.
 - [x] 2.4 RED/GREEN lease/cleanup/fault/privacy/concurrency and private receipts.
-- [ ] 2.5 Mechanical-only integration verification with fixed synthetic fixtures.
+- [x] 2.5 Mechanical-only integration verification with fixed synthetic fixtures.
 
 Pure preparation only (rebased SHAs): runner RED `3c44e55` -> GREEN `9aa76c0`;
 byte-codec RED `91d4623` -> GREEN `176d0b8`. Review-driven runner RED `ca68ad7`
@@ -72,18 +72,39 @@ No scientific execution is implied by any mechanical or transport gate.
 
 ## 3. Technical acceptance
 
-- [ ] 3.1 Historical/site/mock/backend/quality regression gates.
-- [ ] 3.2 Independent critique/audit, no open P0/P1/P2, exact-head CI.
+- [x] 3.1 Historical/site/mock/backend/quality regression gates.
+- [x] 3.2 Independent critique/audit, no open P0/P1/P2, exact-head CI.
 - [x] 3.3 Record implementation status separately from scientific BLOCKED status.
 
-Final acceptance remains pending: the genuine pinned-runtime gate uses only two
-fixed synthetic comments, never corpus/holdout data, fitting or scoring. It and
-exact-head CI must both PASS on one frozen SHA before merge, alongside independent
-review. Any tree change invalidates the acceptance runs. Commands/results and the
-exact SHA are recorded in the PR/checkpoint; result-dependent checkboxes stay open
-until the first PR43 documentation commit records the already-observed evidence.
-The change is not archived early. This avoids a duplicate documentation-only CI
-without skipping any executable or audit gate.
+Historical acceptance recorded by PR43 after PR42 merge: executable frozen HEAD
+`3903a1d2d80ddccacf468a7e1ac87152d5c5ce8c`; exact-head CI `39046683875`:
+16/16 SUCCESS. Python job `117436699479`: 3580 passed / 62 skipped / 26 warnings
+in 1621.09 seconds (27:01). Backend, frontend, API contracts and the historical
+site/mock gates also passed. A skipped opt-in test is not genuine acceptance.
+
+Genuine pinned-runtime offline-port gate: 1 passed in 1344.20 seconds (22:24),
+exit 0, unified exec session 87915, 2026-10-17. It rebuilt the reviewed fixed
+supply/rootfs/checkpoint chain, sent exactly two synthetic comments through the
+new port, validated canonical outputs and actual usage, disposed runtime/rootfs
+and asserted an empty private parent. No corpus/holdout, fitting or scoring.
+
+Command (trusted helper only receives the socket; the child does not):
+`docker run --rm --network none --cap-drop ALL --security-opt
+no-new-privileges --user 1000:0 -e PYTHONDONTWRITEBYTECODE=1 -e
+PYTHONPATH=/work/AAI_Hydric_Stress_PR42_LOSO_Runner/src:/work/AAI_Hydric_Stress_PR42_LOSO_Runner
+-e LAYA_LOSO_OFFLINE_REAL=1 -v /var/run/docker.sock:/var/run/docker.sock -v
+C:/Users/gusta/Documents/Codex/2026-10-10/qui/work:/work:ro -w
+/work/AAI_Hydric_Stress_PR42_LOSO_Runner
+sha256:90d42f3d776d8d3434982bd00bd815166d496dd3195cea2fa6b6bbcb0d934475
+python -m pytest tests/test_laya_loso_docker_adapter_real.py -q -s -p
+no:cacheprovider`.
+
+Independent final GO retained with no P0/P1/P2; no tracked tree changes between
+review, genuine gate, CI and guarded merge. PR42 merged on 2026-10-17 at
+16:18:11 UTC as `4b06a3c97f7067fdc33f58637c3bc746dd48f0da`. Its merge tree is
+identical to the accepted HEAD. These checkboxes close observed technical gates
+historically, not scientific prerequisites. The change is not archived as a
+scientifically completed evaluation.
 
 ## 4. Scientific execution — explicitly BLOCKED, never inferred from fixtures
 
