@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import os
-import posixpath
 import stat
 import tarfile
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass
 
 from human_feedback import runtime_checkpoint, runtime_oci_tar, runtime_rootfs_materialization
@@ -137,50 +136,51 @@ def _checkpoint_installation_entries(
     return tuple(result)
 
 
-def _normalized_symlink_target(node: object) -> str | None:
+def _symlink_target_components(node: object) -> tuple[bool, tuple[str, ...]] | None:
     target = node.link_target
     if type(target) is not str or not target:
         return None
-    if target.startswith("/"):
-        candidate = target.lstrip("/")
-    else:
-        candidate = posixpath.join(posixpath.dirname(node.path), target)
-    normalized = posixpath.normpath(candidate)
-    if normalized == ".":
-        return ""
-    if normalized == ".." or normalized.startswith("../"):
-        return None
-    return normalized
+    return target.startswith("/"), tuple(target.split("/"))
 
 
 def _resolved_symlink_target(node: object, namespace: dict[str, object]) -> str | None:
-    target = _normalized_symlink_target(node)
+    target = _symlink_target_components(node)
     if target is None:
         return None
-    visited: set[str] = set()
-    for _hop in range(_MAX_SYMLINK_ALIAS_HOPS):
-        if target in visited:
+    absolute, target_components = target
+    resolved = [] if absolute else node.path.split("/")[:-1]
+    pending = deque(target_components)
+    visited: set[tuple[tuple[str, ...], tuple[str, ...], str]] = set()
+    # The leaf whose target is being resolved is the first symlink traversal.
+    hops = 1
+    while pending:
+        component = pending.popleft()
+        if component in ("", "."):
+            continue
+        if component == "..":
+            if resolved:
+                resolved.pop()
+            continue
+        candidate_path = "/".join((*resolved, component))
+        candidate = namespace.get(candidate_path)
+        if candidate is None or candidate.typeflag != "2":
+            resolved.append(component)
+            continue
+        state = (tuple(resolved), tuple(pending), candidate_path)
+        if state in visited:
             _raise_private("rootfs symlink alias cycle is unsafe")
-        visited.add(target)
-        components = target.split("/") if target else ()
-        for position in range(len(components)):
-            prefix = "/".join(components[: position + 1])
-            candidate = namespace.get(prefix)
-            if candidate is None or candidate.typeflag != "2":
-                continue
-            replacement = _normalized_symlink_target(candidate)
-            if replacement is None:
-                return None
-            suffix = "/".join(components[position + 1 :])
-            target = posixpath.normpath(posixpath.join(replacement, suffix))
-            if target == ".":
-                target = ""
-            if target == ".." or target.startswith("../"):
-                return None
-            break
-        else:
-            return target
-    _raise_private("rootfs symlink alias hop budget exceeded")
+        visited.add(state)
+        hops += 1
+        if hops > _MAX_SYMLINK_ALIAS_HOPS:
+            _raise_private("rootfs symlink alias hop budget exceeded")
+        replacement = _symlink_target_components(candidate)
+        if replacement is None:
+            return None
+        replacement_absolute, replacement_components = replacement
+        if replacement_absolute:
+            resolved.clear()
+        pending.extendleft(reversed(replacement_components))
+    return "/".join(resolved)
 
 
 def _aliases_docker_managed_path(node: object, namespace: dict[str, object]) -> bool:
