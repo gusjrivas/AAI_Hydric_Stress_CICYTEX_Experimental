@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 
 import pytest
+
+from human_feedback.evaluation_corpus import CATEGORIES, REQUIRED_SITES
 from human_feedback.evaluation_statistics import (
     _BootstrapSummary,
     _holm_step_down,
@@ -13,8 +15,6 @@ from human_feedback.evaluation_statistics import (
     _paired_group_bootstrap,
     _raw_metrics,
 )
-
-from human_feedback.evaluation_corpus import CATEGORIES, REQUIRED_SITES
 
 
 def _probabilities(value: float = 0.2):
@@ -125,3 +125,25 @@ def test_holm_rejects_open_family_boolean_nonfinite_and_wrong_replicate_count():
     for invalid in invalid_families:
         with pytest.raises(ValueError):
             _holm_step_down(invalid)
+
+
+def test_issued_evidence_rechecks_binding_after_deep_receipt_validation(monkeypatch, tmp_path):
+    from human_feedback import evaluation_runner as runner
+    from human_feedback import evaluation_statistics as module
+    from tests.test_laya_statistics_boundary import _authorize, _executed_protocol
+
+    _runner, protocol, receipts = _executed_protocol(monkeypatch, tmp_path)
+    _authorize(module, monkeypatch)
+    evidence = module._run_laya_mechanical_statistics_fixture(protocol)
+    original = evidence.raw_laya.macro_f1
+
+    def mutate_after_precheck(_protocol):
+        object.__setattr__(evidence.raw_laya, "macro_f1", original + 0.25)
+        return receipts
+
+    monkeypatch.setattr(runner, "_sealed_human_loso_mechanical_batches", mutate_after_precheck)
+    try:
+        with pytest.raises(ValueError):
+            module._require_issued_mechanical_statistics(evidence)
+    finally:
+        object.__setattr__(evidence.raw_laya, "macro_f1", original)
