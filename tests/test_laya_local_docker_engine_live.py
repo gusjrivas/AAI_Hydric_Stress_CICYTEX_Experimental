@@ -29,6 +29,13 @@ def test_real_engine_import_inspect_export_and_owned_cleanup():
             info.mode = 0o700
             info.uid = info.gid = 65532
             archive.addfile(info)
+        for path in ("etc/hostname", "etc/hosts", "etc/resolv.conf"):
+            info = tarfile.TarInfo(path)
+            info.mode = 0o755
+            info.uid = info.gid = 0
+            info.mtime = 0
+            info.size = 0
+            archive.addfile(info, io.BytesIO())
         info = tarfile.TarInfo("opt/laya-runtime/synthetic-marker")
         info.mode = 0o600
         info.uid = info.gid = 65532
