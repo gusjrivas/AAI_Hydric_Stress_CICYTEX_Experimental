@@ -12,9 +12,7 @@ import pytest
 
 
 def _adapter():
-    return importlib.import_module(
-        "human_feedback.adapters.filesystem_rootfs_materialization"
-    )
+    return importlib.import_module("human_feedback.adapters.filesystem_rootfs_materialization")
 
 
 class _PathCoercionTrap:
@@ -196,4 +194,3 @@ def test_existing_destination_is_rejected_by_injected_lookup_before_mutation(mon
         )
 
     assert observed == [("rootfs-01", 17, False)]
-

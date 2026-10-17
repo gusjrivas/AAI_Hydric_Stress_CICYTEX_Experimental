@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+import stat
 import sys
 
 from human_feedback import runtime_rootfs_materialization as _authority
@@ -17,6 +19,8 @@ STAGING_MODE = 0o700
 DESTINATION_MUST_BE_ABSENT = True
 STAGING_IS_DESTINATION_SIBLING = True
 ATOMIC_NO_CLOBBER_REQUIRED = True
+_MAX_ROOT_COMPONENTS = 128
+_DESTINATION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
 class RootfsMaterializationError(ValueError):
@@ -44,6 +48,66 @@ def _secure_rootfs_materialization_available() -> bool:
         and os.mkdir in os.supports_dir_fd
         and os.stat in os.supports_dir_fd
     )
+
+
+def _absolute_root_components(value: object, label: str) -> tuple[str, ...]:
+    if (
+        type(value) is not str
+        or not value.startswith("/")
+        or value.startswith("//")
+        or value == "/"
+        or value.endswith("/")
+        or "\\" in value
+        or "\x00" in value
+    ):
+        _raise_private(RootfsMaterializationError, f"{label} is not a canonical root")
+    components = tuple(value[1:].split("/"))
+    if (
+        not components
+        or len(components) > _MAX_ROOT_COMPONENTS
+        or any(component in {"", ".", ".."} for component in components)
+    ):
+        _raise_private(RootfsMaterializationError, f"{label} is not a canonical root")
+    return components
+
+
+def _validate_destination_name(value: object) -> str:
+    if type(value) is not str or value in {".", ".."} or _DESTINATION_NAME.fullmatch(value) is None:
+        _raise_private(RootfsMaterializationError, "destination name is invalid")
+    return value
+
+
+def _validate_private_parent_stat(parent_stat: object, *, effective_uid: int) -> None:
+    try:
+        mode = parent_stat.st_mode
+        uid = parent_stat.st_uid
+        valid = (
+            type(mode) is int
+            and type(uid) is int
+            and type(effective_uid) is int
+            and stat.S_ISDIR(mode)
+            and uid == effective_uid
+            and mode & 0o022 == 0
+        )
+    except Exception:
+        valid = False
+    if not valid:
+        _raise_private(RootfsMaterializationError, "destination parent is not private")
+
+
+def _require_destination_absent(
+    *,
+    parent_fd: int,
+    destination_name: str,
+    stat_fn: object = os.stat,
+) -> None:
+    try:
+        stat_fn(destination_name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    except Exception:
+        _raise_private(RootfsMaterializationError, "destination absence check failed")
+    _raise_private(RootfsMaterializationError, "destination already exists")
 
 
 def _preflight_plan(plan: object) -> _authority.LayaRuntimeRootfsMaterializationPlan:
