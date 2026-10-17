@@ -9,11 +9,11 @@ import tarfile
 from collections import Counter
 from dataclasses import dataclass
 
-from human_feedback import runtime_checkpoint, runtime_rootfs_materialization
+from human_feedback import runtime_checkpoint, runtime_oci_tar, runtime_rootfs_materialization
 from human_feedback.adapters import filesystem_checkpoint as _checkpoint
 from human_feedback.adapters import filesystem_rootfs_materialization as _rootfs
 
-MAX_INSTALLATION_ENTRIES = 100_000
+MAX_INSTALLATION_ENTRIES = runtime_oci_tar.MAX_OCI_TAR_ENTRIES
 MAX_INSTALLATION_PAYLOAD_BYTES = 3 * 1024 * 1024 * 1024
 MAX_INSTALLATION_ARCHIVE_BYTES = 3 * 1024 * 1024 * 1024
 _CHUNK_BYTES = 1024 * 1024

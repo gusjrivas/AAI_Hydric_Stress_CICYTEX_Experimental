@@ -14,6 +14,7 @@ import weakref
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 
 from human_feedback import runtime_oci_rootfs as _rootfs
 from human_feedback import runtime_rootfs_materialization as _authority
@@ -46,7 +47,10 @@ class _MaterializedResource:
     identity: tuple[int, int]
     disposed: bool = False
     revoked: bool = False
+    disposing: bool = False
     leases: int = 0
+    lease_owners: dict[int, int] = dataclass_field(default_factory=dict)
+    condition: threading.Condition = dataclass_field(default_factory=threading.Condition)
 
 
 def _close_resource_descriptors(resource: _MaterializedResource) -> None:
@@ -71,6 +75,10 @@ def _register_resource(evidence, parent_components, parent_fd, root_fd, name, id
             current = _RESOURCES.get(key)
             if current is not None and current.reference is expired:
                 _RESOURCES.pop(key, None)
+        if current is not None and current.reference is expired:
+            with current.condition:
+                while current.leases:
+                    current.condition.wait()
                 # Forgetting an attestation closes handles, but never deletes data silently.
                 _close_resource_descriptors(current)
 
@@ -728,17 +736,15 @@ def _materialize(plan, source_components, parent_components, destination_name):
 def _lease_laya_runtime_rootfs(evidence: object):
     """Hold a verified duplicate descriptor and serialize against parent disposal."""
     with _RESOURCE_LOCK:
-        failed = False
-        descriptor = None
-        resource = None
-        try:
-            resource = _RESOURCES.get(id(evidence))
-            if (
-                resource is None
-                or resource.reference() is not evidence
-                or resource.disposed
-                or resource.revoked
-            ):
+        resource = _RESOURCES.get(id(evidence))
+    failed = False
+    descriptor = None
+    owner = threading.get_ident()
+    try:
+        if resource is None or resource.reference() is not evidence:
+            raise RootfsMaterializationError("rootfs lease is not issued")
+        with resource.condition:
+            if resource.disposed or resource.revoked or resource.disposing:
                 raise RootfsMaterializationError("rootfs lease is not issued")
             _authority._require_issued_evidence(evidence)
             _require_root_binding(resource.parent_components, resource.parent_fd)
@@ -746,18 +752,26 @@ def _lease_laya_runtime_rootfs(evidence: object):
                 resource.parent_fd, resource.name, resource.root_fd, resource.identity
             )
             descriptor = os.dup(resource.root_fd)
-        except Exception:
-            failed = True
-        if failed:
-            _raise_private(RootfsMaterializationError, "live rootfs lease validation failed")
-        resource.leases += 1
+            resource.leases += 1
+            resource.lease_owners[owner] = resource.lease_owners.get(owner, 0) + 1
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(RootfsMaterializationError, "live rootfs lease validation failed")
+    try:
+        yield descriptor
+    finally:
         try:
-            yield descriptor
+            os.close(descriptor)
         finally:
-            try:
-                os.close(descriptor)
-            finally:
+            with resource.condition:
                 resource.leases -= 1
+                remaining = resource.lease_owners[owner] - 1
+                if remaining:
+                    resource.lease_owners[owner] = remaining
+                else:
+                    resource.lease_owners.pop(owner)
+                resource.condition.notify_all()
 
 
 def dispose_laya_runtime_rootfs(evidence: object) -> None:
@@ -766,22 +780,37 @@ def dispose_laya_runtime_rootfs(evidence: object) -> None:
     try:
         with _RESOURCE_LOCK:
             resource = _RESOURCES.get(id(evidence))
-            if resource is None or resource.reference() is not evidence:
-                raise RootfsMaterializationError("rootfs resource is not issued")
+        if resource is None or resource.reference() is not evidence:
+            raise RootfsMaterializationError("rootfs resource is not issued")
+        owner = threading.get_ident()
+        with resource.condition:
             if resource.disposed:
                 return
-            if resource.leases:
+            if resource.lease_owners.get(owner, 0):
                 raise RootfsMaterializationError("rootfs resource is leased")
-            if not resource.revoked:
-                _authority._revoke_evidence(evidence)
-                resource.revoked = True
-            _require_root_binding(resource.parent_components, resource.parent_fd)
-            _remove_owned_tree(
-                resource.parent_fd, resource.name, resource.root_fd, resource.identity
-            )
-            os.fsync(resource.parent_fd)
-            resource.disposed = True
-            _close_resource_descriptors(resource)
+            while resource.disposing:
+                resource.condition.wait()
+                if resource.disposed:
+                    return
+                if resource.lease_owners.get(owner, 0):
+                    raise RootfsMaterializationError("rootfs resource is leased")
+            resource.disposing = True
+            try:
+                while resource.leases:
+                    resource.condition.wait()
+                if not resource.revoked:
+                    _authority._revoke_evidence(evidence)
+                    resource.revoked = True
+                _require_root_binding(resource.parent_components, resource.parent_fd)
+                _remove_owned_tree(
+                    resource.parent_fd, resource.name, resource.root_fd, resource.identity
+                )
+                os.fsync(resource.parent_fd)
+                resource.disposed = True
+                _close_resource_descriptors(resource)
+            finally:
+                resource.disposing = False
+                resource.condition.notify_all()
     except Exception:
         failed = True
     if failed:
