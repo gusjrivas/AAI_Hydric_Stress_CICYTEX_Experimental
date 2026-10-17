@@ -56,8 +56,8 @@ The measurement does not substitute for unavailable per-example Laya latency.
 
 ## 3. Technical acceptance
 
-- [ ] 3.1 Directed and historical/site/mock/backend regression gates.
-- [ ] 3.2 Independent critique/audit without P0/P1/P2, exact-head CI PASS.
+- [x] 3.1 Directed and historical/site/mock/backend regression gates.
+- [x] 3.2 Independent critique/audit without P0/P1/P2, exact-head CI PASS.
 - [x] 3.3 Record numerical fixture outputs separately from scientific BLOCKED status.
 
 Post-rebase directed Linux/non-root/network-none regression: 212 passed in 24.60
@@ -65,8 +65,24 @@ seconds, using trusted helper image
 `sha256:90d42f3d776d8d3434982bd00bd815166d496dd3195cea2fa6b6bbcb0d934475`.
 It covered the three new statistics test files plus legacy readiness/safety/CLI,
 preregistration issuance/preregistration/corpus and runner. No Docker socket was
-mounted for this pure regression. Exact-head CI and historical/backend/frontend
-acceptance remain pending; the 212-test result does not replace them.
+mounted for this pure regression. It did not replace full CI acceptance, which
+was subsequently observed and is recorded below by PR44.
+
+Historical acceptance after PR43 merge: frozen accepted HEAD
+`120f28fafe37973898129f9b681eef70e821b1c4`, source `959ba25` equivalent to the
+independently reviewed pre-rebase `25e9b6b`. CI `39049102033`: SUCCESS 16/16.
+Python job `117443856001`: 3626 passed / 61 skipped / 26 warnings in 1030.96
+seconds (17:10). Backend/frontend/API and historical/site/mock gates passed.
+Frozen-candidate Linux repeat: 45 passed in 12.40 seconds. Ruff/Black, strict
+OpenSpec and final documentary dispatch GO passed with no P0/P1/P2 open.
+
+PR43 merged on 2026-10-17 at 16:40:52 UTC as
+`41ab3d3700ddad6e1cd0b466259cbcd51ff9aa5e`, guarded by exact HEAD; its merge
+tree is identical to the accepted candidate. No tracked source/tree change
+between acceptance and merge. The unchanged PR42 pinned-runtime/model gate
+was not repeated for this pure host-side arithmetic change. No corpus/holdout,
+model inference, calibration fit or real scientific scoring was performed.
+Section 4 remains open. These checkboxes close technical acceptance only.
 
 Numerical fixture examples, not observed scientific study results: the paired
 balanced good/bad-group golden fixture has observed global delta 0, descriptive

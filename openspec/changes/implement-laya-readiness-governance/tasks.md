@@ -2,8 +2,18 @@
 
 - [x] 1.1 Read PR43 evidence, frozen preregistration and legacy readiness semantics.
 - [x] 1.2 Separate diagnostic gates, scientific availability and authority.
-- [ ] 1.3 PR43 accepted/merged, exact-merge rebase and actual results recorded.
-- [ ] 1.4 Close PR43 technical result-dependent tasks historically after acceptance.
+- [x] 1.3 PR43 accepted/merged, exact-merge rebase and actual results recorded.
+- [x] 1.4 Close PR43 technical result-dependent tasks historically after acceptance.
+
+PR43 accepted HEAD `120f28fafe37973898129f9b681eef70e821b1c4`, CI
+`39049102033` SUCCESS 16/16 (Python 3626 passed / 61 skipped / 1030.96 seconds),
+merged 2026-10-17 at 16:40:52 UTC as
+`41ab3d3700ddad6e1cd0b466259cbcd51ff9aa5e`. PR44 rebased onto that exact
+merge without conflicts; all seven preparation patches equivalent by range-diff,
+and the merge tree is identical to PR43's accepted HEAD. Local generated graph
+caches were preserved/excluded (JSON line endings normalized by Git only).
+PR43 technical task closure records observed results; its scientific section
+remains open. Source `8228586` is equivalent to reviewed pre-rebase `a4cd8bf`.
 
 Before 1.3 only isolated pure synthetic specification/TDD work is permitted.
 No PR43 tracked changes, publication, real corpus/holdout or model execution.
@@ -27,8 +37,8 @@ Final independent authority/privacy GO: privacy PoC 1/1 PASS, complete boundary
 7/7 PASS in 11.42 seconds, no open P0/P1/P2. Independent rules/government GO:
 34/34 PASS with no numerical/decision drift, no open P0/P1/P2. Writer combined
 suite 86/86 PASS in 24.73 seconds; root Ruff/Black three changed Python files
-and diff checks PASS. These are not publication/merge acceptance or scientific
-results. PR43 dependency and PR44 exact-head CI remain pending.
+and diff checks PASS. These were preparation gates, not scientific results.
+PR43 dependency is now accepted; PR44 exact-head CI/publication gates remain open.
 
 Pure Linux regression on the frozen corrective source, non-root/network-none,
 without Docker socket: 253 passed in 32.06 seconds (new rules/boundary, PR43
