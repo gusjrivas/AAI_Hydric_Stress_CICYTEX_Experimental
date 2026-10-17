@@ -9,15 +9,20 @@ import re
 import secrets
 import stat
 import sys
+import threading
+import weakref
 from collections import Counter
+from dataclasses import dataclass
 
 from human_feedback import runtime_oci_rootfs as _rootfs
 from human_feedback import runtime_rootfs_materialization as _authority
+from human_feedback.adapters import filesystem_oci_layout as _capture
 
 __all__ = (
     "RootfsMaterializationError",
     "SecureRootfsMaterializationUnavailableError",
     "materialize_laya_runtime_rootfs",
+    "dispose_laya_runtime_rootfs",
 )
 
 STAGING_MODE = 0o700
@@ -26,6 +31,51 @@ STAGING_IS_DESTINATION_SIBLING = True
 ATOMIC_NO_CLOBBER_REQUIRED = True
 _MAX_ROOT_COMPONENTS = 128
 _DESTINATION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_RESOURCE_LOCK = threading.RLock()
+_RESOURCES: dict[int, _MaterializedResource] = {}
+
+
+@dataclass(slots=True, repr=False)
+class _MaterializedResource:
+    reference: object
+    parent_components: tuple[str, ...]
+    parent_fd: int | None
+    root_fd: int | None
+    name: str
+    identity: tuple[int, int]
+    disposed: bool = False
+
+
+def _close_resource_descriptors(resource: _MaterializedResource) -> None:
+    failed = False
+    for field in ("root_fd", "parent_fd"):
+        descriptor = getattr(resource, field)
+        setattr(resource, field, None)
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                failed = True
+    if failed:
+        raise RootfsMaterializationError("rootfs resource descriptor cleanup failed")
+
+
+def _register_resource(evidence, parent_components, parent_fd, root_fd, name, identity):
+    key = id(evidence)
+
+    def release(expired):
+        with _RESOURCE_LOCK:
+            current = _RESOURCES.get(key)
+            if current is not None and current.reference is expired:
+                _RESOURCES.pop(key, None)
+                # Forgetting an attestation closes handles, but never deletes data silently.
+                _close_resource_descriptors(current)
+
+    resource = _MaterializedResource(
+        weakref.ref(evidence, release), parent_components, parent_fd, root_fd, name, identity
+    )
+    with _RESOURCE_LOCK:
+        _RESOURCES[key] = resource
 
 
 class RootfsMaterializationError(ValueError):
@@ -434,7 +484,21 @@ def _hash_regular(parent: int, name: str, node: object, links: int) -> tuple[str
                 raise RootfsMaterializationError("staged regular payload truncated")
             digest.update(chunk)
             remaining -= len(chunk)
-        if os.read(descriptor, 1) or os.fstat(descriptor) != before:
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_uid",
+            "st_gid",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        after = os.fstat(descriptor)
+        if os.read(descriptor, 1) or any(
+            getattr(after, field) != getattr(before, field) for field in stable_fields
+        ):
             raise RootfsMaterializationError("staged regular payload changed")
         os.fsync(descriptor)
         return digest.hexdigest(), _inode(before)
@@ -529,13 +593,137 @@ def materialize_laya_runtime_rootfs(
 ) -> _authority.LayaRuntimeRootfsMaterializationEvidence:
     """Validate authority before any path coercion or filesystem mutation."""
 
-    _preflight_plan(plan)
+    plan = _preflight_plan(plan)
     if not _secure_rootfs_materialization_available():
         _raise_private(
             SecureRootfsMaterializationUnavailableError,
             "secure non-root Linux rootfs materialization is unavailable",
         )
-    _raise_private(
-        SecureRootfsMaterializationUnavailableError,
-        "secure rootfs materialization backend is not installed",
-    )
+    result = None
+    try:
+        source = _absolute_root_components(source_root, "source root")
+        parent = _absolute_root_components(destination_parent, "destination parent")
+        name = _validate_destination_name(destination_name)
+        result = _materialize(plan, source, parent, name)
+    except Exception:
+        result = None
+    if result is None:
+        _raise_private(RootfsMaterializationError, "secure rootfs materialization failed")
+    return result
+
+
+def _ancestor_identities(descriptor: int) -> set[tuple[int, int]]:
+    current = os.dup(descriptor)
+    result = set()
+    try:
+        for _ in range(256):
+            identity = _inode(os.fstat(current))
+            if identity in result:
+                return result
+            result.add(identity)
+            parent = os.open("..", _directory_flags(), dir_fd=current)
+            previous, current = current, parent
+            os.close(previous)
+        raise RootfsMaterializationError("directory ancestry budget exceeded")
+    finally:
+        os.close(current)
+
+
+def _require_root_binding(components: tuple[str, ...], descriptor: int) -> None:
+    current = _open_directory_chain(components)
+    try:
+        if _inode(os.fstat(current)) != _inode(os.fstat(descriptor)):
+            raise RootfsMaterializationError("root directory binding changed")
+    finally:
+        os.close(current)
+
+
+def _materialize(plan, source_components, parent_components, destination_name):
+    source_fd = parent_fd = staging_fd = None
+    staging_name = None
+    identity = None
+    writer = None
+    published = False
+    result = None
+    try:
+        source_fd = _open_directory_chain(source_components)
+        parent_fd = _open_directory_chain(parent_components)
+        _validate_private_parent_stat(os.fstat(parent_fd), effective_uid=os.geteuid())
+        if _inode(os.fstat(source_fd)) in _ancestor_identities(parent_fd) or _inode(
+            os.fstat(parent_fd)
+        ) in _ancestor_identities(source_fd):
+            raise RootfsMaterializationError("source and destination must be disjoint")
+        _require_destination_absent(parent_fd=parent_fd, destination_name=destination_name)
+        staging_name, staging_fd, identity = _create_staging(parent_fd)
+        rootfs = plan._rootfs_evidence
+        writer = _RootfsWriter(staging_fd, rootfs.nodes)
+        _capture._capture_and_verify_tar_semantics(
+            rootfs.tar_evidence.plan,
+            source_components,
+            _payload_sink_factory=writer.sink,
+            _expected_tar_receipts=rootfs.tar_evidence.receipts,
+        )
+        hashes = writer.finish_regulars()
+        _require_root_binding(source_components, source_fd)
+        _create_final_links(staging_fd, rootfs.nodes)
+        commitment = _verify_staged_tree(
+            staging_fd, rootfs.nodes, hashes, rootfs.rootfs_manifest_sha256
+        )
+        _require_owned_name(parent_fd, staging_name, staging_fd, identity)
+        _require_root_binding(parent_components, parent_fd)
+        _publish_noreplace(parent_fd, staging_name, destination_name)
+        published = True
+        os.fsync(parent_fd)
+        _require_owned_name(parent_fd, destination_name, staging_fd, identity)
+        evidence = _authority._seal_laya_runtime_rootfs_materialization_evidence(plan, commitment)
+        # Finish source cleanup before transferring ownership to the issued resource.
+        os.close(source_fd)
+        source_fd = None
+        _register_resource(
+            evidence, parent_components, parent_fd, staging_fd, destination_name, identity
+        )
+        parent_fd = staging_fd = None
+        result = evidence
+        return result
+    finally:
+        try:
+            if writer is not None:
+                writer.close()
+        finally:
+            try:
+                if result is None and staging_name is not None:
+                    _remove_owned_tree(
+                        parent_fd,
+                        destination_name if published else staging_name,
+                        staging_fd,
+                        identity,
+                    )
+                    os.fsync(parent_fd)
+            finally:
+                for descriptor in (staging_fd, parent_fd, source_fd):
+                    if descriptor is not None:
+                        os.close(descriptor)
+
+
+def dispose_laya_runtime_rootfs(evidence: object) -> None:
+    """Revoke and remove only the exact published inode retained by this evidence."""
+    failed = False
+    try:
+        with _RESOURCE_LOCK:
+            resource = _RESOURCES.get(id(evidence))
+            if resource is None or resource.reference() is not evidence:
+                raise RootfsMaterializationError("rootfs resource is not issued")
+            if resource.disposed:
+                return
+            _authority._revoke_evidence(evidence)
+            _require_root_binding(resource.parent_components, resource.parent_fd)
+            _remove_owned_tree(
+                resource.parent_fd, resource.name, resource.root_fd, resource.identity
+            )
+            os.fsync(resource.parent_fd)
+            resource.disposed = True
+            _close_resource_descriptors(resource)
+    except Exception:
+        failed = True
+    if failed:
+        _raise_private(RootfsMaterializationError, "owned rootfs disposal failed")

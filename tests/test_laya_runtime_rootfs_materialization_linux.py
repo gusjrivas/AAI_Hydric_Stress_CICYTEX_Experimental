@@ -63,11 +63,15 @@ def test_cleanup_refuses_replaced_staging_name(tmp_path):
         os.close(parent_fd)
 
 
-def test_staging_metadata_failure_closes_descriptor_and_removes_owned_directory(tmp_path, monkeypatch):
+def test_staging_metadata_failure_closes_descriptor_and_removes_owned_directory(
+    tmp_path, monkeypatch
+):
     parent_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
     before = len(os.listdir("/proc/self/fd"))
+
     def fail_metadata(_descriptor):
         raise OSError("private-metadata-failure")
+
     monkeypatch.setattr(adapter.os, "fstat", fail_metadata)
     try:
         with pytest.raises(OSError):
@@ -98,16 +102,23 @@ def test_owned_cleanup_refuses_cross_device_child_before_traversal(tmp_path, mon
     os.mkdir("mounted", mode=0o700, dir_fd=descriptor)
     native_stat = os.stat
     native_open = os.open
+
     def mount_stat(path, *args, **kwargs):
         actual = native_stat(path, *args, **kwargs)
         if path == "mounted":
-            return SimpleNamespace(st_mode=actual.st_mode, st_dev=identity[0] + 1,
-                                   st_ino=actual.st_ino, st_uid=actual.st_uid)
+            return SimpleNamespace(
+                st_mode=actual.st_mode,
+                st_dev=identity[0] + 1,
+                st_ino=actual.st_ino,
+                st_uid=actual.st_uid,
+            )
         return actual
+
     def no_mount_open(path, *args, **kwargs):
         if path == "mounted":
             pytest.fail("cleanup opened a cross-device child")
         return native_open(path, *args, **kwargs)
+
     try:
         with monkeypatch.context() as patch:
             patch.setattr(adapter.os, "stat", mount_stat)

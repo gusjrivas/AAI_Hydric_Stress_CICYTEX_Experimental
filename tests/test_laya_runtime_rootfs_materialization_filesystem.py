@@ -31,6 +31,7 @@ def test_adapter_surface_is_narrow_and_requires_separate_source_and_destination_
         "RootfsMaterializationError",
         "SecureRootfsMaterializationUnavailableError",
         "materialize_laya_runtime_rootfs",
+        "dispose_laya_runtime_rootfs",
     )
     assert tuple(inspect.signature(module.materialize_laya_runtime_rootfs).parameters) == (
         "plan",
