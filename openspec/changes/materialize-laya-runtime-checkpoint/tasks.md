@@ -3,7 +3,7 @@
 - [x] 1.1 Inspect pinned source, real OCI and exact checkpoint supply.
 - [x] 1.2 Freeze the derived-image boundary and scientific scope.
 - [x] 1.3 Record RED for exact live rootfs/checkpoint authority and conservative claims.
-- [ ] 1.4 Implement deeply validated pure plan, issued evidence and revocation.
+- [x] 1.4 Implement deeply validated pure plan, issued evidence and revocation.
 
 ## 2. Assembly and isolation
 
@@ -33,3 +33,17 @@
 - Engine transport/probe and positive issuance remain under development/review.
   No runtime authority, scientific readiness, PR approval or merge is claimed by
   this checkpoint. Final gates require the exact reviewed executable SHA.
+
+## Real-artifact correction evidence (acceptance still open)
+
+- CI run `39020156188` was 16/16 green on prior HEAD `b819db7`; Linux non-root
+  PR40/checkpoint regressions were 212 passed, 5 skipped on that executable tree.
+- The full real gate failed in 1268.65 seconds after import/probe creation, with
+  no authority emitted and no pending cleanup. Minimal owned Docker reproducers
+  showed replacement of existing hostname/resolv.conf entries, not TAR-budget
+  exhaustion or PAX expansion. These were diagnostics, not successful model loads.
+- Projection verifier RED `b0f0ed8`: 10 failures; GREEN `1ea7a74`: 26 passes.
+  The expected manifest must retain all three exact placeholders; silently
+  excluding masked original paths was rejected by independent architecture review.
+- Changed executable code invalidates the previous real/CI acceptance attempt.
+  A fresh complete real chain, exact-SHA CI and final independent GO remain open.

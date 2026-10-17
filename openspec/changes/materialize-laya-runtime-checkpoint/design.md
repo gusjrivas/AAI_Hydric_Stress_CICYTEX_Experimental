@@ -46,6 +46,8 @@ Read-only inspection of the pinned ten-layer OCI found regular `etc/hostname`
 and `etc/resolv.conf` entries and no `etc/hosts` entry or matching whiteout; the
 derived image therefore adds the third placeholder rather than inventing source
 bytes. All three projected entries must be present in the expected manifest.
+An absent `etc` parent is added with the normalized directory profile; an existing
+non-directory parent is refused. No other source path is projected or omitted.
 Source bytes are still descriptor-read, rehashed
 and covered by the original rootfs commitment; the source tree is never changed.
 Symlink/hardlink collisions or aliases are refused, not projected. Recapture
