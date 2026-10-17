@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import http.client
 import inspect
+import io
 import json
 
 import pytest
@@ -527,3 +529,86 @@ def test_attach_transport_deadline_closes_without_writing_private_input(monkeypa
     connection = _HijackConnection.instances[0]
     assert connection.sent == []
     assert connection.closed is True
+
+
+def test_attach_transport_reads_http_101_buffered_readahead_instead_of_empty_body(
+    monkeypatch,
+):
+    from human_feedback.adapters import local_docker_engine as module
+
+    frame = _frame(1, RESPONSE)
+    raw_response = (
+        b"HTTP/1.1 101 UPGRADED\r\n"
+        b"Connection: Upgrade\r\n"
+        b"Upgrade: tcp\r\n"
+        b"Content-Type: application/vnd.docker.multiplexed-stream\r\n"
+        b"\r\n" + frame
+    )
+
+    class Socket:
+        def __init__(self):
+            self.stream = io.BytesIO(raw_response)
+            self.shutdowns = []
+
+        def makefile(self, *_args, **_kwargs):
+            return self.stream
+
+        def settimeout(self, _value):
+            pass
+
+        def shutdown(self, how):
+            self.shutdowns.append(how)
+
+    class Connection:
+        instance = None
+
+        def __init__(self, timeout):
+            self.timeout = timeout
+            self.sock = Socket()
+            self.sent = []
+            self.closed = False
+            Connection.instance = self
+
+        def request(self, *_args, **_kwargs):
+            pass
+
+        def getresponse(self):
+            response = http.client.HTTPResponse(self.sock)
+            response.begin()
+            assert response.status == 101
+            assert response.length == 0  # read() would close before response.fp frames.
+            return response
+
+        def send(self, value):
+            self.sent.append(bytes(value))
+
+        def close(self):
+            self.closed = True
+
+    class Watchdog:
+        expired = False
+
+        def __init__(self, _connection, _deadline):
+            pass
+
+        def cancel(self):
+            pass
+
+    monkeypatch.setattr(module, "_UnixSocketHTTPConnection", Connection)
+    monkeypatch.setattr(module, "_DeadlineWatchdog", Watchdog)
+    path = f"/v1.44/containers/{CONTAINER_ID}/attach?" "stream=1&stdin=1&stdout=1&stderr=1"
+
+    with module._LocalUnixTransport().open_attach(
+        path,
+        stdin_limit=64 * 1024,
+        stdout_limit=64 * 1024,
+        stderr_limit=8 * 1024,
+        timeout=300.0,
+    ) as session:
+        stdout, stderr = session.exchange(REQUEST)
+
+    assert stdout == RESPONSE
+    assert stderr == b""
+    assert b"".join(Connection.instance.sent) == REQUEST
+    assert Connection.instance.sock.shutdowns == [module.socket.SHUT_WR]
+    assert Connection.instance.closed is True
