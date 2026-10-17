@@ -57,3 +57,15 @@ leased against concurrent disposal while assembly depends on it.
 
 - **WHEN** disposal has already revoked authority but resource cleanup fails once
 - **THEN** a retry can clean only the same owned resource without reissuing authority
+
+### Requirement: Failure diagnosis SHALL remain closed and non-authoritative
+
+Runtime failures SHALL expose only a closed read-only stage category, preserving
+generic error text and private issued cleanup semantics. Stage SHALL NOT expose
+exception text, paths, IDs, digests or child output, nor enter evidence or claims.
+
+#### Scenario: A real materialization boundary fails
+
+- **WHEN** assembly, import, recapture, model loading or lifecycle fails
+- **THEN** diagnosis reports only its closed boundary category or an honest unknown category
+- **AND** no runtime authority is emitted and existing cleanup rules remain enforced

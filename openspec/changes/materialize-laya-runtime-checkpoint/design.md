@@ -104,6 +104,14 @@ transient cleanup failure. Rootfs lease and external source descriptors always
 close. A failed probe, timeout, OOM, unavailable restriction, missing/mutated source
 or cleanup error never produces runtime authority. Orphans are not adopted.
 
+Failures expose only a closed read-only `failure_stage` category to distinguish
+assembly/import, recapture and model-load boundaries without copying exception
+text. Generic error strings, redaction, exception context suppression and issued
+cleanup-handle semantics remain unchanged. Unknown/lifecycle failures must not be
+mislabelled as successful or as a different boundary. Stage categories are not
+evidence and never enter runtime summaries or claims. The opt-in real test reports
+only the closed stage value, not private paths, IDs, digests or child output.
+
 Import/create intents record exact fresh image references/container names before
 mutation. Lost replies are reconciled only by those references plus ownership nonce
 and closed profile, never by global listing. A failed attempt whose cleanup also
