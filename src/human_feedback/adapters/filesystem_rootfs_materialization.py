@@ -12,6 +12,7 @@ import sys
 import threading
 import weakref
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from human_feedback import runtime_oci_rootfs as _rootfs
@@ -45,6 +46,7 @@ class _MaterializedResource:
     identity: tuple[int, int]
     disposed: bool = False
     revoked: bool = False
+    leases: int = 0
 
 
 def _close_resource_descriptors(resource: _MaterializedResource) -> None:
@@ -722,6 +724,38 @@ def _materialize(plan, source_components, parent_components, destination_name):
                         os.close(descriptor)
 
 
+@contextmanager
+def _lease_laya_runtime_rootfs(evidence: object):
+    """Hold a verified duplicate descriptor and serialize against parent disposal."""
+    with _RESOURCE_LOCK:
+        failed = False
+        descriptor = None
+        resource = None
+        try:
+            resource = _RESOURCES.get(id(evidence))
+            if (
+                resource is None or resource.reference() is not evidence
+                or resource.disposed or resource.revoked
+            ):
+                raise RootfsMaterializationError("rootfs lease is not issued")
+            _authority._require_issued_evidence(evidence)
+            _require_root_binding(resource.parent_components, resource.parent_fd)
+            _require_owned_name(resource.parent_fd, resource.name, resource.root_fd, resource.identity)
+            descriptor = os.dup(resource.root_fd)
+        except Exception:
+            failed = True
+        if failed:
+            _raise_private(RootfsMaterializationError, "live rootfs lease validation failed")
+        resource.leases += 1
+        try:
+            yield descriptor
+        finally:
+            try:
+                os.close(descriptor)
+            finally:
+                resource.leases -= 1
+
+
 def dispose_laya_runtime_rootfs(evidence: object) -> None:
     """Revoke and remove only the exact published inode retained by this evidence."""
     failed = False
@@ -732,6 +766,8 @@ def dispose_laya_runtime_rootfs(evidence: object) -> None:
                 raise RootfsMaterializationError("rootfs resource is not issued")
             if resource.disposed:
                 return
+            if resource.leases:
+                raise RootfsMaterializationError("rootfs resource is leased")
             if not resource.revoked:
                 _authority._revoke_evidence(evidence)
                 resource.revoked = True
