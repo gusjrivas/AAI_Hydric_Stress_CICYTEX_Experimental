@@ -218,6 +218,8 @@ def _remove_owned_tree(
                 if remaining < 0:
                     raise RootfsMaterializationError("rootfs cleanup entry budget exceeded")
                 metadata = os.stat(entry.name, dir_fd=directory, follow_symlinks=False)
+                if metadata.st_dev != identity[0]:
+                    raise RootfsMaterializationError("rootfs cleanup device changed")
                 if stat.S_ISDIR(metadata.st_mode):
                     child = os.open(entry.name, _directory_flags(), dir_fd=directory)
                     try:
