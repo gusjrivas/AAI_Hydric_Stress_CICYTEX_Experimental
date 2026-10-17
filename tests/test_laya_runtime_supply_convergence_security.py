@@ -275,7 +275,13 @@ def test_private_lock_is_not_held_while_calling_predecessors_or_reconstructors(
                 assert lock.locked() is False
             if hasattr(lock, "_is_owned"):
                 assert lock._is_owned() is False
-        observed.append(targets[frame.f_code])
+        label = targets[frame.f_code]
+        module_owned_reconstruct = (
+            label == "reconstruct"
+            and frame.f_back is not None
+            and frame.f_back.f_globals.get("__name__") == module.__name__
+        )
+        observed.append((label, module_owned_reconstruct))
 
     previous = sys.getprofile()
     sys.setprofile(profile)
@@ -284,7 +290,7 @@ def test_private_lock_is_not_held_while_calling_predecessors_or_reconstructors(
     finally:
         sys.setprofile(previous)
 
-    assert observed.count("layer") >= 1
-    assert observed.count("provenance") >= 1
-    assert observed.count("base") >= 1
-    assert observed.count("reconstruct") == 2
+    assert sum(label == "layer" for label, _owned in observed) >= 1
+    assert sum(label == "provenance" for label, _owned in observed) >= 1
+    assert sum(label == "base" for label, _owned in observed) >= 1
+    assert sum(label == "reconstruct" and module_owned for label, module_owned in observed) == 2

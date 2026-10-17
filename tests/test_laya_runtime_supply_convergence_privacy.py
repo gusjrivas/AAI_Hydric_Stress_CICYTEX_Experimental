@@ -104,7 +104,7 @@ def _metadata_markers(chain) -> tuple[str, ...]:
         for artifact in snapshot.artifacts
     )
     markers.update(receipt.spec.sha1 for receipt in chain.provenance_evidence.receipts)
-    markers.update(receipt.spec.digest for receipt in chain.layer_evidence.receipts)
+    markers.update(receipt.layer_blob.digest for receipt in chain.layer_evidence.receipts)
     return tuple(sorted(marker for marker in markers if len(marker) >= 8))
 
 
