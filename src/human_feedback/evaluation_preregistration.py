@@ -12,11 +12,14 @@ import hashlib
 import json
 import math
 import re
+import threading
+import weakref
 from collections import Counter
 from dataclasses import InitVar, dataclass, field
 from datetime import datetime
 from typing import Any
 
+from human_feedback import evaluation_corpus as _evaluation_corpus
 from human_feedback.evaluation_corpus import (
     CATEGORIES,
     REQUIRED_SITES,
@@ -136,6 +139,7 @@ _ANALYSIS_FIELDS = frozenset(
 )
 _ARTIFACT_FIELDS = frozenset({"role", "artifact_id", "size_bytes", "sha256"})
 _VERIFICATION_SEAL = object()
+_ISSUANCE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +205,7 @@ class AnalysisProtocol:
     legacy_thresholds: tuple[tuple[str, float], ...]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class HumanEvaluationPreregistration:
     """Verified structural authority; never an evaluation result or readiness gate."""
 
@@ -230,6 +234,31 @@ class HumanEvaluationPreregistration:
     def __post_init__(self, _verification_seal: object) -> None:
         if _verification_seal is not _VERIFICATION_SEAL:
             raise ValueError("verified authority requires the internal verification seal")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _IssuedHumanEvaluationPreregistrationRecord:
+    reference: Any
+    corpus: EvaluationCorpus
+    plan: LosoEvaluationPlan
+    cohort: CohortConstraints
+    analysis: AnalysisProtocol
+    artifacts: tuple[VerifiedExternalArtifact, ...]
+    corpus_records_sha256: str
+    corpus_summary_sha256: str
+    plan_summary_sha256: str
+    protocol_summary_sha256: str
+
+
+_ISSUED_HUMAN_EVALUATION_PREREGISTRATIONS: dict[
+    int, _IssuedHumanEvaluationPreregistrationRecord
+] = {}
+
+
+def _raise_private_authority_error() -> None:
+    error = ValueError("human evaluation preregistration authority is invalid")
+    error.__suppress_context__ = True
+    raise error from None
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -613,6 +642,126 @@ def _verify_cohort(corpus: EvaluationCorpus, cohort: CohortConstraints) -> float
     return alpha
 
 
+def _authority_commitments(
+    protocol: HumanEvaluationPreregistration,
+) -> tuple[str, str, str, str]:
+    protocol.__post_init__(_VERIFICATION_SEAL)
+    corpus = protocol.corpus
+    plan = protocol.plan
+    if type(corpus) is not EvaluationCorpus or type(plan) is not LosoEvaluationPlan:
+        raise ValueError("preregistration authority bindings are invalid")
+    corpus.__post_init__()
+    plan.__post_init__()
+    if (
+        plan.corpus is not corpus
+        or protocol.corpus_id != corpus.corpus_id
+        or protocol.required_sites != corpus.required_sites
+        or protocol.loso_assignment_sha256 != plan.assignment_sha256
+    ):
+        raise ValueError("preregistration authority bindings changed")
+    corpus_records_sha256 = hashlib.sha256(
+        _evaluation_corpus._canonical_record_objects_bytes(corpus.records)
+    ).hexdigest()
+    corpus_summary_sha256 = evaluation_corpus_digest(corpus)
+    plan_summary_sha256 = loso_evaluation_plan_digest(plan)
+    if (
+        protocol.evaluation_corpus_sha256 != corpus_summary_sha256
+        or protocol.loso_plan_sha256 != plan_summary_sha256
+        or corpus.records_sha256 != corpus_records_sha256
+    ):
+        raise ValueError("preregistration authority commitments changed")
+    protocol_summary_sha256 = hashlib.sha256(
+        canonical_human_evaluation_preregistration_summary_bytes(protocol)
+    ).hexdigest()
+    return (
+        corpus_records_sha256,
+        corpus_summary_sha256,
+        plan_summary_sha256,
+        protocol_summary_sha256,
+    )
+
+
+def _record_matches(
+    record: object,
+    protocol: HumanEvaluationPreregistration,
+    commitments: tuple[str, str, str, str] | None = None,
+) -> bool:
+    if type(record) is not _IssuedHumanEvaluationPreregistrationRecord:
+        return False
+    matches = (
+        record.reference() is protocol
+        and record.corpus is protocol.corpus
+        and record.plan is protocol.plan
+        and record.cohort is protocol.cohort
+        and record.analysis is protocol.analysis
+        and record.artifacts is protocol.artifacts
+    )
+    if commitments is None:
+        return matches
+    return matches and commitments == (
+        record.corpus_records_sha256,
+        record.corpus_summary_sha256,
+        record.plan_summary_sha256,
+        record.protocol_summary_sha256,
+    )
+
+
+def _register_issued_human_evaluation_preregistration(
+    protocol: HumanEvaluationPreregistration,
+) -> None:
+    commitments = _authority_commitments(protocol)
+    identity = id(protocol)
+    record = None
+
+    def cleanup(expired) -> None:
+        with _ISSUANCE_LOCK:
+            current = _ISSUED_HUMAN_EVALUATION_PREREGISTRATIONS.get(identity)
+            if current is record and current is not None and current.reference is expired:
+                _ISSUED_HUMAN_EVALUATION_PREREGISTRATIONS.pop(identity, None)
+
+    reference = weakref.ref(protocol, cleanup)
+    record = _IssuedHumanEvaluationPreregistrationRecord(
+        reference=reference,
+        corpus=protocol.corpus,
+        plan=protocol.plan,
+        cohort=protocol.cohort,
+        analysis=protocol.analysis,
+        artifacts=protocol.artifacts,
+        corpus_records_sha256=commitments[0],
+        corpus_summary_sha256=commitments[1],
+        plan_summary_sha256=commitments[2],
+        protocol_summary_sha256=commitments[3],
+    )
+    with _ISSUANCE_LOCK:
+        _ISSUED_HUMAN_EVALUATION_PREREGISTRATIONS[identity] = record
+
+
+def _require_issued_human_evaluation_preregistration(
+    value: object,
+) -> HumanEvaluationPreregistration:
+    """Require one exact verifier-issued, deeply unchanged preregistration."""
+
+    result = None
+    try:
+        if type(value) is not HumanEvaluationPreregistration:
+            raise TypeError("human evaluation preregistration type is invalid")
+        with _ISSUANCE_LOCK:
+            record = _ISSUED_HUMAN_EVALUATION_PREREGISTRATIONS.get(id(value))
+            if not _record_matches(record, value):
+                raise ValueError("human evaluation preregistration lacks issued authority")
+        commitments = _authority_commitments(value)
+        with _ISSUANCE_LOCK:
+            current = _ISSUED_HUMAN_EVALUATION_PREREGISTRATIONS.get(id(value))
+            if current is not record or not _record_matches(current, value, commitments):
+                raise ValueError("human evaluation preregistration authority changed")
+        result = value
+    except Exception:
+        result = None
+    if result is None:
+        _raise_private_authority_error()
+    return result
+
+
 def verify_human_evaluation_preregistration(
     preregistration_bytes: bytes,
     corpus: EvaluationCorpus,
@@ -629,7 +778,7 @@ def verify_human_evaluation_preregistration(
     analysis = _parse_analysis(raw["analysis"])
     artifacts = _verify_artifacts(raw["external_artifacts"], external_artifacts, corpus, analysis)
     alpha = _verify_cohort(corpus, cohort)
-    return HumanEvaluationPreregistration(
+    protocol = HumanEvaluationPreregistration(
         schema_version=SCHEMA_VERSION,
         protocol_id=protocol_id,
         frozen_at=frozen_at,
@@ -646,6 +795,8 @@ def verify_human_evaluation_preregistration(
         plan=plan,
         _verification_seal=_VERIFICATION_SEAL,
     )
+    _register_issued_human_evaluation_preregistration(protocol)
+    return protocol
 
 
 def _summary(protocol: HumanEvaluationPreregistration) -> dict[str, Any]:
