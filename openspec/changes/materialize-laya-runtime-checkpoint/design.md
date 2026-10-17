@@ -5,7 +5,8 @@
 The pure plan binds an exact live issued PR39 materialization evidence instance
 and the exact issued checkpoint instance reachable through
 `rootfs._plan._supply_evidence._provenance_evidence.checkpoint_evidence`.
-Both are deeply revalidated and share the identical runtime identity. Clones,
+Both are deeply revalidated and share the same runtime identity schema/digest;
+equivalent independently captured snapshot objects need not be identical. Clones,
 mixed snapshots, rebinding, revoked parents and altered commitments fail before I/O.
 The evidence inherits all 35 predecessor claims, changing only
 `runtime_materialized=false` to true. Public summaries omit paths, text, image and
@@ -52,6 +53,18 @@ Set local-model and five-digest mappings plus closed offline/cache environment.
 Tokenizer config repair must be a no-op; content drift or attempted rootfs write
 aborts. Output is a closed non-private JSON observation, not scientific evidence.
 
+The stopped-container export has an explicit init-layer profile independently
+observed against Docker 29.5.2. Only when absent from the authenticated installation,
+allow empty root-owned mode-0755 `.dockerenv`, `dev/console` and
+`etc/{hosts,hostname,resolv.conf}`; root-owned mode-0755 directories
+`dev/pts`, `dev/shm`, `dev`, `proc`, `sys`; and mode-0777 root-owned symlink
+`etc/mtab -> /proc/mounts`. No nonempty payload or other extra path is accepted.
+Existing installation paths retain exact content/topology/mode/owner; only the
+mtime of existing `dev`/`etc` directories is normalized because init-layer entries
+change those parents. This is not original-OCI metadata identity. Hardlink classes
+are compared independently of which equivalent inode member Docker exports first.
+Daemon logs use an inspected fixed 64-KiB/one-file rotation policy.
+
 ## Lifecycle and failure
 
 Only seal after the independent recapture and successful load probe. Retain the
@@ -61,6 +74,15 @@ disposal revokes authority and removes only owned objects, with retry after
 transient cleanup failure. Rootfs lease and external source descriptors always
 close. A failed probe, timeout, OOM, unavailable restriction, missing/mutated source
 or cleanup error never produces runtime authority. Orphans are not adopted.
+
+Import/create intents record exact fresh image references/container names before
+mutation. Lost replies are reconciled only by those references plus ownership nonce
+and closed profile, never by global listing. A failed attempt whose cleanup also
+fails raises a private issued error handle with `cleanup_pending`; the caller can
+retry cleanup without receiving runtime authority. Dropping an error/evidence
+without explicit cleanup can leave an orphan; GC never silently deletes external
+resources. Source leases use per-resource conditions, so one long load cannot block
+independent rootfs leases/disposals. Same-thread disposal during a lease is refused.
 
 ## Progression
 

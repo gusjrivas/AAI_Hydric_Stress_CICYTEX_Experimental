@@ -107,4 +107,3 @@ def test_materialization_job_uses_only_local_synthetic_engine_authority():
         if type(command) is str:
             rendered = command.lower()
             assert not any(fragment in rendered for fragment in forbidden_fragments)
-
