@@ -10,6 +10,7 @@ from __future__ import annotations
 import secrets
 import threading
 import weakref
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -54,7 +55,21 @@ class _RuntimeResource:
     image_id: str
     revoked: bool = False
     disposed: bool = False
-    lock: object = field(default_factory=threading.RLock, repr=False)
+    condition: threading.Condition = field(
+        default_factory=lambda: threading.Condition(threading.RLock()), repr=False
+    )
+    leases: int = 0
+    lease_owners: dict[int, int] = field(default_factory=dict, repr=False)
+    disposing: bool = False
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _RuntimeImageLease:
+    engine: object
+    image_id: str
+
+    def __repr__(self) -> str:
+        return "<private Laya runtime image lease>"
 
 
 @dataclass(slots=True)
@@ -241,24 +256,81 @@ def retry_laya_runtime_materialization_cleanup(error: LayaRuntimeMaterialization
         _fail(RuntimeMaterializationFailureStage.RESOURCE_CLEANUP)
 
 
-def dispose_laya_runtime(evidence: _authority.LayaRuntimeMaterializationEvidence) -> None:
-    """Revoke first, then delete only the owned image; retry cleanup explicitly."""
+@contextmanager
+def _lease_laya_runtime_image(evidence: _authority.LayaRuntimeMaterializationEvidence):
+    """Lease one exact live issued image without exposing descriptors."""
 
-    valid = False
+    resource = None
+    owner = threading.get_ident()
+    acquired = False
     try:
         with _LOCK:
             resource = _RESOURCES.get(id(evidence))
         if resource is None or resource.evidence_ref() is not evidence:
             _fail(RuntimeMaterializationFailureStage.RESOURCE_CLEANUP)
-        with resource.lock:
+        with resource.condition:
+            if resource.disposing or resource.revoked or resource.disposed:
+                _fail(RuntimeMaterializationFailureStage.RESOURCE_CLEANUP)
+            _authority.canonical_laya_runtime_materialization_summary_bytes(evidence)
+            if evidence._image_id != resource.image_id:
+                _fail(RuntimeMaterializationFailureStage.RESOURCE_CLEANUP)
+            lease = _RuntimeImageLease(resource.engine, resource.image_id)
+            resource.leases += 1
+            resource.lease_owners[owner] = resource.lease_owners.get(owner, 0) + 1
+            acquired = True
+        yield lease
+    finally:
+        if acquired:
+            with resource.condition:
+                resource.leases -= 1
+                remaining = resource.lease_owners[owner] - 1
+                if remaining:
+                    resource.lease_owners[owner] = remaining
+                else:
+                    del resource.lease_owners[owner]
+                resource.condition.notify_all()
+
+
+def dispose_laya_runtime(evidence: _authority.LayaRuntimeMaterializationEvidence) -> None:
+    """Revoke first, then delete only the owned image; retry cleanup explicitly."""
+
+    valid = False
+    owns_disposal = False
+    resource = None
+    try:
+        with _LOCK:
+            resource = _RESOURCES.get(id(evidence))
+        if resource is None or resource.evidence_ref() is not evidence:
+            _fail(RuntimeMaterializationFailureStage.RESOURCE_CLEANUP)
+        owner = threading.get_ident()
+        with resource.condition:
+            if resource.lease_owners.get(owner, 0):
+                _fail(RuntimeMaterializationFailureStage.RESOURCE_CLEANUP)
+            while resource.disposing:
+                resource.condition.wait()
+            if resource.disposed:
+                valid = True
+            else:
+                resource.disposing = True
+                owns_disposal = True
+                while resource.leases:
+                    resource.condition.wait()
+        if not valid:
             if not resource.revoked:
                 _authority._revoke_evidence(evidence)
-                resource.revoked = True
+                with resource.condition:
+                    resource.revoked = True
             if not resource.disposed:
                 resource.engine.remove_owned_image(resource.image_id)
-                resource.disposed = True
+                with resource.condition:
+                    resource.disposed = True
             valid = True
     except Exception:
         valid = False
+    finally:
+        if owns_disposal:
+            with resource.condition:
+                resource.disposing = False
+                resource.condition.notify_all()
     if not valid:
         _fail(RuntimeMaterializationFailureStage.RESOURCE_CLEANUP)
