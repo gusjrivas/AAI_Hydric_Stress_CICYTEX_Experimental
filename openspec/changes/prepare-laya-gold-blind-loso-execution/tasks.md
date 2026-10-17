@@ -2,16 +2,23 @@
 
 - [x] 1.1 Read existing corpus/split/preregistration/execution contracts and ADR-0014.
 - [x] 1.2 Independent scope decision: implement runner mechanics, no scientific claims.
-- [ ] 1.3 PR41 accepted/merged; exact merge rebase and repeated gates.
+- [x] 1.3 PR41 accepted/merged; exact merge rebase and repeated gates.
 - [x] 1.4 RED/GREEN exact-issued preregistration authority; v1 regressions unchanged.
 - [x] 1.5 RED/GREEN pure bound execution protocol and privacy-safe projection.
 
-Preparation evidence: authority RED `246eb2e` -> GREEN `61157aa`; protocol RED
-`7955f94` -> GREEN `2eaebcf`. Independent critique found one concurrent issuance
-replacement defect: causal RED `c93cb04` -> GREEN `c38f7b4`. Integrated bounded
+Preparation evidence (rebased SHAs): authority RED `4b38c18` -> GREEN `13330b6`;
+protocol RED `79140db` -> GREEN `9767848`. Independent critique found one concurrent
+issuance replacement defect: causal RED `bcfd097` -> GREEN `7d6198d`. Integrated bounded
 regression: 145 passed; independent re-audit: 95 passed, Ruff/Black/diff PASS,
 GO with no open P0/P1/P2 in this authority/protocol scope. This does not accept
-the still-unimplemented runner/adapter or satisfy dependency 1.3.
+the still-unimplemented executable adapter.
+
+Dependency 1.3: PR41 merged as `54718d77d9902dd33e9f936552bb3c55f1485c04` on
+2026-10-17 at 15:30:36 UTC. Exact-head closing CI `39043413122`: 16/16 PASS,
+Python 3473 passed / 58 skipped / 1467.93 seconds. Rebase: no conflicts, all 29
+patches equivalent by range-diff; only the predecessor tasks changed in the tree.
+Repeated pure gate: 180 passed in 2.26 seconds; Ruff/Black four sources and diff
+PASS. No real human corpus or scientific holdout was opened.
 
 Only isolated pure/unit preparation is permitted before 1.3; no real inference,
 corpus/holdout execution, positive scientific authority or publication.
@@ -24,18 +31,19 @@ corpus/holdout execution, positive scientific authority or publication.
 - [ ] 2.4 RED/GREEN lease/cleanup/fault/privacy/concurrency and private receipts.
 - [ ] 2.5 Mechanical-only integration verification with fixed synthetic fixtures.
 
-Pure preparation only: runner RED `78d5da8` -> GREEN `ca73a1a`; byte-codec RED
-`84cac8e` -> GREEN `9352903`. Review-driven runner RED `3648f99` -> GREEN
-`751c586` preserves canonical outputs and revalidates waiting executions;
-RED `0f5688d` -> GREEN `a024619` binds sealed receipts to independent private
+Pure preparation only (rebased SHAs): runner RED `3c44e55` -> GREEN `9aa76c0`;
+byte-codec RED `91d4623` -> GREEN `176d0b8`. Review-driven runner RED `ca68ad7`
+-> GREEN `809cadb` preserves canonical outputs and revalidates waiting executions;
+RED `84bc751` -> GREEN `b0cd79b` binds sealed receipts to independent private
 identity/digest commitments. Bounded pure suite: 180 passed. Independent final
-runner review on `a024619`: GO, no P0/P1/P2, runner 18 passed, Ruff/Black/diff PASS.
+runner review on pre-rebase `a024619` (equivalent `b0cd79b`): GO, no P0/P1/P2,
+runner 18 passed, Ruff/Black/diff PASS.
 Public preflight remains zero-consume BLOCKED; private fixture seams do not issue
 scientific authority. Rounded probability ties retain the approved semantics.
 
 The executable Docker adapter is NOT accepted by these pure gates. Fixed-program
-RED `db5dacf` and engine/attach RED through `23ca881` intentionally remain failing
-until their implementation after dependency 1.3. This includes a realistic
+RED `b7a15df` and engine/attach RED through `669521b` intentionally remain failing
+until their implementation, now permitted after dependency 1.3. This includes a realistic
 HTTPResponse 101 buffered-frame regression, not only transport mocks.
 
 ## 3. Technical acceptance

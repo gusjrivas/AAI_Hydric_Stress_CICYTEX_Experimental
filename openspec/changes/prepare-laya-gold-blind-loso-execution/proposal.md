@@ -17,10 +17,14 @@ and offline adapter additively, while preserving the scientific boundary.
 
 ## Dependencies and current preparation limit
 
-Based on PR41 candidate `087d038`, pending its exact-head CI and real acceptance.
-This isolated branch may prepare specifications and pure RED/unit mechanics.
-No publishing, merge, real model/corpus run or positive scientific issuer until
-PR41 is accepted, merged, rebased onto its exact merge SHA and gates repeated.
+Based on accepted PR41 merge `54718d77d9902dd33e9f936552bb3c55f1485c04`.
+PR41 closing CI `39043413122` passed 16/16; Python 3473 passed, 58 skipped.
+Its separate fixed synthetic real gate passed in 994.00 seconds. This branch was
+rebased onto that exact merge without conflicts; all 29 preparation patches were
+unchanged and the 180-test pure gate and static checks passed again.
+Implementation of the closed offline adapter may now proceed under TDD.
+Real corpus/model evaluation and positive scientific authority remain blocked by
+the separate custody, calibration-method and corpus-runtime-profile gates.
 
 ## Change
 
