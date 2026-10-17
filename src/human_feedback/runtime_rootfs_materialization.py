@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json as _json
+import threading as _threading
+import weakref as _weakref
 from dataclasses import InitVar as _InitVar
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
@@ -34,6 +36,19 @@ _PLAN_SCHEMA = "laya-runtime-rootfs-materialization-plan-v1"
 _EVIDENCE_SCHEMA = "laya-runtime-rootfs-materialization-evidence-v1"
 _FACTORY_TOKEN = object()
 _EVIDENCE_TOKEN = object()
+
+
+class _IssuedEvidenceRecord:
+    __slots__ = ("reference", "plan", "commitment")
+
+    def __init__(self, reference, plan, commitment: str) -> None:
+        self.reference = reference
+        self.plan = plan
+        self.commitment = commitment
+
+
+_ISSUED_EVIDENCE: dict[int, _IssuedEvidenceRecord] = {}
+_ISSUANCE_LOCK = _threading.Lock()
 
 
 def _private_repr(value: object) -> str:
@@ -84,7 +99,7 @@ class LayaRuntimeRootfsMaterializationPlan:
     __repr__ = _private_repr
 
 
-@_dataclass(frozen=True, slots=True, repr=False)
+@_dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
 class LayaRuntimeRootfsMaterializationEvidence:
     schema_version: str
     _plan: LayaRuntimeRootfsMaterializationPlan = _field(repr=False)
@@ -121,6 +136,82 @@ class LayaRuntimeRootfsMaterializationEvidence:
     __repr__ = _private_repr
 
 
+def _revalidate_plan(value: object) -> LayaRuntimeRootfsMaterializationPlan:
+    if type(value) is not LayaRuntimeRootfsMaterializationPlan:
+        raise TypeError("rootfs materialization plan type is invalid")
+    value.__post_init__(_FACTORY_TOKEN)
+    rebuilt = prepare_laya_runtime_rootfs_materialization_plan(
+        value._rootfs_evidence,
+        value._supply_evidence,
+    )
+    if (
+        rebuilt._rootfs_evidence is not value._rootfs_evidence
+        or rebuilt._supply_evidence is not value._supply_evidence
+        or rebuilt._runtime_identity is not value._runtime_identity
+        or rebuilt.schema_version != value.schema_version
+        or rebuilt.materialization_profile != value.materialization_profile
+        or rebuilt.rootfs_materialized is not value.rootfs_materialized
+        or rebuilt.runtime_materialized is not value.runtime_materialized
+        or rebuilt.executor_available is not value.executor_available
+        or rebuilt.inference_executed is not value.inference_executed
+    ):
+        raise ValueError("rootfs materialization plan revalidation failed")
+    return value
+
+
+def _register_issued_evidence(
+    evidence: LayaRuntimeRootfsMaterializationEvidence,
+    plan: LayaRuntimeRootfsMaterializationPlan,
+    commitment: str,
+) -> None:
+    identity = id(evidence)
+    record = None
+
+    def cleanup(expired) -> None:
+        retained_plan = None
+        with _ISSUANCE_LOCK:
+            current = _ISSUED_EVIDENCE.get(identity)
+            if current is record and current.reference is expired:
+                retained_plan = current.plan
+                current.plan = None
+                current.commitment = ""
+                _ISSUED_EVIDENCE.pop(identity, None)
+        del retained_plan
+
+    reference = _weakref.ref(evidence, cleanup)
+    record = _IssuedEvidenceRecord(reference, plan, commitment)
+    with _ISSUANCE_LOCK:
+        _ISSUED_EVIDENCE[identity] = record
+
+
+def _require_issued_evidence(
+    evidence: object,
+) -> LayaRuntimeRootfsMaterializationEvidence:
+    if type(evidence) is not LayaRuntimeRootfsMaterializationEvidence:
+        raise TypeError("rootfs materialization evidence type is invalid")
+    evidence.__post_init__(_EVIDENCE_TOKEN)
+    with _ISSUANCE_LOCK:
+        record = _ISSUED_EVIDENCE.get(id(evidence))
+        if (
+            record is None
+            or record.reference() is not evidence
+            or record.plan is not evidence._plan
+            or record.commitment != evidence._content_manifest_sha256
+        ):
+            raise ValueError("rootfs materialization evidence lacks issued authority")
+    _revalidate_plan(evidence._plan)
+    with _ISSUANCE_LOCK:
+        current = _ISSUED_EVIDENCE.get(id(evidence))
+        if (
+            current is not record
+            or current.reference() is not evidence
+            or current.plan is not evidence._plan
+            or current.commitment != evidence._content_manifest_sha256
+        ):
+            raise ValueError("rootfs materialization evidence authority changed")
+    return evidence
+
+
 def prepare_laya_runtime_rootfs_materialization_plan(
     rootfs_evidence: object,
     supply_evidence: object,
@@ -146,6 +237,36 @@ def prepare_laya_runtime_rootfs_materialization_plan(
     return result
 
 
+def _seal_laya_runtime_rootfs_materialization_evidence(
+    plan: object,
+    content_manifest_sha256: object,
+) -> LayaRuntimeRootfsMaterializationEvidence:
+    """Issue authority only after the filesystem adapter completed verification."""
+
+    result = None
+    try:
+        issued_plan = _revalidate_plan(plan)
+        if (
+            type(content_manifest_sha256) is not str
+            or len(content_manifest_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in content_manifest_sha256)
+        ):
+            raise ValueError("rootfs materialization content commitment is invalid")
+        result = LayaRuntimeRootfsMaterializationEvidence(
+            schema_version=_EVIDENCE_SCHEMA,
+            _plan=issued_plan,
+            _content_manifest_sha256=content_manifest_sha256,
+            _factory_token=_EVIDENCE_TOKEN,
+        )
+        _register_issued_evidence(result, issued_plan, content_manifest_sha256)
+        _require_issued_evidence(result)
+    except Exception:
+        result = None
+    if result is None:
+        _raise_private("rootfs materialization evidence sealing failed")
+    return result
+
+
 def canonical_laya_runtime_rootfs_materialization_summary_bytes(
     evidence: object,
 ) -> bytes:
@@ -153,9 +274,7 @@ def canonical_laya_runtime_rootfs_materialization_summary_bytes(
 
     result = None
     try:
-        if type(evidence) is not LayaRuntimeRootfsMaterializationEvidence:
-            raise TypeError("rootfs materialization evidence type is invalid")
-        evidence.__post_init__(_EVIDENCE_TOKEN)
+        evidence = _require_issued_evidence(evidence)
         payload = {
             "schema_version": evidence.schema_version,
             "materialization_profile": evidence.materialization_profile,

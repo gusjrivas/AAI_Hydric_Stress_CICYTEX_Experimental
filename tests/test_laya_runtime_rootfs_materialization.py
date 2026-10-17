@@ -1,6 +1,7 @@
 import ast
 import importlib
 import inspect
+import json
 from dataclasses import fields, replace
 from types import MappingProxyType
 
@@ -171,3 +172,76 @@ def test_evidence_cannot_be_directly_constructed_or_replaced(monkeypatch):
     assert "a" * 64 not in repr(forged)
     with pytest.raises((TypeError, ValueError)):
         module.canonical_laya_runtime_rootfs_materialization_summary_bytes(forged)
+
+
+def test_private_sealer_issues_summary_authority_without_leaking_commitment(monkeypatch):
+    module = importlib.import_module("human_feedback.runtime_rootfs_materialization")
+    _chain, rootfs, supply = _paired_authorities(monkeypatch)
+    plan = module.prepare_laya_runtime_rootfs_materialization_plan(rootfs, supply)
+    commitment = "c" * 64
+
+    evidence = module._seal_laya_runtime_rootfs_materialization_evidence(plan, commitment)
+    summary = module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
+    payload = json.loads(summary)
+
+    assert evidence._plan is plan
+    assert evidence._content_manifest_sha256 == commitment
+    assert commitment not in repr(evidence)
+    assert commitment.encode() not in summary
+    assert "path" not in payload
+    assert "digest" not in payload
+    assert payload == {
+        "schema_version": "laya-runtime-rootfs-materialization-evidence-v1",
+        "materialization_profile": "nonroot-disposable-v1",
+        **dict(module.MATERIALIZATION_CLAIMS),
+    }
+
+
+def test_only_exact_issued_evidence_has_summary_authority(monkeypatch):
+    module = importlib.import_module("human_feedback.runtime_rootfs_materialization")
+    _chain, rootfs, supply = _paired_authorities(monkeypatch)
+    plan = module.prepare_laya_runtime_rootfs_materialization_plan(rootfs, supply)
+    evidence = module._seal_laya_runtime_rootfs_materialization_evidence(plan, "d" * 64)
+    clone = _clone_exact(evidence)
+
+    for invalid in (clone, replace):
+        if invalid is replace:
+            with pytest.raises((TypeError, ValueError)):
+                replace(evidence, _content_manifest_sha256="d" * 64)
+        else:
+            with pytest.raises((TypeError, ValueError)):
+                module.canonical_laya_runtime_rootfs_materialization_summary_bytes(invalid)
+
+    direct = module.LayaRuntimeRootfsMaterializationEvidence(
+        schema_version="laya-runtime-rootfs-materialization-evidence-v1",
+        _plan=plan,
+        _content_manifest_sha256="d" * 64,
+        _factory_token=module._EVIDENCE_TOKEN,
+    )
+    with pytest.raises((TypeError, ValueError)):
+        module.canonical_laya_runtime_rootfs_materialization_summary_bytes(direct)
+
+
+def test_summary_rejects_postseal_commitment_plan_and_predecessor_mutation(monkeypatch):
+    module = importlib.import_module("human_feedback.runtime_rootfs_materialization")
+
+    def issue():
+        _chain, rootfs, supply = _paired_authorities(monkeypatch)
+        plan = module.prepare_laya_runtime_rootfs_materialization_plan(rootfs, supply)
+        evidence = module._seal_laya_runtime_rootfs_materialization_evidence(plan, "e" * 64)
+        return rootfs, plan, evidence
+
+    rootfs, _plan, evidence = issue()
+    object.__setattr__(evidence, "_content_manifest_sha256", "f" * 64)
+    with pytest.raises((TypeError, ValueError)):
+        module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
+
+    _rootfs, plan, evidence = issue()
+    object.__setattr__(plan, "runtime_materialized", True)
+    with pytest.raises((TypeError, ValueError)):
+        module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
+
+    rootfs, _plan, evidence = issue()
+    object.__setattr__(rootfs, "rootfs_manifest_sha256", "f" * 64)
+    with pytest.raises((TypeError, ValueError)):
+        module.canonical_laya_runtime_rootfs_materialization_summary_bytes(evidence)
