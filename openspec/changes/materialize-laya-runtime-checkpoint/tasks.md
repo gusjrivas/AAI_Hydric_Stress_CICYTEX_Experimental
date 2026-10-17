@@ -9,16 +9,16 @@
 
 - [x] 2.1 RED/GREEN descriptor-bound rootfs lease and disposal serialization.
 - [x] 2.2 RED/GREEN bounded normalized archive and five-object checkpoint installation.
-- [ ] 2.3 RED/GREEN explicit local Docker adapter and owned lifecycle.
-- [ ] 2.4 RED/GREEN stopped-container recapture and exact isolation inspection.
-- [ ] 2.5 RED/GREEN fixed CPU/offline import/model-load probe without inference.
+- [x] 2.3 RED/GREEN explicit local Docker adapter and owned lifecycle.
+- [x] 2.4 RED/GREEN stopped-container recapture and exact isolation inspection.
+- [x] 2.5 RED/GREEN fixed CPU/offline import/model-load probe without inference.
 
 ## 3. Gates
 
-- [ ] 3.1 Synthetic Linux Docker integration and failure/retry/resource bounds.
-- [ ] 3.2 Opt-in real pinned artifact/model-load acceptance or honest BLOCK.
-- [ ] 3.3 Predecessor, historical/site/mock, backend and quality regressions.
-- [ ] 3.4 Independent critic/auditor GO and CI on the exact reviewed SHA.
+- [x] 3.1 Synthetic Linux Docker integration and failure/retry/resource bounds.
+- [x] 3.2 Opt-in real pinned artifact/model-load acceptance or honest BLOCK.
+- [x] 3.3 Predecessor, historical/site/mock, backend and quality regressions.
+- [x] 3.4 Independent critic/auditor GO and CI on the exact reviewed SHA.
 
 ## Development evidence (not final acceptance)
 
@@ -45,5 +45,36 @@
 - Projection verifier RED `b0f0ed8`: 10 failures; GREEN `1ea7a74`: 26 passes.
   The expected manifest must retain all three exact placeholders; silently
   excluding masked original paths was rejected by independent architecture review.
-- Changed executable code invalidates the previous real/CI acceptance attempt.
-  A fresh complete real chain, exact-SHA CI and final independent GO remain open.
+- Changed executable code invalidated the previous real/CI acceptance attempt.
+  Fresh-chain and exact-SHA acceptance are recorded below, not inferred from
+  development or diagnostic sessions.
+
+## Final executable acceptance — 17 October 2026
+
+- Exact executable SHA: `4e9b84a800bdfa379be5618c55c2b8ff9bf85461`.
+- Fresh original opt-in `test_laya_runtime_materialization_real.py`: **1 passed
+  in 856.97 seconds (14:16)**. The test issued the complete real predecessor
+  chain, materialized and reverified the source rootfs, installed the three exact
+  projected placeholders and five immutable checkpoint files, independently
+  recaptured the stopped container and loaded the CPU model offline. It disposed
+  runtime and source and asserted an empty private parent. No tracer or
+  validation monkeypatch was used.
+- CI run `39025053332`: **16/16 PASS** on the exact executable SHA, including
+  Python quality, backend/frontend, Linux/Windows contracts, historical/scientific
+  container and actual tiny-Docker import/inspect/export/cleanup gates.
+  Full Python result: 3351 passed, 57 skipped in 1276.69 seconds.
+- Final local executable regression: 239 passed, 5 skipped before the additive
+  diagnostic delta; diagnostic focal 18/18 and related regression 89/89 after it.
+  Ruff, Black (360 files), strict OpenSpec and diff checks passed.
+- Independent archive/verifier and diagnostic reviews: GO, no open P0/P1/P2.
+  Closed read-only failure stages followed RED `cbbbea8` then GREEN `4e9b84a`;
+  privacy, cleanup ownership and the 35-claim matrix are unchanged.
+- The earlier `333da80` real attempt failed in 757.35 seconds with generic error
+  and no pending cleanup. Its cause remains inconclusive and was not reproduced;
+  do not claim it was explained or fixed. A later private diagnostic session was
+  functionally successful but was not counted as acceptance. The fresh pytest
+  PASS above is the acceptance evidence.
+- This closing commit changes documentation only. Its executable source remains
+  identical to the accepted SHA above; merge still requires the documentary
+  HEAD's checks and final audit to be green. No inference, executor, scientific
+  readiness, build attestation, source-origin or productive wiring is claimed.
