@@ -18,6 +18,10 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
+from human_feedback.adapters._laya_offline_probe import (
+    OFFLINE_PROBE_ARGUMENTS,
+    OFFLINE_PROBE_ENVIRONMENT,
+)
 from human_feedback.adapters._laya_runtime_probe import (
     IMAGE_ENVIRONMENT,
     PROBE_ARGUMENTS,
@@ -44,6 +48,10 @@ _ARCHIVE_CHUNK_LIMIT = 1024 * 1024
 _ARCHIVE_TIMEOUT_SECONDS = 15 * 60.0
 _PROBE_TIMEOUT_SECONDS = 5 * 60.0
 _PROBE_LOG_LIMIT = 64 * 1024
+_OFFLINE_STDIN_LIMIT = 64 * 1024
+_OFFLINE_STDOUT_LIMIT = 64 * 1024
+_OFFLINE_STDERR_LIMIT = 8 * 1024
+_OFFLINE_TIMEOUT_SECONDS = 5 * 60.0
 
 _MEMORY_BYTES = 4 * 1024**3
 _TMPFS = "rw,nosuid,nodev,noexec,size=67108864,mode=1777"
@@ -58,6 +66,7 @@ _EXPECTED_PROBE_OBSERVATION = {
 }
 _MATERIALIZATION_PROBE_PROFILE = "materialization-load-v1"
 _SYNTHETIC_PROBE_PROFILE = "synthetic-execution-v1"
+_LOSO_OFFLINE_PROFILE = "gold-blind-offline-v2"
 
 
 class LocalDockerEngineError(RuntimeError):
@@ -239,6 +248,138 @@ class _UnixSocketHTTPConnection(http.client.HTTPConnection):
             raise
         self.sock = descriptor
 
+    def begin_hijacked_response(self):
+        """Parse a 101 response without HTTPConnection closing the upgraded socket."""
+
+        response = http.client.HTTPResponse(self.sock)
+        response.begin()
+        return response
+
+
+def _attach_header_values(response, name: str) -> list[str]:
+    headers = getattr(response, "headers", None)
+    if headers is None or not callable(getattr(headers, "get_all", None)):
+        raise LocalDockerEngineError("local Docker attach headers are invalid")
+    values = headers.get_all(name, [])
+    if type(values) is not list or any(type(value) is not str for value in values):
+        raise LocalDockerEngineError("local Docker attach headers are invalid")
+    return values
+
+
+def _attach_read(reader, size: int) -> bytes:
+    chunk = reader.read(size)
+    if type(chunk) is not bytes:
+        raise LocalDockerEngineError("local Docker attach stream is invalid")
+    return chunk
+
+
+class _DockerAttachSession:
+    """One exact bounded stdin/stdout exchange over a hijacked Docker socket."""
+
+    def __init__(
+        self,
+        connection,
+        response,
+        *,
+        stdin_limit: int,
+        stdout_limit: int,
+        stderr_limit: int,
+        deadline: float,
+        watchdog,
+    ) -> None:
+        self._connection = connection
+        self._response = response
+        self._reader = response.fp if isinstance(response, http.client.HTTPResponse) else response
+        self._stdin_limit = stdin_limit
+        self._stdout_limit = stdout_limit
+        self._stderr_limit = stderr_limit
+        self._deadline = deadline
+        self._watchdog = watchdog
+        self._used = False
+        self._closed = False
+
+    def __enter__(self):
+        if self._closed:
+            raise LocalDockerEngineError("local Docker attach session is closed")
+        return self
+
+    def __exit__(self, _error_type, _error, _traceback) -> None:
+        self.close()
+
+    def _read_exact(self, size: int, *, allow_clean_eof: bool = False) -> bytes:
+        chunks = []
+        remaining = size
+        while remaining:
+            if self._watchdog.expired or time.monotonic() > self._deadline:
+                raise LocalDockerEngineError("local Docker attach deadline exceeded")
+            _remaining_timeout(self._connection, self._deadline)
+            chunk = _attach_read(self._reader, remaining)
+            if self._watchdog.expired or time.monotonic() > self._deadline:
+                raise LocalDockerEngineError("local Docker attach deadline exceeded")
+            if not chunk:
+                if allow_clean_eof and remaining == size:
+                    return b""
+                raise LocalDockerEngineError("local Docker attach stream is truncated")
+            if len(chunk) > remaining:
+                raise LocalDockerEngineError("local Docker attach stream is invalid")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
+    def exchange(self, canonical_request: bytes) -> tuple[bytes, bytes]:
+        if (
+            self._used
+            or type(canonical_request) is not bytes
+            or not 0 < len(canonical_request) <= self._stdin_limit
+        ):
+            raise LocalDockerEngineError("local Docker attach input is invalid")
+        self._used = True
+        stdout = bytearray()
+        stderr = bytearray()
+        try:
+            if self._watchdog.expired or time.monotonic() > self._deadline:
+                raise LocalDockerEngineError("local Docker attach deadline exceeded")
+            _remaining_timeout(self._connection, self._deadline)
+            self._connection.send(canonical_request)
+            descriptor = getattr(self._connection, "sock", None)
+            if descriptor is None:
+                raise LocalDockerEngineError("local Docker attach socket is unavailable")
+            descriptor.shutdown(socket.SHUT_WR)
+            while True:
+                header = self._read_exact(8, allow_clean_eof=True)
+                if not header:
+                    break
+                stream = header[0]
+                if stream not in {1, 2} or header[1:4] != b"\x00\x00\x00":
+                    raise LocalDockerEngineError("local Docker attach frame is invalid")
+                size = int.from_bytes(header[4:8], "big")
+                target = stdout if stream == 1 else stderr
+                limit = self._stdout_limit if stream == 1 else self._stderr_limit
+                if size > limit - len(target):
+                    raise LocalDockerEngineError("local Docker attach output exceeded its bound")
+                target.extend(self._read_exact(size))
+            return bytes(stdout), bytes(stderr)
+        except LocalDockerEngineError:
+            self.close()
+            raise
+        except Exception:
+            self.close()
+            raise LocalDockerEngineError("local Docker attach exchange failed") from None
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._watchdog.cancel()
+        try:
+            self._response.close()
+        except Exception:
+            pass
+        self._connection.close()
+
 
 class _LocalUnixTransport:
     """Bounded HTTP/1.1 transport pinned to the one authorized Unix socket."""
@@ -391,6 +532,77 @@ class _LocalUnixTransport:
             watchdog.cancel()
             connection.close()
             raise LocalDockerEngineError("local Docker streaming download failed") from None
+
+    def open_attach(
+        self,
+        path: str,
+        *,
+        stdin_limit: int,
+        stdout_limit: int,
+        stderr_limit: int,
+        timeout: float,
+    ) -> _DockerAttachSession:
+        expected_suffix = "/attach?stream=1&stdin=1&stdout=1&stderr=1"
+        prefix = f"/{DOCKER_API_VERSION}/containers/"
+        identity = (
+            path[len(prefix) : -len(expected_suffix)]
+            if type(path) is str and path.startswith(prefix) and path.endswith(expected_suffix)
+            else None
+        )
+        if (
+            identity is None
+            or _CONTAINER_ID.fullmatch(identity) is None
+            or stdin_limit != _OFFLINE_STDIN_LIMIT
+            or stdout_limit != _OFFLINE_STDOUT_LIMIT
+            or stderr_limit != _OFFLINE_STDERR_LIMIT
+            or timeout != _OFFLINE_TIMEOUT_SECONDS
+        ):
+            raise LocalDockerEngineError("local Docker attach request is invalid")
+        deadline = time.monotonic() + timeout
+        connection = _UnixSocketHTTPConnection(float(timeout))
+        watchdog = _DeadlineWatchdog(connection, deadline)
+        try:
+            _remaining_timeout(connection, deadline)
+            if callable(getattr(connection, "putrequest", None)):
+                connection.putrequest("POST", path)
+                connection.putheader("Connection", "Upgrade")
+                connection.putheader("Upgrade", "tcp")
+                connection.endheaders()
+            else:
+                connection.request(
+                    "POST",
+                    path,
+                    headers={"Connection": "Upgrade", "Upgrade": "tcp"},
+                )
+            _remaining_timeout(connection, deadline)
+            begin = getattr(connection, "begin_hijacked_response", None)
+            response = begin() if callable(begin) else connection.getresponse()
+            _remaining_timeout(connection, deadline)
+            if (
+                response.status != 101
+                or _attach_header_values(response, "Connection") != ["Upgrade"]
+                or _attach_header_values(response, "Upgrade") != ["tcp"]
+                or _attach_header_values(response, "Content-Type")
+                != ["application/vnd.docker.multiplexed-stream"]
+            ):
+                raise LocalDockerEngineError("local Docker attach upgrade is invalid")
+            return _DockerAttachSession(
+                connection,
+                response,
+                stdin_limit=stdin_limit,
+                stdout_limit=stdout_limit,
+                stderr_limit=stderr_limit,
+                deadline=deadline,
+                watchdog=watchdog,
+            )
+        except LocalDockerEngineError:
+            watchdog.cancel()
+            connection.close()
+            raise
+        except Exception:
+            watchdog.cancel()
+            connection.close()
+            raise LocalDockerEngineError("local Docker attach failed") from None
 
 
 def _reject_constant(_value: str) -> None:
@@ -551,6 +763,24 @@ def _closed_synthetic_probe_payload(image_id: str, nonce: str) -> dict[str, Any]
     return payload
 
 
+def _closed_loso_offline_payload(image_id: str, nonce: str) -> dict[str, Any]:
+    payload = _closed_probe_payload(image_id, nonce)
+    payload.update(
+        {
+            "Cmd": list(OFFLINE_PROBE_ARGUMENTS),
+            "Env": list(OFFLINE_PROBE_ENVIRONMENT),
+            "OpenStdin": True,
+            "StdinOnce": True,
+            "AttachStdin": True,
+            "AttachStdout": True,
+            "AttachStderr": True,
+            "Tty": False,
+        }
+    )
+    payload["HostConfig"]["LogConfig"] = {"Type": "none", "Config": {}}
+    return payload
+
+
 def _image_changes(nonce: str) -> tuple[str, ...]:
     if type(nonce) is not str or _NONCE.fullmatch(nonce) is None:
         raise LocalDockerEngineError("local Docker ownership nonce is invalid")
@@ -707,6 +937,29 @@ def _matches_closed_synthetic_probe(
     )
 
 
+def _matches_closed_loso_offline(
+    value: dict[str, Any], *, image_id: str, container_id: str, nonce: str
+) -> bool:
+    config = value.get("Config")
+    expected = _closed_loso_offline_payload(image_id, nonce)
+    return (
+        _matches_closed_probe_payload(
+            value,
+            image_id=image_id,
+            container_id=container_id,
+            nonce=nonce,
+            expected=expected,
+        )
+        and type(config) is dict
+        and config.get("OpenStdin") is True
+        and config.get("StdinOnce") is True
+        and config.get("AttachStdin") is True
+        and config.get("AttachStdout") is True
+        and config.get("AttachStderr") is True
+        and config.get("Tty") is False
+    )
+
+
 class LocalDockerEngine:
     """Stateful owner of exact local Docker resources created by one operation."""
 
@@ -826,6 +1079,33 @@ class LocalDockerEngine:
             payload_factory=_closed_synthetic_probe_payload,
         )
 
+    def create_closed_loso_offline_container(self, image_id: str) -> str:
+        if any(
+            (
+                self._owned_containers,
+                self._owned_images,
+                self._removed_containers,
+                self._removed_images,
+                self._container_intents,
+                self._container_intent_profiles,
+                self._container_profiles,
+                self._image_intents,
+                self._closed_inspected,
+                self._inspected_profiles,
+                self._started,
+                self._started_profiles,
+                self._waited,
+                self._waited_profiles,
+            )
+        ):
+            raise LocalDockerEngineError("local Docker offline engine is not fresh")
+        return self._create_closed_probe_container(
+            image_id,
+            profile=_LOSO_OFFLINE_PROFILE,
+            name_prefix="aai-laya-loso-offline-",
+            payload_factory=_closed_loso_offline_payload,
+        )
+
     def _create_closed_probe_container(
         self,
         image_id: str,
@@ -896,7 +1176,11 @@ class LocalDockerEngine:
 
     def _reconcile_container_intent(self, name: str, image_id: str) -> None:
         profile = self._container_intent_profiles.get(name)
-        if profile not in {_MATERIALIZATION_PROBE_PROFILE, _SYNTHETIC_PROBE_PROFILE}:
+        if profile not in {
+            _MATERIALIZATION_PROBE_PROFILE,
+            _SYNTHETIC_PROBE_PROFILE,
+            _LOSO_OFFLINE_PROFILE,
+        }:
             raise LocalDockerEngineError("owned Docker container intent profile is invalid")
         path_name = urllib.parse.quote(name, safe="")
         response = self._request("GET", f"/{DOCKER_API_VERSION}/containers/{path_name}/json")
@@ -908,11 +1192,11 @@ class LocalDockerEngine:
             raise LocalDockerEngineError("owned Docker container intent is unresolved")
         value = _json_object(response.body)
         container_id = _require_container_id(value.get("Id"))
-        matcher = (
-            _matches_closed_probe
-            if profile == _MATERIALIZATION_PROBE_PROFILE
-            else _matches_closed_synthetic_probe
-        )
+        matcher = {
+            _MATERIALIZATION_PROBE_PROFILE: _matches_closed_probe,
+            _SYNTHETIC_PROBE_PROFILE: _matches_closed_synthetic_probe,
+            _LOSO_OFFLINE_PROFILE: _matches_closed_loso_offline,
+        }[profile]
         if not matcher(
             value,
             image_id=image_id,
@@ -998,6 +1282,15 @@ class LocalDockerEngine:
             profile=_SYNTHETIC_PROBE_PROFILE,
         )
 
+    def inspect_closed_loso_offline_container(
+        self, container_id: str, *, expected_image_id: str
+    ) -> dict[str, Any]:
+        return self._inspect_closed_probe_container(
+            container_id,
+            expected_image_id=expected_image_id,
+            profile=_LOSO_OFFLINE_PROFILE,
+        )
+
     def _inspect_closed_probe_container(
         self, container_id: str, *, expected_image_id: str, profile: str
     ) -> dict[str, Any]:
@@ -1007,19 +1300,18 @@ class LocalDockerEngine:
         if (
             container_id in self._owned_containers
             and registered_profile != profile
-            or profile == _SYNTHETIC_PROBE_PROFILE
-            and (
-                container_id not in self._owned_containers
-                or registered_profile != _SYNTHETIC_PROBE_PROFILE
-            )
+            or profile in {_SYNTHETIC_PROBE_PROFILE, _LOSO_OFFLINE_PROFILE}
+            and (container_id not in self._owned_containers or registered_profile != profile)
         ):
             raise LocalDockerEngineError("local Docker probe isolation changed")
         value = self.inspect_container(container_id)
-        matcher = (
-            _matches_closed_probe
-            if profile == _MATERIALIZATION_PROBE_PROFILE
-            else _matches_closed_synthetic_probe
-        )
+        matcher = {
+            _MATERIALIZATION_PROBE_PROFILE: _matches_closed_probe,
+            _SYNTHETIC_PROBE_PROFILE: _matches_closed_synthetic_probe,
+            _LOSO_OFFLINE_PROFILE: _matches_closed_loso_offline,
+        }.get(profile)
+        if matcher is None:
+            raise LocalDockerEngineError("local Docker probe profile is invalid")
         if not matcher(
             value,
             image_id=image_id,
@@ -1084,7 +1376,9 @@ class LocalDockerEngine:
         started_profile = self._started_profiles.get(container_id)
         if started_profile is not None and started_profile != profile:
             raise LocalDockerEngineError("local Docker probe profile changed")
-        if profile == _SYNTHETIC_PROBE_PROFILE and started_profile != profile:
+        if profile in {_SYNTHETIC_PROBE_PROFILE, _LOSO_OFFLINE_PROFILE} and (
+            started_profile != profile
+        ):
             raise LocalDockerEngineError("local Docker probe profile changed")
         value = self._request_json(
             "POST",
@@ -1142,6 +1436,38 @@ class LocalDockerEngine:
         self._wait_probe(container_id, profile=_SYNTHETIC_PROBE_PROFILE)
         stdout, _stderr = self._probe_logs_bounded(container_id, profile=_SYNTHETIC_PROBE_PROFILE)
         return validate_synthetic_probe_observation(stdout)
+
+    def run_closed_loso_offline(
+        self,
+        container_id: str,
+        *,
+        expected_image_id: str,
+        canonical_request: bytes,
+    ) -> bytes:
+        """Run one fixed gold-blind batch through bounded hijacked standard I/O."""
+
+        if type(canonical_request) is not bytes or not 0 < len(canonical_request) <= 64 * 1024:
+            raise ValueError("canonical offline request is invalid") from None
+        container_id = _require_container_id(container_id)
+        image_id = _require_image_id(expected_image_id)
+        self.inspect_closed_loso_offline_container(container_id, expected_image_id=image_id)
+        path = (
+            f"/{DOCKER_API_VERSION}/containers/{container_id}/attach?"
+            "stream=1&stdin=1&stdout=1&stderr=1"
+        )
+        with self._transport.open_attach(
+            path,
+            stdin_limit=_OFFLINE_STDIN_LIMIT,
+            stdout_limit=_OFFLINE_STDOUT_LIMIT,
+            stderr_limit=_OFFLINE_STDERR_LIMIT,
+            timeout=_OFFLINE_TIMEOUT_SECONDS,
+        ) as session:
+            self._start_probe(container_id, profile=_LOSO_OFFLINE_PROFILE)
+            stdout, stderr = session.exchange(canonical_request)
+        self._wait_probe(container_id, profile=_LOSO_OFFLINE_PROFILE)
+        if type(stdout) is not bytes or not stdout or len(stdout) > _OFFLINE_STDOUT_LIMIT or stderr:
+            raise LocalDockerEngineError("local Docker offline output is invalid")
+        return stdout
 
     def inspect_image(self, image_id: str) -> dict[str, Any]:
         image_id = _require_image_id(image_id)
