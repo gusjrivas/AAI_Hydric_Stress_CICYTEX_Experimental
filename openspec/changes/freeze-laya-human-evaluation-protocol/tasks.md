@@ -8,6 +8,7 @@
 - [x] 1.5 Implementar el hardening y volver a cerrar la matriz negativa.
 - [x] 1.6 Registrar RED final para probabilidades de cola, Holm step-down e
   intervalos exclusivamente descriptivos.
+- [x] 1.7 Implementar y validar el protocolo de multiplicidad cerrado.
 
 ## 2. Cohorte y privacidad
 

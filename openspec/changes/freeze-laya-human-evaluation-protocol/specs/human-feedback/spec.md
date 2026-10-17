@@ -54,20 +54,28 @@ de potencia.
 
 El sistema MUST fijar las labels y zero-division de macro-F1, los estimandos
 global y por sitio, el baseline y sus mismos folds, los márgenes global/por sitio
-y el bootstrap estratificado pareado sobre los mismos grupos/sitio. Los intervalos
-95 % MUST ser descriptivos. Para cada hipótesis `h`, la probabilidad de cola MUST
-ser `(1 + count(delta_h_bootstrap <= margin_h)) / (B + 1)`.
-
-Holm MUST ordenar por `(p_h, índice preregistrado)`, comparar el rango `r` con
-`alpha/(m-r+1)` y detenerse en el primer no rechazo. El PASS estadístico MUST
-exigir el rechazo de las cuatro hipótesis. Estos criterios y los umbrales legacy
-MUST quedar congelados antes de aceptar predicciones.
+y el bootstrap estratificado pareado sobre los mismos grupos/sitio. Estos criterios
+y los umbrales legacy MUST quedar congelados antes de aceptar predicciones.
 
 #### Scenario: criterio estadístico alterado
 
 - **GIVEN** un manifest con cualquier criterio diferente del preregistro cerrado
 - **WHEN** se intenta verificar el protocolo
 - **THEN** el sistema falla cerrado antes de ejecutar Laya o el baseline
+
+### Requirement: Multiplicidad ejecutable y sin decisión post hoc
+
+El sistema MUST fijar la fórmula de probabilidad de cola, el orden y desempate
+Holm, los umbrales step-down, la regla de parada y la condición final de PASS.
+
+#### Scenario: Step-down Holm preregistrado
+
+- **GIVEN** réplicas bootstrap pareadas por los mismos grupos y sitios
+- **WHEN** se calcula `p_h=(1+count(delta_h_bootstrap<=margin_h))/(B+1)`
+- **THEN** Holm ordena por `(p_h, índice preregistrado)`
+- **AND** compara el rango `r` con `alpha/(m-r+1)`
+- **AND** se detiene en el primer no rechazo
+- **AND** el PASS exige rechazar las cuatro hipótesis
 
 #### Scenario: intervalo descriptivo no habilita el gate
 
