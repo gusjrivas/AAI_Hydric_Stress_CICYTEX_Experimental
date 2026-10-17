@@ -299,6 +299,40 @@ _ISSUED: dict[int, _IssuedReportRecord] = {}
 def _report_binding(report: LayaReadinessReport) -> tuple[object, ...]:
     if type(report) is not LayaReadinessReport:
         _fail()
+    if (
+        type(report.prerequisites) is not tuple
+        or len(report.prerequisites) != len(_PREREQUISITE_NAMES)
+        or any(
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not str
+            or type(item[1]) is not str
+            for item in report.prerequisites
+        )
+        or type(report.criteria) is not tuple
+        or len(report.criteria) != len(_CRITERION_NAMES)
+        or any(
+            type(item) is not tuple
+            or len(item) != 3
+            or type(item[0]) is not str
+            or type(item[1]) is not str
+            or type(item[2]) is not str
+            for item in report.criteria
+        )
+        or type(report.reason_codes) is not tuple
+        or len(report.reason_codes) != len(_CURRENT_REASONS)
+        or any(type(item) is not str for item in report.reason_codes)
+        or type(report.claims) is not tuple
+        or len(report.claims) != len(_CURRENT_CLAIMS)
+        or any(
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not str
+            or type(item[1]) is not bool
+            for item in report.claims
+        )
+    ):
+        _fail()
     prerequisites = tuple(_Prerequisite(name, state) for name, state in report.prerequisites)
     criteria = tuple(
         _Criterion(name, scientific, mechanical) for name, scientific, mechanical in report.criteria
@@ -312,9 +346,7 @@ def _report_binding(report: LayaReadinessReport) -> tuple[object, ...]:
         or report.policy_id != _POLICY_ID
         or type(report.fixture_profile_id) is not str
         or not report.fixture_profile_id
-        or type(report.reason_codes) is not tuple
         or report.reason_codes != _CURRENT_REASONS
-        or type(report.claims) is not tuple
         or report.claims != _CURRENT_CLAIMS
     ):
         _fail()
@@ -323,12 +355,21 @@ def _report_binding(report: LayaReadinessReport) -> tuple[object, ...]:
         ("str", report.decision),
         ("str", report.policy_id),
         ("str", report.fixture_profile_id),
-        ("prerequisites", report.prerequisites),
-        ("criteria", report.criteria),
-        ("reasons", report.reason_codes),
+        (
+            "prerequisites",
+            tuple((str(name), str(state)) for name, state in report.prerequisites),
+        ),
+        (
+            "criteria",
+            tuple(
+                (str(name), str(scientific), str(mechanical))
+                for name, scientific, mechanical in report.criteria
+            ),
+        ),
+        ("reasons", tuple(str(reason) for reason in report.reason_codes)),
         (
             "claims",
-            tuple((name, (type(value).__name__, value)) for name, value in report.claims),
+            tuple((str(name), ("bool", value)) for name, value in report.claims),
         ),
     )
 
