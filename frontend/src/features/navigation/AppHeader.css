@@ -46,6 +46,9 @@
 .app-primary-nav a[aria-current="page"] { background: #fff; color: var(--color-brand); }
 .app-header :focus-visible { outline-color: #fff; box-shadow: none; }
 
+/* En pantallas anchas sólo se ve la etiqueta completa. */
+.app-primary-nav .nav-short { display: none; }
+
 /* Móvil: el mismo <nav> pasa a barra inferior fija. */
 @media (max-width: 899px) {
   .app-brand-sub { display: none; }
@@ -59,7 +62,7 @@
     border-top: 3px solid var(--color-cyan);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .app-primary-nav ul { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+  .app-primary-nav ul { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; }
   .app-primary-nav li { min-width: 0; }
   .app-primary-nav a {
     flex-direction: column;
@@ -69,7 +72,8 @@
     min-height: 56px;
     padding: 6px 2px;
     border-radius: 0;
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
+    overflow-wrap: anywhere;
     text-align: center;
     line-height: 1.15;
   }
@@ -77,4 +81,10 @@
   .app-primary-nav a[aria-current="page"] { background: rgba(255, 255, 255, 0.14); color: #fff; box-shadow: inset 0 3px 0 var(--color-cyan); }
   /* La barra fija mide 64 px + el área segura del dispositivo: el contenido nunca queda detrás de ella. */
   .app-page { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* Seis entradas no caben con etiquetas completas por debajo de 480 px: se usan las breves. */
+@media (max-width: 479px) {
+  .app-primary-nav .nav-full { display: none; }
+  .app-primary-nav .nav-short { display: inline; }
 }

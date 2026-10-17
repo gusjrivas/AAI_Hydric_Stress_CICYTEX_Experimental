@@ -6,6 +6,8 @@ interface PrimaryItem {
   group: NavGroup;
   href: string;
   label: string;
+  /** Etiqueta breve para la barra inferior de pantallas muy angostas (el nombre accesible es `label`). */
+  shortLabel: string;
   icon: ReactNode;
   secondary?: boolean;
 }
@@ -17,6 +19,7 @@ const PRIMARY_ITEMS: PrimaryItem[] = [
     group: "seguimiento",
     href: "#defensa-pergamino",
     label: "Seguimiento histórico",
+    shortLabel: "Histórico",
     icon: (
       <svg {...ICON_PROPS}>
         <path d="M12 3C8.500 9 6 11.500 6 15a6 6 0 0 0 12 0c0-3.500-2.500-6-6-12z" fill="none" stroke="currentColor" strokeWidth="2" />
@@ -27,6 +30,7 @@ const PRIMARY_ITEMS: PrimaryItem[] = [
     group: "cultivo",
     href: "#productor",
     label: "Mi cultivo",
+    shortLabel: "Cultivo",
     icon: (
       <svg {...ICON_PROPS}>
         <path d="M12 21V11M12 11c0-3 2-5 5-5 0 3-2 5-5 5zM12 14c0-2.500-1.800-4.200-4.500-4.200 0 2.500 1.800 4.200 4.500 4.200z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -37,6 +41,7 @@ const PRIMARY_ITEMS: PrimaryItem[] = [
     group: "laboratorio",
     href: "#laboratorio-sensores",
     label: "Laboratorio",
+    shortLabel: "Lab.",
     icon: (
       <svg {...ICON_PROPS}>
         <path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
@@ -47,6 +52,7 @@ const PRIMARY_ITEMS: PrimaryItem[] = [
     group: "evidencia",
     href: "#evidencia-resultados",
     label: "Evidencia",
+    shortLabel: "Evidencia",
     icon: (
       <svg {...ICON_PROPS}>
         <path d="M4 20V4M4 20h16M8 16v-5M12 16V8M16 16v-8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -54,9 +60,21 @@ const PRIMARY_ITEMS: PrimaryItem[] = [
     ),
   },
   {
+    group: "arquitectura",
+    href: "#arquitectura",
+    label: "Arquitectura",
+    shortLabel: "Mapa",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M4 5h6v5H4zM14 5h6v5h-6zM9 14h6v5H9zM7 10v2h10v-2M12 12v2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     group: "herramientas",
     href: "#resumen",
     label: "Herramientas técnicas",
+    shortLabel: "Técnicas",
     secondary: true,
     icon: (
       <svg {...ICON_PROPS}>
@@ -105,7 +123,8 @@ export function AppHeader({ activeGroup }: { activeGroup: NavGroup }) {
                   aria-current={activeGroup === item.group ? "page" : undefined}
                 >
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span className="nav-full">{item.label}</span>
+                  <span className="nav-short" aria-hidden="true">{item.shortLabel}</span>
                 </a>
               </li>
             ))}
