@@ -8,6 +8,7 @@ claims.
 from __future__ import annotations
 
 import gc
+import hashlib
 import importlib
 import inspect
 import json
@@ -507,3 +508,141 @@ def test_completed_protocol_state_is_weakly_released(monkeypatch, tmp_path):
 
     assert reference() is None
     assert key not in module._STATES
+
+
+def test_sealed_batches_preserve_private_canonical_outputs_without_reexecution(
+    monkeypatch, tmp_path
+):
+    from human_feedback import loso_offline_adapter
+
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    port = _FixturePort(events)
+    grant = _FixtureGrant(events)
+    _wire(module, monkeypatch, grant)
+
+    result = module._run_human_loso_mechanical_fixture(protocol, port)
+    calls_after_run = tuple(port.calls)
+    receipts = module._sealed_human_loso_mechanical_batches(protocol)
+
+    assert len(receipts) == 2 * len(protocol._plan.folds)
+    for fold_index in range(len(protocol._plan.folds)):
+        calibration, outer_test = receipts[2 * fold_index : 2 * fold_index + 2]
+        assert (calibration.phase, calibration.fold_index) == ("calibration", fold_index)
+        assert (outer_test.phase, outer_test.fold_index) == ("test", fold_index)
+    for receipt in receipts:
+        assert type(receipt.canonical_response) is bytes
+        assert hashlib.sha256(receipt.canonical_response).hexdigest() == receipt.response_sha256
+        assert (
+            loso_offline_adapter.validate_laya_loso_offline_response(
+                receipt.canonical_response,
+                expected_count=receipt.item_count,
+            )
+            == receipt.canonical_response
+        )
+        assert receipt.runtime_identity is grant.runtime_identity
+        assert receipt.model_identity is grant.model_identity
+        assert receipt.inference_port is port
+
+    assert module._run_human_loso_mechanical_fixture(protocol, port) is result
+    assert module._sealed_human_loso_mechanical_batches(protocol) == receipts
+    assert tuple(port.calls) == calls_after_run
+
+
+def test_sealed_batch_getter_rejects_mutated_bytes_or_commitment_privately(monkeypatch, tmp_path):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    port = _FixturePort(events)
+    _wire(module, monkeypatch, _FixtureGrant(events))
+    module._run_human_loso_mechanical_fixture(protocol, port)
+    receipt = module._sealed_human_loso_mechanical_batches(protocol)[0]
+    private_comment = protocol._plan.folds[0].calibration_records[0].comment
+
+    mutations = (
+        ("canonical_response", receipt.canonical_response + b" "),
+        ("response_sha256", "0" * 64),
+    )
+    for name, invalid in mutations:
+        original = getattr(receipt, name)
+        object.__setattr__(receipt, name, invalid)
+        try:
+            with pytest.raises((TypeError, ValueError)) as caught:
+                module._sealed_human_loso_mechanical_batches(protocol)
+            _private_failure(caught.value, private_comment, invalid)
+        finally:
+            object.__setattr__(receipt, name, original)
+
+
+def test_waiter_revalidates_protocol_after_owner_failure_before_new_consumption(
+    monkeypatch, tmp_path
+):
+    module = _module()
+    protocol = _protocol(tmp_path)
+    events = []
+    grant = _FixtureGrant(events)
+    _wire(module, monkeypatch, grant)
+    owner_entered = threading.Event()
+    release_owner = threading.Event()
+
+    class FailFirstOwnerPort(_FixturePort):
+        def __init__(self, observed_events):
+            super().__init__(observed_events)
+            self.attempts = 0
+
+        def predict(self, canonical_request: bytes) -> bytes:
+            self.attempts += 1
+            response = super().predict(canonical_request)
+            if self.attempts == 1:
+                owner_entered.set()
+                assert release_owner.wait(timeout=5)
+                raise RuntimeError("PRIVATE-OWNER-FAILURE")
+            return response
+
+    port = FailFirstOwnerPort(events)
+    results = []
+    errors = []
+
+    def execute() -> None:
+        try:
+            results.append(module._run_human_loso_mechanical_fixture(protocol, port))
+        except BaseException as error:  # pragma: no cover - asserted below
+            errors.append(error)
+
+    owner = threading.Thread(target=execute, daemon=False)
+    owner.start()
+    assert owner_entered.wait(timeout=5)
+    state = module._STATES[id(protocol)]
+    waiter_inside_condition = threading.Event()
+    original_wait = state.condition.wait
+
+    def observed_wait(timeout=None):
+        waiter_inside_condition.set()
+        return original_wait(timeout)
+
+    monkeypatch.setattr(state.condition, "wait", observed_wait)
+    waiter = threading.Thread(target=execute, daemon=False)
+    waiter.start()
+    assert waiter_inside_condition.wait(timeout=5)
+
+    record = protocol._plan.folds[0].calibration_records[0]
+    original_comment = record.comment
+    private_canary = "PRIVATE-WAITER-MUTATION-CANARY"
+    object.__setattr__(record, "comment", private_canary)
+    try:
+        release_owner.set()
+        owner.join(timeout=5)
+        waiter.join(timeout=5)
+        assert not owner.is_alive() and not waiter.is_alive()
+        assert results == []
+        assert len(errors) == 2
+        assert port.attempts == 1
+        assert all(
+            private_canary not in comment for batch in port.calls for _token, comment in batch
+        )
+        for error in errors:
+            _private_failure(error, private_canary, "PRIVATE-OWNER-FAILURE")
+    finally:
+        object.__setattr__(record, "comment", original_comment)
+        release_owner.set()
