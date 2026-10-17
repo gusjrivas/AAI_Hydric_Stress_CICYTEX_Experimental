@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from human_feedback.evaluation_statistics import (
     _BootstrapSummary,
     _holm_step_down,
