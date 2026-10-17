@@ -537,11 +537,13 @@ def _tar_successor_layer_contract_violations(source: str) -> tuple[str, ...]:
     return tuple(sorted(set(violations)))
 
 
-def test_only_filesystem_adapter_and_tar_successor_use_layer_contracts():
+def test_only_the_four_authorized_successors_use_layer_contracts():
     repository = Path(__file__).parents[1]
     owner = repository / "src" / "human_feedback" / "runtime_oci_layers.py"
     adapter = repository / "src" / "human_feedback" / "adapters" / "filesystem_oci_layout.py"
     tar_successor = repository / "src" / "human_feedback" / "runtime_oci_tar.py"
+    base_ancestry = repository / "src" / "human_feedback" / "runtime_base_ancestry.py"
+    supply_convergence = repository / "src" / "human_feedback" / "runtime_supply_convergence.py"
     assert _filesystem_adapter_layer_contract_violations(adapter.read_text(encoding="utf-8")) == ()
     assert _tar_successor_layer_contract_violations(tar_successor.read_text(encoding="utf-8")) == ()
     symbols = {
@@ -557,7 +559,7 @@ def test_only_filesystem_adapter_and_tar_successor_use_layer_contracts():
         if not root.is_dir():
             continue
         for path in root.rglob("*.py"):
-            if path in {owner, adapter, tar_successor}:
+            if path == owner:
                 continue
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source)
@@ -574,9 +576,7 @@ def test_only_filesystem_adapter_and_tar_successor_use_layer_contracts():
                         node.module == "human_feedback.runtime_oci_layers"
                         or (
                             node.module == "human_feedback"
-                            and any(
-                                alias.name == "runtime_oci_layers" for alias in node.names
-                            )
+                            and any(alias.name == "runtime_oci_layers" for alias in node.names)
                         )
                         or (
                             node.level > 0
@@ -594,7 +594,11 @@ def test_only_filesystem_adapter_and_tar_successor_use_layer_contracts():
                 for node in ast.walk(tree)
             ):
                 offenders.append(path.relative_to(repository).as_posix())
-    assert offenders == []
+    assert set(offenders) == {
+        path.relative_to(repository).as_posix()
+        for path in (adapter, tar_successor, base_ancestry, supply_convergence)
+    }
+    assert len(offenders) == 4
 
 
 @pytest.mark.parametrize(
