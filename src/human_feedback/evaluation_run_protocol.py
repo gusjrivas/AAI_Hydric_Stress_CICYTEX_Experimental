@@ -148,6 +148,19 @@ def _require_issued_human_loso_execution_protocol(
         valid = False
     if not valid:
         _raise_private_protocol_error()
+    # Deep validation runs without the registry lock.  Its result cannot revive
+    # an issuance record removed or replaced while those checks were running.
+    with _LOCK:
+        current = _ISSUED_PROTOCOLS.get(id(value))
+        if (
+            current is not record
+            or current.reference() is not value
+            or value._preregistration is not current.preregistration
+            or value._corpus is not current.corpus
+            or value._plan is not current.plan
+            or value._preregistration_sha256 != current.preregistration_sha256
+        ):
+            _raise_private_protocol_error()
     return value
 
 
