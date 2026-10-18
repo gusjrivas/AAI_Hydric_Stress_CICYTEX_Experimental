@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ForecastCard } from "./ForecastCard";
 import { HistoricalMoistureChart } from "./HistoricalMoistureChart";
 import { FactsStrip } from "../shared/FactsStrip";
 import { getHistoricalForecastBatch, getHistoricalReadings, submitHistoricalReview } from "./historicalApi";
-import { displayForecastDate, type Forecast, type ForecastBatch, type ReviewRequest } from "./forecastsApi";
+import { agreementLabel, displayForecastDate, familyLabel, type Forecast, type ForecastBatch, type ReviewRequest } from "./forecastsApi";
 import { displayDate, formatReadingValue, originLabel } from "./readingsApi";
 import type { ReadingRow, ReadingsResult } from "./readingsApi";
 import "./HistoricalWalkthrough.css";
@@ -126,6 +126,15 @@ export function HistoricalWalkthrough({
   const [emissionDate, setEmissionDate] = useState(defense ? availableDates[0] : "");
   const [revealedThrough, setRevealedThrough] = useState("");
   const effectiveReveal = revealedThrough || emissionDate;
+  const endNoteId = useId();
+  const endNoteRef = useRef<HTMLParagraphElement | null>(null);
+  const atEnd = effectiveReveal >= revealMax;
+  // El botón primario se deshabilita al llegar al final y pierde el foco: se lo lleva a la nota que explica por qué.
+  const wasAtEnd = useRef(atEnd);
+  useEffect(() => {
+    if (atEnd && !wasAtEnd.current) endNoteRef.current?.focus();
+    wasAtEnd.current = atEnd;
+  }, [atEnd]);
 
   // Cambiar de sensor (o de sitio) invalida cualquier selección anterior:
   // una fecha "preparada" para un sensor/sitio no significa nada para otro.
@@ -295,8 +304,9 @@ export function HistoricalWalkthrough({
       </div>
       {defense && emissionDate && (
         <div className="historical-clock-steps" role="group" aria-label="Avanzar el reloj del recorrido">
-          <button type="button" disabled={effectiveReveal <= emissionDate} onClick={() => { const next = addDays(effectiveReveal, -1); setRevealedThrough(next <= emissionDate ? "" : next); }}>‹ Día anterior</button>
-          <button type="button" disabled={effectiveReveal >= revealMax} onClick={() => setRevealedThrough(addDays(effectiveReveal, 1))}>Día siguiente ›</button>
+          <button type="button" className="historical-step-secondary" disabled={effectiveReveal <= emissionDate} onClick={() => { const next = addDays(effectiveReveal, -1); setRevealedThrough(next <= emissionDate ? "" : next); }}>‹ Día anterior</button>
+          <button type="button" className="historical-step-primary" disabled={effectiveReveal >= revealMax} aria-describedby={atEnd ? endNoteId : undefined} onClick={() => setRevealedThrough(addDays(effectiveReveal, 1))}>Día siguiente ›</button>
+          {atEnd && <p id={endNoteId} ref={endNoteRef} role="status" tabIndex={-1} className="historical-step-end-note">No quedan días por revelar en esta emisión.</p>}
         </div>
       )}
       {emissionDate && (
@@ -344,6 +354,48 @@ export function HistoricalWalkthrough({
         </p>}
         <p>Son decisiones entregadas por el backend para el objetivo de humedad del protocolo. “Sin alerta” no garantiza ausencia de estrés en el cultivo.</p>
       </div>}
+      {defense && currentBatch && firstForecast?.status === "available" && firstForecast.ensemble && (() => {
+        const ens = firstForecast.ensemble;
+        const target = firstForecast.target_date;
+        const revealed = target <= effectiveReveal;
+        const targetRow = currentReadings?.rows.find((item) => item.date === target);
+        return <>
+          <div className={`historical-verdict ${ens.combined_alert ? "is-alert" : "is-clear"}`} role="group" aria-label="Veredicto del ensamble" aria-live="polite">
+            <p className="historical-verdict-label">{ens.combined_alert ? "ALERTA DE HUMEDAD BAJA" : "SIN ALERTA DE HUMEDAD BAJA"}</p>
+            <p>Horizonte +{firstForecast.horizon_days} · fecha objetivo: <strong>{displayForecastDate(target)}</strong></p>
+            <p>Acuerdo entre modelos: {agreementLabel(ens)}</p>
+            <p className="historical-verdict-reality">{revealed
+              ? <><strong>Realidad revelada:</strong> {currentReadings ? describeSoilMoistureObservation(targetRow, currentReadings.units.soil_moisture) : "Cargando dato posterior…"}</>
+              : "Realidad: todavía no disponible según el reloj del recorrido."}</p>
+          </div>
+          <section className="historical-trace" role="region" aria-label="Trazabilidad de la predicción mostrada">
+            <HeadingSub>Trazabilidad de la predicción mostrada</HeadingSub>
+            <ul>
+              <li>Emisión: {displayForecastDate(firstForecast.as_of_date)} · Objetivo: {displayForecastDate(target)}</li>
+              <li>Fuente de datos: {sourceSummary.label} · {sourceSummary.detail}</li>
+              <li>Versión del modelo: {firstForecast.model_reference.model_version ?? "no disponible"}</li>
+              <li>Entrenado hasta: {firstForecast.model_reference.trained_through ?? "no disponible"}</li>
+              <li>Versión de calibración: {firstForecast.model_reference.calibration_version ?? "no disponible"} · calibrado hasta {ens.calibrated_through}</li>
+              <li>Referencia de evaluación: {firstForecast.model_reference.assessment_reference ?? "no disponible"}</li>
+              <li>Política del ensamble: {ens.policy_version}</li>
+              <li>Identidad del ensamble (SHA-256): <code>{ens.ensemble_identity_sha256}</code></li>
+              <li>Pesos: {Object.entries(ens.weights).map(([family, weight]) => `${family} ${weight}`).join(" · ")}</li>
+              {ens.components.map((component) => (
+                <li key={component.family}>{familyLabel(component.family)}: versión {component.model_reference.model_version ?? "no disponible"}, entrenado hasta {component.model_reference.trained_through ?? "no disponible"}, calibración {component.model_reference.calibration_version ?? "no disponible"}, evaluación {component.model_reference.assessment_reference ?? "no disponible"}</li>
+              ))}
+            </ul>
+            <p>No disponible en este recorrido (el backend no lo expone):</p>
+            <ul>
+              <li>SHA-256 del dataset: no disponible</li>
+              <li>Commit: no disponible</li>
+              <li>Semilla: no disponible</li>
+              <li>Corridas de MLflow: no disponible</li>
+              <li>Particiones: no disponible</li>
+              <li>Linaje de recalibración: no disponible</li>
+            </ul>
+          </section>
+        </>;
+      })()}
       {batchState.status === "ready" && batchState.context === context && (
         <ul className="forecast-list forecast-outlook-grid">
           {batchState.batch.slots.map((slot) => (
@@ -396,7 +448,7 @@ export function HistoricalWalkthrough({
               <table>
                 <thead><tr><th scope="col">Fecha</th><th scope="col">Humedad del suelo</th><th scope="col">Origen</th></tr></thead>
                 <tbody>
-                  {readingsState.data.rows.map((row) => (
+                  {readingsState.data.rows.filter((row) => row.date <= effectiveReveal).map((row) => (
                     <tr key={row.date}>
                       <th scope="row">{displayDate(row.date)}</th>
                       <td>{row.soil_moisture === null ? NO_SOURCE_OBSERVATION_LABEL : formatReadingValue("soil_moisture", row.soil_moisture, readingsState.data.units.soil_moisture)}</td>
