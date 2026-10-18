@@ -15,12 +15,19 @@ describe("App con backend desconectado", () => {
     window.location.hash = "";
   });
 
+  it("really rejects backend calls in this setup", async () => {
+    window.location.hash = "#prediccion";
+    render(<App />);
+    await screen.findByRole("main");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  });
+
   it.each(ROUTES)("renders #%s with a main region and a visible mode badge", async (route) => {
     window.location.hash = `#${route}`;
-    render(<App />);
+    const { container } = render(<App />);
 
     expect(await screen.findByRole("main")).toBeInTheDocument();
-    expect(screen.getAllByRole("note").length).toBeGreaterThan(0);
+    expect(container.querySelector("main .mode-badge")).not.toBeNull();
     expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
   });
 
@@ -34,7 +41,7 @@ describe("App con backend desconectado", () => {
     expect(screen.getAllByText(/no es monitoreo en vivo/i).length).toBeGreaterThan(0);
   });
 
-  it("lets keyboard users open a component sheet with Tab and Enter", async () => {
+  it("lets keyboard users activate a focused component button with Enter and Space", async () => {
     window.location.hash = "#arquitectura";
     render(<App />);
     const button = await screen.findByRole("button", { name: "Datos IoT" });
@@ -44,5 +51,11 @@ describe("App con backend desconectado", () => {
 
     expect(button).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("region", { name: "Ficha de Datos IoT" })).toBeInTheDocument();
+
+    const other = screen.getByRole("button", { name: "Calidad" });
+    other.focus();
+    await userEvent.keyboard(" ");
+    expect(other).toHaveAttribute("aria-pressed", "true");
+    expect(button).toHaveAttribute("aria-pressed", "false");
   });
 });
