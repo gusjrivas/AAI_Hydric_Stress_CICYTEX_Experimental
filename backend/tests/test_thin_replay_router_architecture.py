@@ -63,6 +63,13 @@ EXPECTED_REPLAY_OPENAPI = {
             "CicytexCatalogResponse",
         )
     },
+    "/api/v2/cicytex/replay/provenance": {
+        "get": (
+            "provenance_api_v2_cicytex_replay_provenance_get",
+            ("200",),
+            "CicytexProvenanceResponse",
+        )
+    },
     "/api/v2/cicytex/replay/sessions": {
         "post": (
             "create_session_api_v2_cicytex_replay_sessions_post",

@@ -25,10 +25,12 @@ from ..dependencies import (
     get_cicytex_catalog_application,
     get_cicytex_feedback_application,
     get_cicytex_replay_application,
+    get_cicytex_replay_provenance,
 )
 from ..schemas_cicytex_replay import (
     CicytexCatalogResponse,
     CicytexFeedbackResponse,
+    CicytexProvenanceResponse,
     CicytexSessionResponse,
 )
 
@@ -57,6 +59,16 @@ def catalog(
 ) -> dict:
     try:
         return application.catalog()
+    except CicytexCatalogUnavailable as error:
+        raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
+
+
+@router.get("/provenance", response_model=CicytexProvenanceResponse)
+def provenance(
+    application=Depends(get_cicytex_replay_provenance),
+) -> dict:
+    try:
+        return application.provenance()
     except CicytexCatalogUnavailable as error:
         raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
 

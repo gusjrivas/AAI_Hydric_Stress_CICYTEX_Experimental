@@ -7,6 +7,7 @@ export type ReplayPrediction = components["schemas"]["CicytexPredictionResponse"
 export type ReplayMetric = components["schemas"]["CicytexMetricResponse"];
 export type ReplayFeedback = components["schemas"]["CicytexFeedbackResponse"];
 export type CicytexSession = components["schemas"]["CicytexSessionResponse"];
+export type CicytexProvenance = components["schemas"]["CicytexProvenanceResponse"];
 
 type CatalogOperation = operations["catalog_api_v2_cicytex_replay_catalog_get"];
 type CreateSessionOperation = operations["create_session_api_v2_cicytex_replay_sessions_post"];
@@ -34,6 +35,9 @@ async function json<T>(pending: Promise<Response>): Promise<T> {
   if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
   return response.json();
 }
+
+export const getCicytexProvenance = (): Promise<CicytexProvenance> =>
+  json(fetch(`${API}/api/v2/cicytex/replay/provenance`));
 
 export const getCicytexCatalog = (): Promise<CatalogResponse> =>
   json(fetch(`${API}/api/v2/cicytex/replay/catalog`));

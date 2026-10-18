@@ -3,3 +3,5 @@
 @media(max-width:600px){.cy-chart svg text{font-size:21px}.cy-actions .cy-primary{width:100%}}@media(min-width:1000px){.cy-chart svg text{font-size:13px}}
 .cy-feedback fieldset label{display:inline-flex;align-items:center;gap:8px}
 .cy-note{margin:0;font-size:.9rem;color:#2f3d52}
+.cy-trace dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:.5rem 0}.cy-trace dt{font-weight:700}.cy-trace dd{margin:0;overflow-wrap:anywhere}.cy-trace code{font-size:.9em}.cy-trace details>p{margin:.4rem 0;color:#2f3d52}@media(max-width:600px){.cy-trace dl{grid-template-columns:1fr}}
+.cy-trace code{font-size:.95em}

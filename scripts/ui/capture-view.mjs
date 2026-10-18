@@ -48,12 +48,12 @@ const evaluate = async (expression) =>
 async function shoot(name, width, height) {
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
   await send("Page.navigate", { url });
-  await sleep(2500);
+  await sleep(4500);
   for (const text of clicks) {
     await evaluate(
-      `(() => { const b=[...document.querySelectorAll('button,a')].find(x=>x.textContent.trim().startsWith(${JSON.stringify(text)})&&!x.disabled); if(b) b.click(); return !!b; })()`,
+      `(() => { const b=[...document.querySelectorAll('button,a,summary')].find(x=>x.textContent.trim().startsWith(${JSON.stringify(text)})&&!x.disabled); if(b) b.click(); return !!b; })()`,
     );
-    await sleep(1800);
+    await sleep(3000);
   }
   if (process.env.OVERFLOW) {
     console.log(name, await evaluate(`JSON.stringify([...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>window.innerWidth+1).slice(0,8).map(e=>e.tagName+'.'+e.className+' '+Math.round(e.getBoundingClientRect().right)))`));
