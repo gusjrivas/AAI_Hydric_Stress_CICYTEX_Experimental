@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HistoricalWalkthrough } from "./HistoricalWalkthrough";
@@ -101,10 +101,8 @@ describe("HistoricalWalkthrough", () => {
     const emissionInput = screen.getByLabelText(/emisión seleccionada/i);
 
     await userEvent.type(emissionInput, "2023-06-13"); // A
-    await userEvent.clear(emissionInput);
-    await userEvent.type(emissionInput, "2023-06-14"); // B
-    await userEvent.clear(emissionInput);
-    await userEvent.type(emissionInput, "2023-06-13"); // A again
+    fireEvent.change(emissionInput, { target: { value: "2023-06-14" } }); // B
+    fireEvent.change(emissionInput, { target: { value: "2023-06-13" } }); // A again
     await waitFor(() => expect(resolvers).toHaveLength(3));
 
     // Resolve out of order: the middle (B) and the first A resolve after
@@ -177,7 +175,7 @@ describe("HistoricalWalkthrough", () => {
 
     render(<HistoricalWalkthrough sensorId="sensor-a" />);
     await userEvent.type(screen.getByLabelText(/emisión seleccionada/i), "2023-06-13");
-    await userEvent.type(screen.getByLabelText(/recorrido hasta/i), "2023-06-20");
+    fireEvent.change(screen.getByLabelText(/recorrido hasta/i), { target: { value: "2023-06-20" } });
     await userEvent.click(await screen.findByRole("button", { name: /confirmar resultado/i }));
     await userEvent.click(screen.getByRole("button", { name: /guardar opinión/i }));
     await waitFor(() => expect(submit).toHaveBeenCalled());
@@ -260,8 +258,7 @@ describe("HistoricalWalkthrough", () => {
     await userEvent.click(screen.getByRole("button", { name: /guardar opinión/i }));
 
     // Navigate away before the review submission resolves.
-    await userEvent.clear(emissionInput);
-    await userEvent.type(emissionInput, "2023-06-14");
+    fireEvent.change(emissionInput, { target: { value: "2023-06-14" } });
     await waitFor(() => expect(screen.getByLabelText(/emisión seleccionada/i)).toHaveValue("2023-06-14"));
 
     await act(async () => {
@@ -355,14 +352,13 @@ describe("HistoricalWalkthrough", () => {
     const emissionInput = screen.getByLabelText(/emisión seleccionada/i);
     const revealInput = screen.getByLabelText(/recorrido hasta/i);
     await userEvent.type(emissionInput, "2023-06-13");
-    await userEvent.type(revealInput, "2023-06-20");
+    fireEvent.change(revealInput, { target: { value: "2023-06-20" } });
     await userEvent.click(await screen.findByRole("button", { name: /confirmar resultado/i }));
     await userEvent.click(screen.getByRole("button", { name: /guardar opinión/i }));
 
     // Retroceder el reloj del recorrido a la propia fecha de emisión,
     // antes de que la respuesta del envío llegue.
-    await userEvent.clear(revealInput);
-    await userEvent.type(revealInput, "2023-06-13");
+    fireEvent.change(revealInput, { target: { value: "2023-06-13" } });
     await waitFor(() => expect(screen.getByText(/vas a poder revisar este resultado a partir del/i)).toBeInTheDocument());
 
     await act(async () => {
@@ -391,9 +387,9 @@ describe("HistoricalWalkthrough", () => {
     await userEvent.type(emissionInput, "2023-06-13");
     await waitFor(() => expect(resolvers).toHaveLength(1)); // request for revealedThrough = emissionDate
 
-    await userEvent.type(revealInput, "2023-06-20"); // A -> B
+    fireEvent.change(revealInput, { target: { value: "2023-06-20" } }); // A -> B
     await userEvent.clear(revealInput); // B -> back to A (clearing falls back to emissionDate)
-    await userEvent.type(revealInput, "2023-06-13"); // re-typed explicitly: A again
+    fireEvent.change(revealInput, { target: { value: "2023-06-13" } }); // re-typed explicitly: A again
     await waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(3));
     const lastIndex = resolvers.length - 1;
 
@@ -433,8 +429,7 @@ describe("HistoricalWalkthrough", () => {
     await userEvent.click(screen.getByRole("button", { name: /guardar opinión/i }));
 
     // Navigate away (new emission) before the rejected submit resolves.
-    await userEvent.clear(emissionInput);
-    await userEvent.type(emissionInput, "2023-06-14");
+    fireEvent.change(emissionInput, { target: { value: "2023-06-14" } });
     await waitFor(() => expect(callCount).toBeGreaterThanOrEqual(2));
 
     await act(async () => { rejectSubmit(new Error("Fallo de red")); });
@@ -626,7 +621,7 @@ describe("HistoricalWalkthrough", () => {
     expect((await screen.findAllByText(/todavía no disponible según el reloj/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/valor imputado/i)).not.toBeInTheDocument();
 
-    await userEvent.type(screen.getByLabelText(/recorrido hasta/i), "2024-10-27");
+    fireEvent.change(screen.getByLabelText(/recorrido hasta/i), { target: { value: "2024-10-27" } });
 
     // Emisión 23/10 +3 apunta al 26/10: el valor se muestra pero
     // identificado explícitamente como imputado, nunca implicando que es
@@ -655,7 +650,7 @@ describe("HistoricalWalkthrough", () => {
     expect((await screen.findAllByText(/todavía no disponible según el reloj/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/valor imputado/i)).not.toBeInTheDocument();
 
-    await userEvent.type(screen.getByLabelText(/recorrido hasta/i), "2024-10-27");
+    fireEvent.change(screen.getByLabelText(/recorrido hasta/i), { target: { value: "2024-10-27" } });
 
     // Emisión 24/10 +2 también apunta al 26/10: mismo valor imputado,
     // identificado de la misma forma, nunca como observación independiente.

@@ -112,6 +112,12 @@ describe("HistoricalWalkthrough — veredicto, jerarquía, trazabilidad, defensa
     expect(note.id).not.toBe("historical-step-end-note");
   });
 
+  it("shows the effective reveal date in the clock field from the start", async () => {
+    setup(batch(true));
+    const clock = await screen.findByLabelText(/recorrido hasta/i);
+    expect(clock).toHaveValue("2023-06-13");
+  });
+
   it("traces the displayed prediction and declares unavailable lineage explicitly", async () => {
     setup(batch(true));
     const trace = await screen.findByRole("region", { name: /trazabilidad de la predicción/i });

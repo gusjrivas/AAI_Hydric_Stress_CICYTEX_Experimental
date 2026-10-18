@@ -290,7 +290,7 @@ export function HistoricalWalkthrough({
           Recorrido hasta (qué observaciones y revisiones se revelan)
           <input
             type="date"
-            value={revealedThrough}
+            value={effectiveReveal}
             min={emissionDate || undefined}
             max={defense ? revealMax : undefined}
             disabled={!emissionDate}
