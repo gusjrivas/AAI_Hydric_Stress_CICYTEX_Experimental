@@ -19,9 +19,9 @@ from openapi_typescript_toolchain import (
 ROOT = Path(__file__).resolve().parents[2]
 EXPORTER_PATH = ROOT / "src" / "openapi_typescript_exporter.py"
 ARTIFACT_NAMES = ("openapi.json", "openapi.ts", "openapi-manifest.json")
-EXPECTED_OPENAPI_SIZE = 76_608
-EXPECTED_OPENAPI_SHA256 = "e5022ffb12376dfbc4f64bd6f66a0f55670281de997fc80b611da78d76a9163f"
-EXPECTED_OPERATION_COUNT = 36
+EXPECTED_OPENAPI_SIZE = 79_687
+EXPECTED_OPENAPI_SHA256 = "d15a6e66dd7154d0a165c478533dfebd6c31bfac7433e0af2f46c00fd5bd46dc"
+EXPECTED_OPERATION_COUNT = 37
 
 
 def _exporter() -> ModuleType:

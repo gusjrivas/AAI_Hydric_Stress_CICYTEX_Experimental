@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SiteHeader } from "./SiteHeader";
-import { advanceCicytexSession, createCicytexSession, getCicytexCatalog, resetCicytexSession, submitCicytexFeedback, type CicytexCatalog, type CicytexSession } from "./cicytexApi";
+import { CicytexTraceability } from "./CicytexTraceability";
+import { advanceCicytexSession, createCicytexSession, getCicytexCatalog, getCicytexProvenance, type CicytexProvenance, resetCicytexSession, submitCicytexFeedback, type CicytexCatalog, type CicytexSession } from "./cicytexApi";
 import "./CicytexDefensePage.css";
 
 const LABELS: Record<string,string> = { logistic_regression:"Logistic Regression", random_forest:"Random Forest", hist_gradient_boosting_classifier:"HistGradientBoosting", ensemble:"Ensamble", persistence:"Persistencia" };
@@ -61,6 +62,8 @@ function messageOf(reason: unknown): string {
 export function CicytexDefensePage() {
   const [catalog, setCatalog] = useState<CicytexCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [provenance, setProvenance] = useState<CicytexProvenance | null>(null);
+  const [provenanceFailed, setProvenanceFailed] = useState(false);
   const [sensor, setSensor] = useState("CP1_S1");
   const [horizon, setHorizon] = useState(1);
   const [emission, setEmission] = useState("2023-07-06");
@@ -94,6 +97,12 @@ export function CicytexDefensePage() {
   useEffect(() => {
     void fetchCatalog();
   }, [fetchCatalog]);
+  useEffect(() => {
+    // La trazabilidad no bloquea el recorrido: si falla, se declara no disponible.
+    getCicytexProvenance()
+      .then(setProvenance)
+      .catch(() => setProvenanceFailed(true));
+  }, []);
   function retryCatalog() {
     setCatalogLoading(true);
     setError(null);
@@ -284,6 +293,7 @@ export function CicytexDefensePage() {
               {actions}
             </section>
           )}
+          <CicytexTraceability session={session} provenance={provenance} provenanceFailed={provenanceFailed} />
           <MoistureChart session={session} />
           <section className="cy-panel">
             <h2>

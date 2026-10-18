@@ -6,7 +6,7 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from historical_replay.cicytex_application import (
     CicytexCatalogApplication,
@@ -25,10 +25,12 @@ from ..dependencies import (
     get_cicytex_catalog_application,
     get_cicytex_feedback_application,
     get_cicytex_replay_application,
+    get_cicytex_replay_provenance,
 )
 from ..schemas_cicytex_replay import (
     CicytexCatalogResponse,
     CicytexFeedbackResponse,
+    CicytexProvenanceResponse,
     CicytexSessionResponse,
 )
 
@@ -58,6 +60,17 @@ def catalog(
     try:
         return application.catalog()
     except CicytexCatalogUnavailable as error:
+        raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
+
+
+@router.get("/provenance", response_model=CicytexProvenanceResponse)
+def provenance(
+    application=Depends(get_cicytex_replay_provenance),
+) -> dict:
+    try:
+        # Un paquete que no cumple el contrato se trata como no preparado (503), no como 500.
+        return CicytexProvenanceResponse.model_validate(application.provenance()).model_dump()
+    except (CicytexCatalogUnavailable, ValidationError) as error:
         raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
 
 

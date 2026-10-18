@@ -95,3 +95,42 @@ class CicytexSessionResponse(_ClosedResponse):
     metrics: CicytexMetricsResponse
     feedback: CicytexFeedbackResponse | None
     can_advance: bool
+
+
+class CicytexSplitResponse(_ClosedResponse):
+    train_end: date
+    calibration_end: date
+    validation_end: date
+    evaluation_end: date
+
+
+class CicytexPartitionRowsResponse(_ClosedResponse):
+    train: int
+    calibration: int
+    validation: int
+    evaluation: int
+
+
+class CicytexComponentRunsResponse(_ClosedResponse):
+    logistic_regression: str
+    random_forest: str
+    hist_gradient_boosting_classifier: str
+
+
+class CicytexHorizonProvenanceResponse(_ClosedResponse):
+    threshold_train_p20: float
+    first_legitimate_emission: date
+    split: CicytexSplitResponse
+    partition_rows: CicytexPartitionRowsResponse
+    component_mlflow_runs: CicytexComponentRunsResponse
+
+
+class CicytexProvenanceResponse(_ClosedResponse):
+    dataset_sha256: str
+    git_commit: str
+    seed: int
+    proxy: str
+    ensemble_policy: str
+    mlflow_parent_run_id: str
+    prediction_sha256: str
+    horizons: dict[str, CicytexHorizonProvenanceResponse]

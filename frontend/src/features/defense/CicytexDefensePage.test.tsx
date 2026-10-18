@@ -437,3 +437,128 @@ describe("CicytexDefensePage visual journey", () => {
     expect(screen.queryByText(/avanzá el reloj/i)).not.toBeInTheDocument();
   });
 });
+
+describe("CicytexDefensePage prediction traceability", () => {
+  const PROVENANCE: api.CicytexProvenance = {
+    dataset_sha256: "06d662bce07d51c880a781a32b5779345ed3062d1bb559abc031b5f84f296482",
+    git_commit: "e74d8b2c61894d33606ef8c051a7d5af0c50e481",
+    seed: 42,
+    proxy: "soil_moisture below training-only P20; not physiological stress",
+    ensemble_policy: "equal-weight arithmetic mean; threshold 0.5",
+    mlflow_parent_run_id: "4a6b15cbf8834ffc9fd750c7a1167cea",
+    prediction_sha256: "89f7a993f9aa",
+    horizons: {
+      "1": {
+        threshold_train_p20: 0.21,
+        first_legitimate_emission: "2023-07-06",
+        split: {
+          train_end: "2023-06-06",
+          calibration_end: "2023-06-20",
+          validation_end: "2023-07-05",
+          evaluation_end: "2023-07-25",
+        },
+        partition_rows: { train: 1, calibration: 2, validation: 3, evaluation: 4 },
+        component_mlflow_runs: {
+          logistic_regression: "run-lr-h1",
+          random_forest: "run-rf-h1",
+          hist_gradient_boosting_classifier: "run-hgb-h1",
+        },
+      },
+      "2": {
+        threshold_train_p20: 0.22,
+        first_legitimate_emission: "2023-07-06",
+        split: {
+          train_end: "2023-06-06",
+          calibration_end: "2023-06-20",
+          validation_end: "2023-07-05",
+          evaluation_end: "2023-07-25",
+        },
+        partition_rows: { train: 1, calibration: 2, validation: 3, evaluation: 4 },
+        component_mlflow_runs: {
+          logistic_regression: "run-lr-h2",
+          random_forest: "run-rf-h2",
+          hist_gradient_boosting_classifier: "run-hgb-h2",
+        },
+      },
+    },
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(api, "getCicytexCatalog").mockResolvedValue(CATALOG);
+  });
+
+  async function openSession(next: api.CicytexSession) {
+    vi.spyOn(api, "createCicytexSession").mockResolvedValue(next);
+    render(<CicytexDefensePage />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Abrir emisión congelada" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    return screen.findByRole("region", { name: /Trazabilidad de esta predicción/i });
+  }
+
+  it("shows source, emission, target, frozen models and package identity for the session horizon", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockResolvedValue(PROVENANCE);
+
+    const trace = await openSession(session({ horizon_days: 2 }));
+
+    await waitFor(() => expect(within(trace).getByText(/run-lr-h2/)).toBeInTheDocument());
+    expect(trace).toHaveTextContent("CP1_S1");
+    expect(trace).toHaveTextContent("2023-07-06");
+    expect(trace).toHaveTextContent("2023-07-07");
+    expect(trace).toHaveTextContent("06d662bce07d");
+    expect(trace).toHaveTextContent("e74d8b2c");
+    expect(trace).toHaveTextContent("42");
+    expect(trace).toHaveTextContent("2023-07-05");
+    expect(trace).not.toHaveTextContent("run-lr-h1");
+  });
+
+  it("declares model version and recalibration lineage as unavailable instead of inventing them", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockResolvedValue(PROVENANCE);
+
+    const trace = await openSession(session());
+
+    expect(within(trace).getByText(/Versión del modelo: no disponible/i)).toBeInTheDocument();
+    expect(within(trace).getByText(/Linaje de recalibración: no disponible/i)).toBeInTheDocument();
+  });
+
+  it("keeps the journey usable and says so when provenance cannot be loaded", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockRejectedValue(new Error("503"));
+
+    const trace = await openSession(session());
+
+    await waitFor(() => expect(within(trace).getByText(/Trazabilidad del paquete no disponible/i)).toBeInTheDocument());
+    expect(screen.getByText(/Decisión de la arquitectura/i)).toBeInTheDocument();
+    expect(within(trace).getByText(/Origen de los datos/i)).toBeInTheDocument();
+  });
+
+  it("does not expose metrics or results in the traceability panel", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockResolvedValue(PROVENANCE);
+
+    const trace = await openSession(session());
+    await waitFor(() => expect(within(trace).getByText(/run-lr-h1/)).toBeInTheDocument());
+
+    expect(trace).not.toHaveTextContent(/MCC|Recall|F1|Realidad revelada/i);
+  });
+
+  it("says the horizon is unavailable instead of loading forever when the package lacks it", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockResolvedValue(PROVENANCE);
+
+    const trace = await openSession(session({ horizon_days: 3 }));
+
+    await waitFor(() =>
+      expect(within(trace).getByText(/no disponible para este horizonte/i)).toBeInTheDocument(),
+    );
+    expect(within(trace).queryByText(/Cargando trazabilidad/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the full dataset hash and commit without truncation", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockResolvedValue(PROVENANCE);
+
+    const trace = await openSession(session());
+
+    await waitFor(() => expect(within(trace).getByText(PROVENANCE.dataset_sha256)).toBeInTheDocument());
+    expect(within(trace).getByText(PROVENANCE.git_commit)).toBeInTheDocument();
+  });
+});

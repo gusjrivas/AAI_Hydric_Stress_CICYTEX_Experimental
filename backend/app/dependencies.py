@@ -31,6 +31,7 @@ from historical_replay.cicytex_feedback import (
     CicytexFeedbackRepositoryError,
     CicytexFeedbackService,
 )
+from historical_replay.cicytex_provenance import CicytexProvenanceApplication
 from historical_replay.feedback import HistoricalReplayFeedbackRepository
 from historical_replay.package_loader import LoadedReplayPackage, load_package
 from historical_replay.replay_application import (
@@ -126,6 +127,16 @@ def get_cicytex_replay_catalog() -> GetReplayCatalog:
         else Path(__file__).resolve().parents[2] / "results" / "cicytex" / "causal_replay"
     )
     return GetReplayCatalog(CsvReplayCatalogSource(root))
+
+
+def get_cicytex_replay_provenance() -> CicytexProvenanceApplication:
+    configured = os.getenv("CICYTEX_REPLAY_DIR")
+    root = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[2] / "results" / "cicytex" / "causal_replay"
+    )
+    return CicytexProvenanceApplication(root / "summary.json")
 
 
 def get_cicytex_replay_frames() -> tuple:

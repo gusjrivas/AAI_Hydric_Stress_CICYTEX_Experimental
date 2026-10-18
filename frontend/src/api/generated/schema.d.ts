@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/cicytex/replay/provenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Provenance */
+        get: operations["provenance_api_v2_cicytex_replay_provenance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/cicytex/replay/sessions": {
         parameters: {
             query?: never;
@@ -719,6 +736,15 @@ export interface components {
             /** Sensors */
             sensors: string[];
         };
+        /** CicytexComponentRunsResponse */
+        CicytexComponentRunsResponse: {
+            /** Hist Gradient Boosting Classifier */
+            hist_gradient_boosting_classifier: string;
+            /** Logistic Regression */
+            logistic_regression: string;
+            /** Random Forest */
+            random_forest: string;
+        };
         /** CicytexEmissionDatesByHorizon */
         CicytexEmissionDatesByHorizon: {
             /** 1 */
@@ -748,6 +774,19 @@ export interface components {
              * Format: date
              */
             simulated_at: string;
+        };
+        /** CicytexHorizonProvenanceResponse */
+        CicytexHorizonProvenanceResponse: {
+            component_mlflow_runs: components["schemas"]["CicytexComponentRunsResponse"];
+            /**
+             * First Legitimate Emission
+             * Format: date
+             */
+            first_legitimate_emission: string;
+            partition_rows: components["schemas"]["CicytexPartitionRowsResponse"];
+            split: components["schemas"]["CicytexSplitResponse"];
+            /** Threshold Train P20 */
+            threshold_train_p20: number;
         };
         /** CicytexMetricResponse */
         CicytexMetricResponse: {
@@ -780,6 +819,17 @@ export interface components {
             persistence?: components["schemas"]["CicytexMetricResponse"] | null;
             random_forest?: components["schemas"]["CicytexMetricResponse"] | null;
         };
+        /** CicytexPartitionRowsResponse */
+        CicytexPartitionRowsResponse: {
+            /** Calibration */
+            calibration: number;
+            /** Evaluation */
+            evaluation: number;
+            /** Train */
+            train: number;
+            /** Validation */
+            validation: number;
+        };
         /** CicytexPredictionResponse */
         CicytexPredictionResponse: {
             /** Alert */
@@ -799,6 +849,27 @@ export interface components {
              * Format: date
              */
             target_date: string;
+        };
+        /** CicytexProvenanceResponse */
+        CicytexProvenanceResponse: {
+            /** Dataset Sha256 */
+            dataset_sha256: string;
+            /** Ensemble Policy */
+            ensemble_policy: string;
+            /** Git Commit */
+            git_commit: string;
+            /** Horizons */
+            horizons: {
+                [key: string]: components["schemas"]["CicytexHorizonProvenanceResponse"];
+            };
+            /** Mlflow Parent Run Id */
+            mlflow_parent_run_id: string;
+            /** Prediction Sha256 */
+            prediction_sha256: string;
+            /** Proxy */
+            proxy: string;
+            /** Seed */
+            seed: number;
         };
         /** CicytexReadingResponse */
         CicytexReadingResponse: {
@@ -840,6 +911,29 @@ export interface components {
             session_id: string;
             /** Threshold */
             threshold: number;
+        };
+        /** CicytexSplitResponse */
+        CicytexSplitResponse: {
+            /**
+             * Calibration End
+             * Format: date
+             */
+            calibration_end: string;
+            /**
+             * Evaluation End
+             * Format: date
+             */
+            evaluation_end: string;
+            /**
+             * Train End
+             * Format: date
+             */
+            train_end: string;
+            /**
+             * Validation End
+             * Format: date
+             */
+            validation_end: string;
         };
         /** EmissionRequest */
         EmissionRequest: Record<string, never>;
@@ -1904,6 +1998,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CicytexCatalogResponse"];
+                };
+            };
+        };
+    };
+    provenance_api_v2_cicytex_replay_provenance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CicytexProvenanceResponse"];
                 };
             };
         };
