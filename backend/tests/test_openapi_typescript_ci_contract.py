@@ -16,9 +16,9 @@ FRONTEND_ROOT = ROOT / "frontend"
 GENERATED_ROOT = FRONTEND_ROOT / "src" / "api" / "generated"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 GENERATED_ARTIFACTS = {
-    "manifest.json": (348, "d619ad7c0905629c36f95838d7ab90a2c5448785c1c31ff5d07140516069f725"),
-    "openapi.json": (76_608, "e5022ffb12376dfbc4f64bd6f66a0f55670281de997fc80b611da78d76a9163f"),
-    "schema.d.ts": (108_012, "7ff50d5220ef2a6fd58e8249aefabc68cb16d02e3f596e0baeda713a028cf5f5"),
+    "manifest.json": (348, "b8b8e33ed811ce4a5950c124b3c8a4b518d4903fb7c6cd369ffe54b5113407d5"),
+    "openapi.json": (79_687, "d15a6e66dd7154d0a165c478533dfebd6c31bfac7433e0af2f46c00fd5bd46dc"),
+    "schema.d.ts": (111_587, "26410ecb92f20c03e37859423855618cc36c045ade20236b9f1ec101854ee6c5"),
 }
 RAW_TO_TRACKED = {
     "openapi.json": "openapi.json",
