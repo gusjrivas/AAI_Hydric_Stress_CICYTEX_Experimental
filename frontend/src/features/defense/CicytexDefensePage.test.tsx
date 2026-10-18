@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CicytexDefensePage } from "./CicytexDefensePage";
@@ -101,5 +101,96 @@ describe("CicytexDefensePage generated nullability", () => {
         screen.getByRole("heading", { name: "Comparación acumulada revelada" }),
       ).toBeInTheDocument(),
     );
+  });
+});
+
+describe("CicytexDefensePage operation robustness", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("offers a retry when the catalog fails and recovers on success", async () => {
+    const catalog = vi
+      .spyOn(api, "getCicytexCatalog")
+      .mockRejectedValueOnce(new Error("sin conexión"))
+      .mockResolvedValue(CATALOG);
+    render(<CicytexDefensePage />);
+
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+
+    await waitFor(() => expect(catalog).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Abrir emisión congelada" })).toBeEnabled();
+  });
+
+  it("ignores a late session response after the selection changed", async () => {
+    vi.spyOn(api, "getCicytexCatalog").mockResolvedValue({
+      ...CATALOG,
+      sensors: ["CP1_S1", "CP1_S2"],
+    });
+    const pending = deferred<api.CicytexSession>();
+    vi.spyOn(api, "createCicytexSession").mockReturnValue(pending.promise);
+    render(<CicytexDefensePage />);
+    await waitFor(() => expect(api.getCicytexCatalog).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    fireEvent.change(screen.getByLabelText("Sonda"), { target: { value: "CP1_S2" } });
+    await act(async () => {
+      pending.resolve(session({ sensor_id: "CP1_S1" }));
+    });
+
+    expect(screen.queryByText(/Decisión de la arquitectura/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir emisión congelada" })).toBeEnabled();
+  });
+
+  it("submits feedback once even if the form is submitted twice", async () => {
+    vi.spyOn(api, "getCicytexCatalog").mockResolvedValue(CATALOG);
+    vi.spyOn(api, "createCicytexSession").mockResolvedValue(
+      session({
+        predictions: [
+          {
+            method: "ensemble",
+            score: 0.4,
+            alert: false,
+            target_date: "2023-07-07",
+            observed_soil_moisture: 0.3,
+            observed_label: 0,
+            outcome: "VN",
+          },
+        ],
+      }),
+    );
+    const pending = deferred<api.ReplayFeedback>();
+    const submit = vi.spyOn(api, "submitCicytexFeedback").mockReturnValue(pending.promise);
+    render(<CicytexDefensePage />);
+    await waitFor(() => expect(api.getCicytexCatalog).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    const form = (await screen.findByRole("button", { name: "Registrar feedback" })).closest("form")!;
+
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a loading state until the catalog arrives", async () => {
+    const pending = deferred<api.CicytexCatalog>();
+    vi.spyOn(api, "getCicytexCatalog").mockReturnValue(pending.promise);
+    render(<CicytexDefensePage />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(/Cargando catálogo/i);
+    await act(async () => {
+      pending.resolve(CATALOG);
+    });
+    expect(screen.queryByText(/Cargando catálogo/i)).not.toBeInTheDocument();
   });
 });
