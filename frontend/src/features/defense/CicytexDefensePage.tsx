@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SiteHeader } from "./SiteHeader";
 import { advanceCicytexSession, createCicytexSession, getCicytexCatalog, resetCicytexSession, submitCicytexFeedback, type CicytexCatalog, type CicytexSession } from "./cicytexApi";
 import "./CicytexDefensePage.css";
@@ -14,25 +14,334 @@ function MoistureChart({session}:{session:CicytexSession}) {
   return <div className="cy-chart" aria-label="Humedad revelada hasta el reloj actual"><svg viewBox="0 0 600 210" role="img"><line x1="20" x2="580" y1={thresholdY} y2={thresholdY} className="cy-threshold"/><polyline points={xy} className="cy-moisture"/><text x="24" y={Math.max(16,thresholdY-6)}>P20 {session.threshold.toFixed(3)}</text></svg><p>Solo se dibujan observaciones reveladas hasta <strong>{session.revealed_through}</strong>.</p></div>;
 }
 
+function messageOf(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 export function CicytexDefensePage() {
-  const [catalog,setCatalog]=useState<CicytexCatalog|null>(null), [sensor,setSensor]=useState("CP1_S1"), [horizon,setHorizon]=useState(1), [emission,setEmission]=useState("2023-07-06");
-  const [session,setSession]=useState<CicytexSession|null>(null), [error,setError]=useState<string|null>(null), [busy,setBusy]=useState(false);
-  const [feedbackChoice,setFeedbackChoice]=useState<"confirmada"|"rechazada">("confirmada"), [feedbackNote,setFeedbackNote]=useState("");
-  useEffect(()=>{getCicytexCatalog().then(setCatalog).catch(reason=>setError(String(reason)))},[]);
-  const dates=catalog?.emission_dates_by_horizon[String(horizon)]??[];
-  useEffect(()=>{if(dates.length&&!dates.includes(emission))setEmission(dates[0])},[dates,emission]);
-  const ensemble=session?.predictions.find(p=>p.method==="ensemble");
-  const agreement=useMemo(()=>{const c=session?.predictions.filter(p=>!["ensemble","persistence"].includes(p.method))??[];return c.length?`${c.filter(p=>p.alert).length}/3 alertan`:"—"},[session]);
-  async function act(action:()=>Promise<CicytexSession>){setBusy(true);setError(null);try{setSession(await action())}catch(reason){setError(String(reason))}finally{setBusy(false)}}
-  async function submitFeedback(){if(!session)return;setBusy(true);setError(null);try{const feedback=await submitCicytexFeedback(session.session_id,{estado_validacion:feedbackChoice,observacion:feedbackNote.trim()||undefined});setSession({...session,feedback})}catch(reason){setError(String(reason))}finally{setBusy(false)}}
-  return <div className="cicytex-defense"><SiteHeader site="cicytex"/>
-    <section className="cy-intro"><p><strong>Prueba retrospectiva causal.</strong> Tomate de industria, Talavera la Real, campaña 2023; 21 sondas a 20 cm. Las familias fueron congeladas después de validar hasta el 05/07/2023.</p><p>El evento es humedad volumétrica inferior al P20 de entrenamiento. No equivale a estrés hídrico fisiológico observado.</p></section>
-    <section className="cy-controls" aria-label="Seleccionar reproducción CICYTEX"><label>Sonda<select value={sensor} onChange={e=>{setSensor(e.target.value);setSession(null)}}>{catalog?.sensors.map(item=><option key={item}>{item}</option>)}</select></label><label>Horizonte<select value={horizon} onChange={e=>{setHorizon(Number(e.target.value));setSession(null)}}>{[1,2,3].map(item=><option value={item} key={item}>+{item} día{item>1?"s":""}</option>)}</select></label><label>Fecha de emisión<select value={emission} onChange={e=>{setEmission(e.target.value);setSession(null)}}>{dates.map(item=><option key={item}>{item}</option>)}</select></label><button disabled={!catalog||busy} onClick={()=>void act(()=>createCicytexSession(sensor,emission,horizon))}>Abrir emisión congelada</button></section>
-    {error&&<p role="alert" className="cy-error">{error}</p>}
-    {session&&<><section className="cy-clock"><div><span>Emisión</span><strong>{session.emission_date}</strong></div><div><span>Reloj revelado</span><strong>{session.revealed_through}</strong></div><div><span>Objetivo</span><strong>{ensemble?.target_date}</strong></div><button disabled={busy||!session.can_advance} onClick={()=>void act(()=>advanceCicytexSession(session.session_id))}>Día siguiente</button><button disabled={busy} onClick={()=>void act(()=>resetCicytexSession(session.session_id))}>Reiniciar</button></section>
-      {ensemble&&<section className={`cy-verdict ${ensemble.alert?"is-alert":"is-clear"}`} aria-live="polite"><p className="cy-verdict-kicker">Decisión de la arquitectura</p><h2>{ensemble.alert?"ALERTA DE HUMEDAD BAJA":"SIN ALERTA DE HUMEDAD BAJA"}</h2><p>Ensamble {ensemble.score.toFixed(3)} · objetivo {ensemble.target_date} · acuerdo {agreement}.</p>{ensemble.outcome===null?<p className="cy-future-lock">La realidad permanece oculta hasta que el reloj alcance la fecha objetivo.</p>:<p className={ensemble.outcome==="VP"||ensemble.outcome==="VN"?"cy-truth-match":"cy-truth-miss"}><strong>Realidad revelada:</strong> {ensemble.observed_label===1?"hubo humedad baja":"no hubo humedad baja"} · resultado <strong>{ensemble.outcome}</strong>.</p>}</section>}
-      <section className="cy-panel"><h2>Predicción archivada · +{session.horizon_days} día{session.horizon_days>1?"s":""}</h2><p>Acuerdo: <strong>{agreement}</strong> · decisión 0,5 · P20 {session.threshold.toFixed(4)} m³/m³.</p><div className="cy-table-wrap"><table><thead><tr><th>Método</th><th>Score</th><th>Alerta</th><th>Observado</th><th>Resultado</th></tr></thead><tbody>{session.predictions.map(p=><tr key={p.method} className={p.method==="ensemble"?"is-ensemble":""}><th>{LABELS[p.method]}</th><td>{p.score.toFixed(3)}</td><td>{p.alert?"Sí":"No"}</td><td>{p.observed_soil_moisture===null?"Oculto hasta avanzar":`${p.observed_soil_moisture.toFixed(4)} m³/m³`}</td><td>{p.outcome??"Pendiente"}</td></tr>)}</tbody></table></div></section>
-      <MoistureChart session={session}/><section className="cy-panel"><h2>Comparación acumulada revelada</h2><div className="cy-table-wrap"><table><thead><tr><th>Método</th><th>n</th><th>VP</th><th>VN</th><th>FP</th><th>FN</th><th>MCC</th><th>Prec.</th><th>Recall</th><th>F1</th></tr></thead><tbody>{Object.entries(session.metrics).map(([method,m])=>m&&<tr key={method}><th>{LABELS[method]}</th><td>{m.n}</td><td>{m.tp}</td><td>{m.tn}</td><td>{m.fp}</td><td>{m.fn}</td><td>{fmt(m.mcc)}</td><td>{fmt(m.precision)}</td><td>{fmt(m.recall)}</td><td>{fmt(m.f1)}</td></tr>)}</tbody></table></div><p>Solo se usan objetivos cuya fecha ya reveló esta sesión.</p></section>
-      {ensemble?.outcome!==null&&<section className="cy-panel cy-feedback"><h2>Feedback humano de demostración</h2><p>Se habilita recién después de revelar la realidad. Queda aislado: no recalibra ni reentrena modelos.</p>{session.feedback?<div role="status" className="cy-feedback-saved"><strong>Feedback registrado: {session.feedback.estado_validacion}.</strong>{session.feedback.observacion&&<p>“{session.feedback.observacion}”</p>}<small>{session.feedback.registered_at}</small></div>:<form onSubmit={event=>{event.preventDefault();void submitFeedback()}}><fieldset><legend>¿La decisión del ensamble representa correctamente lo observado?</legend><label><input type="radio" name="cicytex-feedback" checked={feedbackChoice==="confirmada"} onChange={()=>setFeedbackChoice("confirmada")}/> Sí, coincide</label><label><input type="radio" name="cicytex-feedback" checked={feedbackChoice==="rechazada"} onChange={()=>setFeedbackChoice("rechazada")}/> No coincide</label></fieldset><label>Observación opcional<textarea rows={3} value={feedbackNote} onChange={event=>setFeedbackNote(event.target.value)}/></label><button disabled={busy} type="submit">{busy?"Registrando…":"Registrar feedback"}</button></form>}</section>}
-    </>}</div>;
+  const [catalog, setCatalog] = useState<CicytexCatalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [sensor, setSensor] = useState("CP1_S1");
+  const [horizon, setHorizon] = useState(1);
+  const [emission, setEmission] = useState("2023-07-06");
+  const [session, setSession] = useState<CicytexSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [feedbackChoice, setFeedbackChoice] = useState<"confirmada" | "rechazada">("confirmada");
+  const [feedbackNote, setFeedbackNote] = useState("");
+  // Cada cambio de selección invalida las respuestas en vuelo: una respuesta
+  // tardía de otra sonda/fecha no debe pisar la vista actual.
+  const generation = useRef(0);
+  const inFlight = useRef(false);
+
+  const fetchCatalog = useCallback(
+    () =>
+      getCicytexCatalog()
+        .then(setCatalog)
+        .catch((reason) => setError(`No se pudo cargar el catálogo: ${messageOf(reason)}`))
+        .finally(() => setCatalogLoading(false)),
+    [],
+  );
+  useEffect(() => {
+    void fetchCatalog();
+  }, [fetchCatalog]);
+  function retryCatalog() {
+    setCatalogLoading(true);
+    setError(null);
+    void fetchCatalog();
+  }
+
+  const dates = catalog?.emission_dates_by_horizon[String(horizon)] ?? [];
+  // La fecha efectiva se deriva: si la elegida no existe para el horizonte, rige la primera.
+  const effectiveEmission = dates.includes(emission) ? emission : (dates[0] ?? emission);
+
+  function changeSelection(apply: () => void) {
+    generation.current += 1;
+    inFlight.current = false;
+    setBusy(false);
+    setSession(null);
+    apply();
+  }
+
+  const ensemble = session?.predictions.find((p) => p.method === "ensemble");
+  const agreement = useMemo(() => {
+    const members = session?.predictions.filter((p) => !["ensemble", "persistence"].includes(p.method)) ?? [];
+    return members.length ? `${members.filter((p) => p.alert).length}/3 alertan` : "—";
+  }, [session]);
+
+  async function run<T>(request: () => Promise<T>, apply: (result: T) => void) {
+    if (inFlight.current) return;
+    const mine = generation.current;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await request();
+      if (mine === generation.current) apply(result);
+    } catch (reason) {
+      if (mine === generation.current) setError(messageOf(reason));
+    } finally {
+      if (mine === generation.current) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  const act = (action: () => Promise<CicytexSession>) => run(action, setSession);
+
+  function submitFeedback() {
+    if (!session) return;
+    const id = session.session_id;
+    void run(
+      () =>
+        submitCicytexFeedback(id, {
+          estado_validacion: feedbackChoice,
+          observacion: feedbackNote.trim() || undefined,
+        }),
+      (feedback) =>
+        setSession((current) => (current && current.session_id === id ? { ...current, feedback } : current)),
+    );
+  }
+
+  return (
+    <div className="cicytex-defense">
+      <SiteHeader site="cicytex" />
+      <section className="cy-intro">
+        <p>
+          <strong>Prueba retrospectiva causal.</strong> Tomate de industria, Talavera la Real, campaña 2023; 21
+          sondas a 20 cm. Las familias fueron congeladas después de validar hasta el 05/07/2023.
+        </p>
+        <p>
+          El evento es humedad volumétrica inferior al P20 de entrenamiento. No equivale a estrés hídrico
+          fisiológico observado.
+        </p>
+      </section>
+      <section className="cy-controls" aria-label="Seleccionar reproducción CICYTEX">
+        <label>
+          Sonda
+          <select value={sensor} onChange={(e) => changeSelection(() => setSensor(e.target.value))}>
+            {catalog?.sensors.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Horizonte
+          <select value={horizon} onChange={(e) => changeSelection(() => setHorizon(Number(e.target.value)))}>
+            {[1, 2, 3].map((item) => (
+              <option value={item} key={item}>
+                +{item} día{item > 1 ? "s" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Fecha de emisión
+          <select value={effectiveEmission} onChange={(e) => changeSelection(() => setEmission(e.target.value))}>
+            {dates.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          disabled={!catalog || busy}
+          onClick={() => void act(() => createCicytexSession(sensor, effectiveEmission, horizon))}
+        >
+          Abrir emisión congelada
+        </button>
+      </section>
+      {catalogLoading && <p role="status">Cargando catálogo…</p>}
+      {error && (
+        <p role="alert" className="cy-error">
+          {error}
+          {!catalog && !catalogLoading && (
+            <>
+              {" "}
+              <button type="button" onClick={retryCatalog}>
+                Reintentar
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {session && (
+        <>
+          <section className="cy-clock">
+            <div>
+              <span>Emisión</span>
+              <strong>{session.emission_date}</strong>
+            </div>
+            <div>
+              <span>Reloj revelado</span>
+              <strong>{session.revealed_through}</strong>
+            </div>
+            <div>
+              <span>Objetivo</span>
+              <strong>{ensemble?.target_date}</strong>
+            </div>
+            <button
+              disabled={busy || !session.can_advance}
+              onClick={() => void act(() => advanceCicytexSession(session.session_id))}
+            >
+              Día siguiente
+            </button>
+            <button disabled={busy} onClick={() => void act(() => resetCicytexSession(session.session_id))}>
+              Reiniciar
+            </button>
+          </section>
+          {ensemble && (
+            <section className={`cy-verdict ${ensemble.alert ? "is-alert" : "is-clear"}`} aria-live="polite">
+              <p className="cy-verdict-kicker">Decisión de la arquitectura</p>
+              <h2>{ensemble.alert ? "ALERTA DE HUMEDAD BAJA" : "SIN ALERTA DE HUMEDAD BAJA"}</h2>
+              <p>
+                Ensamble {ensemble.score.toFixed(3)} · objetivo {ensemble.target_date} · acuerdo {agreement}.
+              </p>
+              {ensemble.outcome === null ? (
+                <p className="cy-future-lock">
+                  La realidad permanece oculta hasta que el reloj alcance la fecha objetivo.
+                </p>
+              ) : (
+                <p className={ensemble.outcome === "VP" || ensemble.outcome === "VN" ? "cy-truth-match" : "cy-truth-miss"}>
+                  <strong>Realidad revelada:</strong>{" "}
+                  {ensemble.observed_label === 1 ? "hubo humedad baja" : "no hubo humedad baja"} · resultado{" "}
+                  <strong>{ensemble.outcome}</strong>.
+                </p>
+              )}
+            </section>
+          )}
+          <section className="cy-panel">
+            <h2>
+              Predicción archivada · +{session.horizon_days} día{session.horizon_days > 1 ? "s" : ""}
+            </h2>
+            <p>
+              Acuerdo: <strong>{agreement}</strong> · decisión 0,5 · P20 {session.threshold.toFixed(4)} m³/m³.
+            </p>
+            <div className="cy-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Método</th>
+                    <th>Score</th>
+                    <th>Alerta</th>
+                    <th>Observado</th>
+                    <th>Resultado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {session.predictions.map((p) => (
+                    <tr key={p.method} className={p.method === "ensemble" ? "is-ensemble" : ""}>
+                      <th>{LABELS[p.method]}</th>
+                      <td>{p.score.toFixed(3)}</td>
+                      <td>{p.alert ? "Sí" : "No"}</td>
+                      <td>
+                        {p.observed_soil_moisture === null
+                          ? "Oculto hasta avanzar"
+                          : `${p.observed_soil_moisture.toFixed(4)} m³/m³`}
+                      </td>
+                      <td>{p.outcome ?? "Pendiente"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <MoistureChart session={session} />
+          <section className="cy-panel">
+            <h2>Comparación acumulada revelada</h2>
+            <div className="cy-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Método</th>
+                    <th>n</th>
+                    <th>VP</th>
+                    <th>VN</th>
+                    <th>FP</th>
+                    <th>FN</th>
+                    <th>MCC</th>
+                    <th>Prec.</th>
+                    <th>Recall</th>
+                    <th>F1</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(session.metrics).map(
+                    ([method, m]) =>
+                      m && (
+                        <tr key={method}>
+                          <th>{LABELS[method]}</th>
+                          <td>{m.n}</td>
+                          <td>{m.tp}</td>
+                          <td>{m.tn}</td>
+                          <td>{m.fp}</td>
+                          <td>{m.fn}</td>
+                          <td>{fmt(m.mcc)}</td>
+                          <td>{fmt(m.precision)}</td>
+                          <td>{fmt(m.recall)}</td>
+                          <td>{fmt(m.f1)}</td>
+                        </tr>
+                      ),
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p>Solo se usan objetivos cuya fecha ya reveló esta sesión.</p>
+          </section>
+          {ensemble?.outcome !== null && (
+            <section className="cy-panel cy-feedback">
+              <h2>Feedback humano de demostración</h2>
+              <p>
+                Se habilita recién después de revelar la realidad. Queda aislado: no recalibra ni reentrena
+                modelos.
+              </p>
+              {session.feedback ? (
+                <div role="status" className="cy-feedback-saved">
+                  <strong>Feedback registrado: {session.feedback.estado_validacion}.</strong>
+                  {session.feedback.observacion && <p>“{session.feedback.observacion}”</p>}
+                  <small>{session.feedback.registered_at}</small>
+                </div>
+              ) : (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitFeedback();
+                  }}
+                >
+                  <fieldset>
+                    <legend>¿La decisión del ensamble representa correctamente lo observado?</legend>
+                    <label>
+                      <input
+                        type="radio"
+                        name="cicytex-feedback"
+                        checked={feedbackChoice === "confirmada"}
+                        onChange={() => setFeedbackChoice("confirmada")}
+                      />{" "}
+                      Sí, coincide
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="cicytex-feedback"
+                        checked={feedbackChoice === "rechazada"}
+                        onChange={() => setFeedbackChoice("rechazada")}
+                      />{" "}
+                      No coincide
+                    </label>
+                  </fieldset>
+                  <label>
+                    Observación opcional
+                    <textarea rows={3} value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} />
+                  </label>
+                  <button disabled={busy} type="submit">
+                    {busy ? "Registrando…" : "Registrar feedback"}
+                  </button>
+                </form>
+              )}
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
