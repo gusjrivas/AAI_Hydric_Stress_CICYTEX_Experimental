@@ -79,7 +79,7 @@ revisión independiente sin P0/P1/P2.
 
 ## Estado tras F4, F6 y primer corte de F5 (2026-10-18)
 
-- F4 (#46): ruta Arquitectura e indicador de modo. F6 (#47): catálogo versionado y fichas de nodo en `ArchitectureFlow`. F5 (#48): `CicytexDefensePage` robustecida (respuestas tardías, doble envío de feedback, reintento de catálogo, estado de carga). Brecha G4 cerrada.
+- F4 (#46): ruta Arquitectura e indicador de modo. F6 (#47): catálogo en código (`architectureCatalog.ts`, versionado por git) y fichas de nodo en `ArchitectureFlow`. F5 (#48): `CicytexDefensePage` robustecida (respuestas tardías, doble envío de feedback, reintento de catálogo, estado de carga). Brecha G4 cerrada en su parte de estados de reintento y robustez; "duplicada" no se corrigió: hoy hay una única instancia en `App.tsx`, y unificarla sobre `HistoricalWalkthrough` no se hizo.
 - Recorridos restantes de F5, verificados por lectura de fuente y de tests, sin cambios de código:
   - Melchor Romero y Pergamino comparten `HistoricalWalkthrough`, que ya ignora respuestas tardías (A→B→A de emisión y de reloj, sensor, selección vacía, errores y conflictos tardíos) y tiene tests para cada caso.
   - Laboratorio mock (`useDemoSession`): tests de carrera ya cubren revisiones antiguas, sesión previa, desmontaje y error de red.
