@@ -14,6 +14,9 @@ function MoistureChart({session}:{session:CicytexSession}) {
   return <div className="cy-chart" aria-label="Humedad revelada hasta el reloj actual"><svg viewBox="0 0 600 210" role="img"><line x1="20" x2="580" y1={thresholdY} y2={thresholdY} className="cy-threshold"/><polyline points={xy} className="cy-moisture"/><text x="24" y={Math.max(16,thresholdY-6)}>P20 {session.threshold.toFixed(3)}</text></svg><p>Solo se dibujan observaciones reveladas hasta <strong>{session.revealed_through}</strong>.</p></div>;
 }
 
+type FeedbackDraft = { sessionId: string | null; choice: "confirmada" | "rechazada"; note: string };
+const EMPTY_DRAFT: FeedbackDraft = { sessionId: null, choice: "confirmada", note: "" };
+
 function messageOf(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
@@ -27,8 +30,17 @@ export function CicytexDefensePage() {
   const [session, setSession] = useState<CicytexSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [feedbackChoice, setFeedbackChoice] = useState<"confirmada" | "rechazada">("confirmada");
-  const [feedbackNote, setFeedbackNote] = useState("");
+  // El borrador pertenece a una sesión: se liga a su id y se descarta al
+  // cambiar la selección, abrir otra sesión o reiniciar la actual.
+  const [draft, setDraft] = useState<FeedbackDraft>(EMPTY_DRAFT);
+  const currentDraft = session && draft.sessionId === session.session_id ? draft : EMPTY_DRAFT;
+  const feedbackChoice = currentDraft.choice;
+  const feedbackNote = currentDraft.note;
+  const editDraft = (patch: Partial<Pick<FeedbackDraft, "choice" | "note">>) => {
+    if (!session) return;
+    const id = session.session_id;
+    setDraft((prev) => ({ ...(prev.sessionId === id ? prev : EMPTY_DRAFT), ...patch, sessionId: id }));
+  };
   // Cada cambio de selección invalida las respuestas en vuelo: una respuesta
   // tardía de otra sonda/fecha no debe pisar la vista actual.
   const generation = useRef(0);
@@ -60,6 +72,7 @@ export function CicytexDefensePage() {
     inFlight.current = false;
     setBusy(false);
     setSession(null);
+    setDraft(EMPTY_DRAFT);
     apply();
   }
 
@@ -88,7 +101,12 @@ export function CicytexDefensePage() {
     }
   }
 
-  const act = (action: () => Promise<CicytexSession>) => run(action, setSession);
+  // Abrir o reiniciar una sesión descarta el borrador del contexto anterior.
+  const act = (action: () => Promise<CicytexSession>, options: { clearDraft?: boolean } = {}) =>
+    run(action, (next) => {
+      if (options.clearDraft) setDraft(EMPTY_DRAFT);
+      setSession(next);
+    });
 
   function submitFeedback() {
     if (!session) return;
@@ -146,7 +164,7 @@ export function CicytexDefensePage() {
         </label>
         <button
           disabled={!catalog || busy}
-          onClick={() => void act(() => createCicytexSession(sensor, effectiveEmission, horizon))}
+          onClick={() => void act(() => createCicytexSession(sensor, effectiveEmission, horizon), { clearDraft: true })}
         >
           Abrir emisión congelada
         </button>
@@ -186,7 +204,7 @@ export function CicytexDefensePage() {
             >
               Día siguiente
             </button>
-            <button disabled={busy} onClick={() => void act(() => resetCicytexSession(session.session_id))}>
+            <button disabled={busy} onClick={() => void act(() => resetCicytexSession(session.session_id), { clearDraft: true })}>
               Reiniciar
             </button>
           </section>
@@ -315,7 +333,7 @@ export function CicytexDefensePage() {
                         type="radio"
                         name="cicytex-feedback"
                         checked={feedbackChoice === "confirmada"}
-                        onChange={() => setFeedbackChoice("confirmada")}
+                        onChange={() => editDraft({ choice: "confirmada" })}
                       />{" "}
                       Sí, coincide
                     </label>
@@ -324,14 +342,14 @@ export function CicytexDefensePage() {
                         type="radio"
                         name="cicytex-feedback"
                         checked={feedbackChoice === "rechazada"}
-                        onChange={() => setFeedbackChoice("rechazada")}
+                        onChange={() => editDraft({ choice: "rechazada" })}
                       />{" "}
                       No coincide
                     </label>
                   </fieldset>
                   <label>
                     Observación opcional
-                    <textarea rows={3} value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} />
+                    <textarea rows={3} value={feedbackNote} onChange={(event) => editDraft({ note: event.target.value })} />
                   </label>
                   <button disabled={busy} type="submit">
                     {busy ? "Registrando…" : "Registrar feedback"}

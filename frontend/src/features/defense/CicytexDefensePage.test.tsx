@@ -194,3 +194,134 @@ describe("CicytexDefensePage operation robustness", () => {
     expect(screen.queryByText(/Cargando catálogo/i)).not.toBeInTheDocument();
   });
 });
+
+describe("CicytexDefensePage feedback draft isolation", () => {
+  const REVEALED: api.CicytexSession["predictions"] = [
+    {
+      method: "ensemble",
+      score: 0.4,
+      alert: false,
+      target_date: "2023-07-07",
+      observed_soil_moisture: 0.3,
+      observed_label: 0,
+      outcome: "VN",
+    },
+  ];
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(api, "getCicytexCatalog").mockResolvedValue({
+      ...CATALOG,
+      sensors: ["CP1_S1", "CP1_S2"],
+    });
+  });
+
+  async function openAndDraft(note: string) {
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Abrir emisión congelada" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    fireEvent.click(await screen.findByLabelText(/No coincide/));
+    fireEvent.change(screen.getByLabelText(/Observación opcional/), { target: { value: note } });
+  }
+
+  it("starts a clean draft after the sensor changes and a new session opens", async () => {
+    vi.spyOn(api, "createCicytexSession")
+      .mockResolvedValueOnce(session({ session_id: "s1", predictions: REVEALED }))
+      .mockResolvedValueOnce(session({ session_id: "s2", sensor_id: "CP1_S2", predictions: REVEALED }));
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota del contexto anterior");
+
+    fireEvent.change(screen.getByLabelText("Sonda"), { target: { value: "CP1_S2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    await screen.findByRole("button", { name: "Registrar feedback" });
+
+    expect(screen.getByLabelText(/Observación opcional/)).toHaveValue("");
+    expect(screen.getByLabelText(/Sí, coincide/)).toBeChecked();
+  });
+
+  it("clears the draft when the session is reset", async () => {
+    vi.spyOn(api, "createCicytexSession").mockResolvedValue(session({ predictions: REVEALED }));
+    vi.spyOn(api, "resetCicytexSession").mockResolvedValue(session({ predictions: REVEALED }));
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota previa al reinicio");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reiniciar" }));
+    await waitFor(() => expect(api.resetCicytexSession).toHaveBeenCalled());
+
+    await waitFor(() => expect(screen.getByLabelText(/Observación opcional/)).toHaveValue(""));
+    expect(screen.getByLabelText(/Sí, coincide/)).toBeChecked();
+  });
+
+  it("clears the draft when another session is opened for the same selection", async () => {
+    vi.spyOn(api, "createCicytexSession")
+      .mockResolvedValueOnce(session({ session_id: "s1", predictions: REVEALED }))
+      .mockResolvedValueOnce(session({ session_id: "s2", predictions: REVEALED }));
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota de la sesión 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    await waitFor(() => expect(api.createCicytexSession).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => expect(screen.getByLabelText(/Observación opcional/)).toHaveValue(""));
+  });
+
+  it("does not apply a late feedback response to a different session or leak its draft", async () => {
+    vi.spyOn(api, "createCicytexSession")
+      .mockResolvedValueOnce(session({ session_id: "s1", predictions: REVEALED }))
+      .mockResolvedValueOnce(session({ session_id: "s2", sensor_id: "CP1_S2", predictions: REVEALED }));
+    let resolveLate!: (value: api.ReplayFeedback) => void;
+    vi.spyOn(api, "submitCicytexFeedback").mockReturnValue(
+      new Promise((resolve) => {
+        resolveLate = resolve;
+      }),
+    );
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota que se envía tarde");
+    fireEvent.click(screen.getByRole("button", { name: "Registrar feedback" }));
+
+    fireEvent.change(screen.getByLabelText("Sonda"), { target: { value: "CP1_S2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    await screen.findByRole("button", { name: "Registrar feedback" });
+    await act(async () => {
+      resolveLate({
+        estado_validacion: "rechazada",
+        observacion: "nota que se envía tarde",
+        registered_at: "2023-07-07T00:00:00Z",
+      } as api.ReplayFeedback);
+    });
+
+    expect(screen.queryByText(/Feedback registrado/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Observación opcional/)).toHaveValue("");
+  });
+
+  it("clears the draft on a selection change even if the backend repeats the session id", async () => {
+    vi.spyOn(api, "createCicytexSession")
+      .mockResolvedValueOnce(session({ session_id: "same", predictions: REVEALED }))
+      .mockResolvedValueOnce(session({ session_id: "same", sensor_id: "CP1_S2", predictions: REVEALED }));
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota con id repetido");
+
+    fireEvent.change(screen.getByLabelText("Sonda"), { target: { value: "CP1_S2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    await waitFor(() => expect(api.createCicytexSession).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => expect(screen.getByLabelText(/Observación opcional/)).toHaveValue(""));
+  });
+
+  it("keeps the draft when advancing the clock and when submitting fails", async () => {
+    vi.spyOn(api, "createCicytexSession").mockResolvedValue(session({ predictions: REVEALED }));
+    vi.spyOn(api, "advanceCicytexSession").mockResolvedValue(session({ predictions: REVEALED }));
+    vi.spyOn(api, "submitCicytexFeedback").mockRejectedValue(new Error("sin red"));
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota que debe sobrevivir");
+
+    fireEvent.click(screen.getByRole("button", { name: "Día siguiente" }));
+    await waitFor(() => expect(api.advanceCicytexSession).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "Registrar feedback" }));
+    await screen.findByRole("alert");
+
+    expect(screen.getByLabelText(/Observación opcional/)).toHaveValue("nota que debe sobrevivir");
+    expect(screen.getByLabelText(/No coincide/)).toBeChecked();
+  });
+});
