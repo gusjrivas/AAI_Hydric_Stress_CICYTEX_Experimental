@@ -69,9 +69,7 @@ def provenance(
 ) -> dict:
     try:
         # Un paquete que no cumple el contrato se trata como no preparado (503), no como 500.
-        return CicytexProvenanceResponse.model_validate(application.provenance()).model_dump(
-            mode="json"
-        )
+        return CicytexProvenanceResponse.model_validate(application.provenance()).model_dump()
     except (CicytexCatalogUnavailable, ValidationError) as error:
         raise HTTPException(503, "El paquete causal CICYTEX no esta preparado") from error
 
