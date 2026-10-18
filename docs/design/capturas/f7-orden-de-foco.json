@@ -1,0 +1,51 @@
+[
+  {
+    "tag": "a",
+    "text": "Pergamino",
+    "outline": true,
+    "shadow": true,
+    "visible": true
+  },
+  {
+    "tag": "a",
+    "text": "Melchor Romero",
+    "outline": true,
+    "shadow": true,
+    "visible": true
+  },
+  {
+    "tag": "a",
+    "text": "CICYTEX",
+    "outline": true,
+    "shadow": true,
+    "visible": true
+  },
+  {
+    "tag": "select",
+    "text": "CP1_S1CP1_S2CP1_S3CP2_S1CP2_S2CP2_S3CP3_",
+    "outline": true,
+    "shadow": true,
+    "visible": true
+  },
+  {
+    "tag": "select",
+    "text": "+1 día+2 días+3 días",
+    "outline": true,
+    "shadow": true,
+    "visible": true
+  },
+  {
+    "tag": "select",
+    "text": "2023-07-062023-07-072023-07-082023-07-09",
+    "outline": true,
+    "shadow": true,
+    "visible": true
+  },
+  {
+    "tag": "button",
+    "text": "Abrir emisión congelada",
+    "outline": true,
+    "shadow": true,
+    "visible": true
+  }
+]
