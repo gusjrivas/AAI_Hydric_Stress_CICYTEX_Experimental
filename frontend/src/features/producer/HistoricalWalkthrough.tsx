@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ForecastCard } from "./ForecastCard";
 import { HistoricalMoistureChart } from "./HistoricalMoistureChart";
 import { FactsStrip } from "../shared/FactsStrip";
@@ -126,6 +126,15 @@ export function HistoricalWalkthrough({
   const [emissionDate, setEmissionDate] = useState(defense ? availableDates[0] : "");
   const [revealedThrough, setRevealedThrough] = useState("");
   const effectiveReveal = revealedThrough || emissionDate;
+  const endNoteId = useId();
+  const endNoteRef = useRef<HTMLParagraphElement | null>(null);
+  const atEnd = effectiveReveal >= revealMax;
+  // El botón primario se deshabilita al llegar al final y pierde el foco: se lo lleva a la nota que explica por qué.
+  const wasAtEnd = useRef(atEnd);
+  useEffect(() => {
+    if (atEnd && !wasAtEnd.current) endNoteRef.current?.focus();
+    wasAtEnd.current = atEnd;
+  }, [atEnd]);
 
   // Cambiar de sensor (o de sitio) invalida cualquier selección anterior:
   // una fecha "preparada" para un sensor/sitio no significa nada para otro.
@@ -296,8 +305,8 @@ export function HistoricalWalkthrough({
       {defense && emissionDate && (
         <div className="historical-clock-steps" role="group" aria-label="Avanzar el reloj del recorrido">
           <button type="button" className="historical-step-secondary" disabled={effectiveReveal <= emissionDate} onClick={() => { const next = addDays(effectiveReveal, -1); setRevealedThrough(next <= emissionDate ? "" : next); }}>‹ Día anterior</button>
-          <button type="button" className="historical-step-primary" disabled={effectiveReveal >= revealMax} aria-describedby={effectiveReveal >= revealMax ? "historical-step-end-note" : undefined} onClick={() => setRevealedThrough(addDays(effectiveReveal, 1))}>Día siguiente ›</button>
-          {effectiveReveal >= revealMax && <p id="historical-step-end-note" className="historical-step-end-note">No quedan días por revelar en esta emisión.</p>}
+          <button type="button" className="historical-step-primary" disabled={effectiveReveal >= revealMax} aria-describedby={atEnd ? endNoteId : undefined} onClick={() => setRevealedThrough(addDays(effectiveReveal, 1))}>Día siguiente ›</button>
+          {atEnd && <p id={endNoteId} ref={endNoteRef} role="status" tabIndex={-1} className="historical-step-end-note">No quedan días por revelar en esta emisión.</p>}
         </div>
       )}
       {emissionDate && (

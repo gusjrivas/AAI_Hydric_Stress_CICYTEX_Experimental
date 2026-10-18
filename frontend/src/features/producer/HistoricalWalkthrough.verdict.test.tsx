@@ -107,6 +107,9 @@ describe("HistoricalWalkthrough — veredicto, jerarquía, trazabilidad, defensa
     const disabled = screen.getByRole("button", { name: /día siguiente/i });
     const note = screen.getByText("No quedan días por revelar en esta emisión.");
     expect(disabled.getAttribute("aria-describedby")).toBe(note.id);
+    expect(note).toHaveAttribute("role", "status");
+    expect(note).toHaveFocus();
+    expect(note.id).not.toBe("historical-step-end-note");
   });
 
   it("traces the displayed prediction and declares unavailable lineage explicitly", async () => {
