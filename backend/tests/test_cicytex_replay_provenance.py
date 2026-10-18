@@ -40,7 +40,7 @@ def test_provenance_does_not_leak_results_or_predictions():
 
     assert "metrics" not in body
     assert "prediction_rows" not in body
-    assert "prediction_sha256" not in body or isinstance(body["prediction_sha256"], str)
+    assert isinstance(body["prediction_sha256"], str)
     for horizon in body["horizons"].values():
         assert set(horizon) == {
             "threshold_train_p20",
@@ -83,3 +83,25 @@ def test_provenance_endpoint_delegates_to_the_injected_application():
 
     assert response.status_code == 200
     assert response.json()["dataset_sha256"] == "abc"
+
+
+def _broken_summary(tmp_path, mutate):
+    data = json.loads(SUMMARY.read_text(encoding="utf-8"))
+    mutate(data)
+    (tmp_path / "summary.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_provenance_is_unavailable_when_the_summary_does_not_fit_the_contract(
+    tmp_path, monkeypatch
+):
+    cases = {
+        "extra method": lambda d: d["horizons"]["1"]["component_mlflow_runs"].update(extra="x"),
+        "null seed": lambda d: d.update(seed=None),
+        "invalid split date": lambda d: d["horizons"]["1"]["split"].update(train_end="nope"),
+    }
+    for name, mutate in cases.items():
+        _broken_summary(tmp_path, mutate)
+        monkeypatch.setenv("CICYTEX_REPLAY_DIR", str(tmp_path))
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = _get(client)
+        assert response.status_code == 503, name

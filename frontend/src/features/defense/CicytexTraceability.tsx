@@ -40,11 +40,11 @@ export function CicytexTraceability({ session, provenance, provenanceFailed }: P
           <dl>
             <dt>Dataset (SHA-256)</dt>
             <dd>
-              <code>{provenance.dataset_sha256.slice(0, 12)}…</code>
+              <code>{provenance.dataset_sha256}</code>
             </dd>
             <dt>Commit de ejecución</dt>
             <dd>
-              <code>{provenance.git_commit.slice(0, 8)}</code> · semilla {provenance.seed}
+              <code>{provenance.git_commit}</code> · semilla {provenance.seed}
             </dd>
             <dt>Política del ensamble</dt>
             <dd>{provenance.ensemble_policy}</dd>
@@ -66,7 +66,11 @@ export function CicytexTraceability({ session, provenance, provenanceFailed }: P
           </dl>
         ) : (
           <p role="status">
-            {provenanceFailed ? "Trazabilidad del paquete no disponible." : "Cargando trazabilidad del paquete…"}
+            {provenanceFailed
+              ? "Trazabilidad del paquete no disponible."
+              : provenance
+                ? "Trazabilidad del paquete no disponible para este horizonte."
+                : "Cargando trazabilidad del paquete…"}
           </p>
         )}
         <p>Versión del modelo: no disponible (los modelos están congelados por corrida).</p>

@@ -541,4 +541,24 @@ describe("CicytexDefensePage prediction traceability", () => {
 
     expect(trace).not.toHaveTextContent(/MCC|Recall|F1|Realidad revelada/i);
   });
+
+  it("says the horizon is unavailable instead of loading forever when the package lacks it", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockResolvedValue(PROVENANCE);
+
+    const trace = await openSession(session({ horizon_days: 3 }));
+
+    await waitFor(() =>
+      expect(within(trace).getByText(/no disponible para este horizonte/i)).toBeInTheDocument(),
+    );
+    expect(within(trace).queryByText(/Cargando trazabilidad/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the full dataset hash and commit without truncation", async () => {
+    vi.spyOn(api, "getCicytexProvenance").mockResolvedValue(PROVENANCE);
+
+    const trace = await openSession(session());
+
+    await waitFor(() => expect(within(trace).getByText(PROVENANCE.dataset_sha256)).toBeInTheDocument());
+    expect(within(trace).getByText(PROVENANCE.git_commit)).toBeInTheDocument();
+  });
 });
