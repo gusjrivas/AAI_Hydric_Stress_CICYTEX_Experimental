@@ -294,4 +294,34 @@ describe("CicytexDefensePage feedback draft isolation", () => {
     expect(screen.queryByText(/Feedback registrado/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/Observación opcional/)).toHaveValue("");
   });
+
+  it("clears the draft on a selection change even if the backend repeats the session id", async () => {
+    vi.spyOn(api, "createCicytexSession")
+      .mockResolvedValueOnce(session({ session_id: "same", predictions: REVEALED }))
+      .mockResolvedValueOnce(session({ session_id: "same", sensor_id: "CP1_S2", predictions: REVEALED }));
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota con id repetido");
+
+    fireEvent.change(screen.getByLabelText("Sonda"), { target: { value: "CP1_S2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    await waitFor(() => expect(api.createCicytexSession).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => expect(screen.getByLabelText(/Observación opcional/)).toHaveValue(""));
+  });
+
+  it("keeps the draft when advancing the clock and when submitting fails", async () => {
+    vi.spyOn(api, "createCicytexSession").mockResolvedValue(session({ predictions: REVEALED }));
+    vi.spyOn(api, "advanceCicytexSession").mockResolvedValue(session({ predictions: REVEALED }));
+    vi.spyOn(api, "submitCicytexFeedback").mockRejectedValue(new Error("sin red"));
+    render(<CicytexDefensePage />);
+    await openAndDraft("nota que debe sobrevivir");
+
+    fireEvent.click(screen.getByRole("button", { name: "Día siguiente" }));
+    await waitFor(() => expect(api.advanceCicytexSession).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "Registrar feedback" }));
+    await screen.findByRole("alert");
+
+    expect(screen.getByLabelText(/Observación opcional/)).toHaveValue("nota que debe sobrevivir");
+    expect(screen.getByLabelText(/No coincide/)).toBeChecked();
+  });
 });

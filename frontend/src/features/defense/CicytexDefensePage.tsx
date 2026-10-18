@@ -36,8 +36,11 @@ export function CicytexDefensePage() {
   const currentDraft = session && draft.sessionId === session.session_id ? draft : EMPTY_DRAFT;
   const feedbackChoice = currentDraft.choice;
   const feedbackNote = currentDraft.note;
-  const editDraft = (patch: Partial<Pick<FeedbackDraft, "choice" | "note">>) =>
-    session && setDraft({ ...currentDraft, ...patch, sessionId: session.session_id });
+  const editDraft = (patch: Partial<Pick<FeedbackDraft, "choice" | "note">>) => {
+    if (!session) return;
+    const id = session.session_id;
+    setDraft((prev) => ({ ...(prev.sessionId === id ? prev : EMPTY_DRAFT), ...patch, sessionId: id }));
+  };
   // Cada cambio de selección invalida las respuestas en vuelo: una respuesta
   // tardía de otra sonda/fecha no debe pisar la vista actual.
   const generation = useRef(0);
