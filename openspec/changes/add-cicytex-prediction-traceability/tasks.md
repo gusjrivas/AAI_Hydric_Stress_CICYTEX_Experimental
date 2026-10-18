@@ -5,4 +5,4 @@
 - [x] RED frontend: 4 tests (hechos por horizonte, no disponible declarado, falla de la proyección, sin métricas).
 - [x] GREEN frontend: cliente tipado y `CicytexTraceability`.
 - [x] Revisión visual renderizada con datos reales.
-- [ ] Revisión independiente sin P0/P1/P2 y CI verde sobre el HEAD exacto.
+- [x] Revisión independiente sin P0/P1/P2 y CI verde sobre el HEAD exacto. Evidencia: PR #53 mergeado (`a4a6ba4`) con `--match-head-commit 5098fd9`; 16 checks en `pass`; revisiones independientes de 8c78b68, 606eec7 y 5098fd9 sin P0/P1/P2. Los informes quedaron en la sesión, no en el repo.

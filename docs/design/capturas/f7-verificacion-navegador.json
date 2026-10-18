@@ -1,0 +1,60 @@
+[
+  {
+    "name": "J0 catálogo cargado en navegador real",
+    "ok": true
+  },
+  {
+    "name": "J1 sin sesión no hay «Día siguiente» ni feedback",
+    "ok": true
+  },
+  {
+    "name": "J2 abrir emisión muestra la decisión",
+    "ok": true
+  },
+  {
+    "name": "J2b feedback no disponible mientras la realidad está oculta",
+    "ok": true
+  },
+  {
+    "name": "J3 sin red aparece un mensaje de error (role=alert)",
+    "ok": true,
+    "evidence": "Failed to fetch"
+  },
+  {
+    "name": "J3b tras el error el botón vuelve a estar habilitado",
+    "ok": true
+  },
+  {
+    "name": "J4 al volver la red el reloj avanza y el error desaparece",
+    "ok": true,
+    "evidence": "reloj 2023-07-06 → 2023-07-07"
+  },
+  {
+    "name": "J5 con la realidad revelada se habilita el feedback",
+    "ok": true
+  },
+  {
+    "name": "J6 recarga: ruta y sesión",
+    "ok": null,
+    "evidence": "ruta=#defensa-cicytex; sesión visible=false; selección de sonda=CP1_S1"
+  },
+  {
+    "name": "J6b tras recargar se conserva la ruta",
+    "ok": true
+  },
+  {
+    "name": "J7 el foco recorre elementos distintos y sale de la página (sin trampa de teclado)",
+    "ok": true,
+    "evidence": "7 paradas, 7 distintas"
+  },
+  {
+    "name": "J7b todo elemento enfocado muestra indicador de foco",
+    "ok": true,
+    "evidence": ""
+  },
+  {
+    "name": "J7c los controles se alcanzan en orden lógico (selectores antes de «Abrir»)",
+    "ok": true,
+    "evidence": "select@3, abrir@6"
+  }
+]
