@@ -1,5 +1,23 @@
 # Seguimiento de tareas — plan de proyecto vs. estado real del repo
 
+## 2026-10-18 — Arquitectura UI y defensa, plan maestro F0–F8 (UI, `alerting-ui`)
+
+Reconciliación con el plan maestro (`plan-maestro-arquitectura-ui-claude-code.md`) y el alcance real de #45–#48. Capacidad `alerting-ui`, HU6; sin impacto sobre hipótesis, modelos, datos, protocolo HU7/HU8 ni holdouts. Laya sigue desactivada por defecto. No hay issues de GitHub abiertos asociados: no se cierra ninguno. ✅ sólo donde hay entregable mergeado, prueba y revisión sin P0/P1/P2 con CI verde sobre el HEAD exacto (o, en F2, decisión documentada).
+
+| Fase | Estado | Entregable y evidencia | Falta |
+|---|---|---|---|
+| F0 Recuperar contexto | ✅ | Checkpoint `docs/superpowers/plans/2026-10-17-arquitectura-ui-checkpoint-f0-f1.md` (#45) | — |
+| F1 Mapa verificado y brechas | ✅ | Mapa de componentes y matriz G1–G9 en el mismo checkpoint (#45) | — |
+| F2 Cerrar brechas materiales | ✅ (sin PR) | Ninguna brecha con defecto reproducible; G6–G9 quedan como límites documentados | Documentarlos en F8; abrir RED si F5/F7 reproducen un defecto |
+| F3 Diseño UX | ✅ | `docs/design/ui-arquitectura-defensa.md` (#45) | — |
+| F4 Sistema visual y navegación | 🟡 | #46: ruta `#arquitectura`, `ModeBadge` y `modeForView` con tests (`viewMode`, `ModeBadge`, `App`, `AppHeader`); barra móvil verificada a 320 px. Cierra G2 y G3 | Verificación de teclado, contraste y movimiento reducido (F7); G5: componentes de sitio sin pruebas |
+| F5 Rediseño de operación multisitio | 🟡 | #48: `CicytexDefensePage` ignora respuestas tardías, bloquea doble envío, reintenta el catálogo y muestra carga (4 tests RED→GREEN). Cierra G4. Melchor Romero, Pergamino (`HistoricalWalkthrough`), laboratorio mock (`useDemoSession`) y pronóstico (`ForecastPage`) ya tenían tests de carreras y de objetivo inmaduro; verificado por lectura, sin cambios | Persistencia de revisión tras recarga, permisos de acción por modo, capturas antes/después; no se unificó `CicytexDefensePage` sobre `HistoricalWalkthrough` |
+| F6 Trazabilidad y arquitectura interactiva | 🟡 | #47: catálogo `architectureCatalog.ts` (rutas de evidencia verificadas por test), fichas por nodo y tabla textual, Laya como adaptador desactivado | Trazado interactivo de una predicción a su evidencia/linaje, si el alcance lo confirma |
+| F7 Verificación integral | ⬜ | — | E2E, accesibilidad, teclado, contraste, movimiento reducido, backend desconectado, Laya apagada, capturas |
+| F8 Paquete de defensa | ⬜ | — | Diagrama final, mapa antes/después, ADR, matriz de robustez, guion de demo, recuperación, limitaciones, preguntas y respuestas |
+
+Changes OpenSpec: `add-architecture-view-and-mode-indicator` (#46), `add-architecture-node-catalog` (#47), `harden-cicytex-replay-operation` (#48).
+
 ## 2026-09-21 — Robustez de paginación operacional (HU5/HU6)
 
 Corrección aislada desde main 2079d03: continuación por clave aunque la revisión
