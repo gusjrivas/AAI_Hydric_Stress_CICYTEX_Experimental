@@ -129,6 +129,17 @@ describe("HistoricalWalkthrough — veredicto, jerarquía, trazabilidad, defensa
     await waitFor(() => expect(screen.getByLabelText(/recorrido hasta/i)).toHaveValue("2023-06-14"));
   });
 
+  it("does not revive an old empty draft after the clock goes A -> B -> A", async () => {
+    setup(batch(true));
+    const clock = await screen.findByLabelText(/recorrido hasta/i);
+    fireEvent.change(clock, { target: { value: "" } });
+    expect(clock).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", { name: /día siguiente/i }));
+    await waitFor(() => expect(screen.getByLabelText(/recorrido hasta/i)).toHaveValue("2023-06-14"));
+    await userEvent.click(screen.getByRole("button", { name: /día anterior/i }));
+    await waitFor(() => expect(screen.getByLabelText(/recorrido hasta/i)).toHaveValue("2023-06-13"));
+  });
+
   it("traces the displayed prediction and declares unavailable lineage explicitly", async () => {
     setup(batch(true));
     const trace = await screen.findByRole("region", { name: /trazabilidad de la predicción/i });
