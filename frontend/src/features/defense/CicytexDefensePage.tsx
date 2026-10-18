@@ -6,12 +6,49 @@ import "./CicytexDefensePage.css";
 const LABELS: Record<string,string> = { logistic_regression:"Logistic Regression", random_forest:"Random Forest", hist_gradient_boosting_classifier:"HistGradientBoosting", ensemble:"Ensamble", persistence:"Persistencia" };
 const fmt = (value:number|null) => value === null ? "—" : value.toFixed(3);
 
-function MoistureChart({session}:{session:CicytexSession}) {
-  const points=session.readings.slice(-30), values=[...points.map(p=>p.soil_moisture),session.threshold];
-  const min=Math.min(...values), max=Math.max(...values), range=max-min||1;
-  const xy=points.map((p,i)=>`${20+i*(560/Math.max(points.length-1,1))},${180-((p.soil_moisture-min)/range)*140}`).join(" ");
-  const thresholdY=180-((session.threshold-min)/range)*140;
-  return <div className="cy-chart" aria-label="Humedad revelada hasta el reloj actual"><svg viewBox="0 0 600 210" role="img"><line x1="20" x2="580" y1={thresholdY} y2={thresholdY} className="cy-threshold"/><polyline points={xy} className="cy-moisture"/><text x="24" y={Math.max(16,thresholdY-6)}>P20 {session.threshold.toFixed(3)}</text></svg><p>Solo se dibujan observaciones reveladas hasta <strong>{session.revealed_through}</strong>.</p></div>;
+function MoistureChart({ session }: { session: CicytexSession }) {
+  // Defensa en profundidad: nunca se dibuja nada posterior al reloj revelado.
+  const points = session.readings.filter((r) => r.date <= session.revealed_through).slice(-30);
+  if (!points.length) return null;
+  const values = [...points.map((p) => p.soil_moisture), session.threshold];
+  // Margen del 10 % para que el umbral no se superponga con el eje.
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const pad = (rawMax - rawMin || 1) * 0.1;
+  const min = rawMin - pad;
+  const max = rawMax + pad;
+  const range = max - min;
+  const left = 64;
+  const right = 580;
+  const top = 24;
+  const bottom = 170;
+  const x = (i: number) => left + i * ((right - left) / Math.max(points.length - 1, 1));
+  const y = (value: number) => bottom - ((value - min) / range) * (bottom - top);
+  const xy = points.map((p, i) => `${x(i)},${y(p.soil_moisture)}`).join(" ");
+  const last = points[points.length - 1];
+  const relation = last.soil_moisture < session.threshold ? "por debajo del P20" : "por encima del P20";
+  return (
+    <div className="cy-chart">
+      <svg viewBox="0 0 600 214" role="img" aria-label="Humedad revelada hasta el reloj actual">
+        <text x={left - 6} y={top + 4} textAnchor="end">{max.toFixed(3)}</text>
+        <text x={left - 6} y={bottom + 4} textAnchor="end">{min.toFixed(3)}</text>
+        <text x={left - 6} y={(top + bottom) / 2 + 4} textAnchor="end">m³/m³</text>
+        <line x1={left} x2={left} y1={top} y2={bottom} className="cy-axis" />
+        <line x1={left} x2={right} y1={bottom} y2={bottom} className="cy-axis" />
+        <line x1={left} x2={right} y1={y(session.threshold)} y2={y(session.threshold)} className="cy-threshold" />
+        <text x={right} y={Math.max(14, y(session.threshold) - 6)} textAnchor="end">P20 {session.threshold.toFixed(3)}</text>
+        <polyline points={xy} className="cy-moisture" />
+        <circle cx={x(points.length - 1)} cy={y(last.soil_moisture)} r="5" className="cy-now" />
+        {points.length > 1 && <text x={left} y={bottom + 20}>{points[0].date}</text>}
+        <text x={right} y={bottom + 20} textAnchor="end">{last.date}</text>
+      </svg>
+      <p data-testid="moisture-summary">
+        Última observación revelada: <strong>{last.soil_moisture.toFixed(3)} m³/m³</strong> ({last.date}),{" "}
+        {relation} ({session.threshold.toFixed(3)}). Solo se dibujan observaciones reveladas hasta{" "}
+        <strong>{session.revealed_through}</strong>.
+      </p>
+    </div>
+  );
 }
 
 type FeedbackDraft = { sessionId: string | null; choice: "confirmada" | "rechazada"; note: string };
@@ -122,6 +159,32 @@ export function CicytexDefensePage() {
     );
   }
 
+  const hasRevealedTargets = Object.values(session?.metrics ?? {}).some((m) => m && m.n > 0);
+  const actions = session && (
+    <div className="cy-actions">
+      <button
+        className="cy-primary"
+        disabled={busy || !session.can_advance}
+        aria-describedby={session.can_advance ? undefined : "cy-advance-note"}
+        onClick={() => void act(() => advanceCicytexSession(session.session_id))}
+      >
+        Día siguiente
+      </button>
+      {!session.can_advance && (
+        <p className="cy-note" id="cy-advance-note">
+          No quedan días por revelar en esta emisión.
+        </p>
+      )}
+      <button
+        className="cy-secondary"
+        disabled={busy}
+        onClick={() => void act(() => resetCicytexSession(session.session_id), { clearDraft: true })}
+      >
+        Reiniciar
+      </button>
+    </div>
+  );
+
   return (
     <div className="cicytex-defense">
       <SiteHeader site="cicytex" />
@@ -198,15 +261,7 @@ export function CicytexDefensePage() {
               <span>Objetivo</span>
               <strong>{ensemble?.target_date}</strong>
             </div>
-            <button
-              disabled={busy || !session.can_advance}
-              onClick={() => void act(() => advanceCicytexSession(session.session_id))}
-            >
-              Día siguiente
-            </button>
-            <button disabled={busy} onClick={() => void act(() => resetCicytexSession(session.session_id), { clearDraft: true })}>
-              Reiniciar
-            </button>
+            {!ensemble && actions}
           </section>
           {ensemble && (
             <section className={`cy-verdict ${ensemble.alert ? "is-alert" : "is-clear"}`} aria-live="polite">
@@ -226,8 +281,10 @@ export function CicytexDefensePage() {
                   <strong>{ensemble.outcome}</strong>.
                 </p>
               )}
+              {actions}
             </section>
           )}
+          <MoistureChart session={session} />
           <section className="cy-panel">
             <h2>
               Predicción archivada · +{session.horizon_days} día{session.horizon_days > 1 ? "s" : ""}
@@ -235,6 +292,8 @@ export function CicytexDefensePage() {
             <p>
               Acuerdo: <strong>{agreement}</strong> · decisión 0,5 · P20 {session.threshold.toFixed(4)} m³/m³.
             </p>
+            <details open>
+              <summary>Detalle por método</summary>
             <div className="cy-table-wrap">
               <table>
                 <thead>
@@ -263,10 +322,11 @@ export function CicytexDefensePage() {
                 </tbody>
               </table>
             </div>
+            </details>
           </section>
-          <MoistureChart session={session} />
           <section className="cy-panel">
             <h2>Comparación acumulada revelada</h2>
+            {hasRevealedTargets ? (
             <div className="cy-table-wrap">
               <table>
                 <thead>
@@ -304,6 +364,13 @@ export function CicytexDefensePage() {
                 </tbody>
               </table>
             </div>
+            ) : (
+              <p className="cy-empty">
+                {session?.can_advance
+                  ? "Todavía no hay objetivos revelados: avanzá el reloj con «Día siguiente» para comparar los métodos."
+                  : "Todavía no hay objetivos revelados en esta emisión."}
+              </p>
+            )}
             <p>Solo se usan objetivos cuya fecha ya reveló esta sesión.</p>
           </section>
           {ensemble?.outcome !== null && (

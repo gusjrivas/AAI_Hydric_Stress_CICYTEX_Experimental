@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CicytexDefensePage } from "./CicytexDefensePage";
@@ -323,5 +323,117 @@ describe("CicytexDefensePage feedback draft isolation", () => {
 
     expect(screen.getByLabelText(/Observación opcional/)).toHaveValue("nota que debe sobrevivir");
     expect(screen.getByLabelText(/No coincide/)).toBeChecked();
+  });
+});
+
+describe("CicytexDefensePage visual journey", () => {
+  const READINGS = [
+    { date: "2023-07-04", soil_moisture: 0.31 },
+    { date: "2023-07-05", soil_moisture: 0.29 },
+    { date: "2023-07-06", soil_moisture: 0.27 },
+  ];
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(api, "getCicytexCatalog").mockResolvedValue(CATALOG);
+  });
+
+  async function open(next: api.CicytexSession) {
+    vi.spyOn(api, "createCicytexSession").mockResolvedValue(next);
+    render(<CicytexDefensePage />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Abrir emisión congelada" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
+    await screen.findByText(/Decisión de la arquitectura/i);
+  }
+
+  it("states the last revealed observation against P20 as text, without future data", async () => {
+    await open(session({ readings: READINGS, threshold: 0.25, revealed_through: "2023-07-06" }));
+
+    const summary = screen.getByTestId("moisture-summary");
+    expect(summary).toHaveTextContent("0.270");
+    expect(summary).toHaveTextContent("2023-07-06");
+    expect(summary).toHaveTextContent(/por encima del P20/i);
+    expect(summary).not.toHaveTextContent("2023-07-07");
+  });
+
+  it("labels the chart axes with the revealed range", async () => {
+    await open(session({ readings: READINGS, threshold: 0.25 }));
+
+    const chart = screen.getByRole("img", { name: /Humedad revelada/i });
+    expect(chart).toHaveTextContent("2023-07-04");
+    expect(chart).toHaveTextContent("2023-07-06");
+    expect(chart).toHaveTextContent(/m³\/m³/);
+  });
+
+  it("explains an empty cumulative comparison instead of showing a bare table", async () => {
+    await open(session({ readings: READINGS }));
+
+    expect(screen.getByText(/Todavía no hay objetivos revelados/i)).toBeInTheDocument();
+  });
+
+  it("puts the primary action 'Día siguiente' with the decision and keeps Reiniciar secondary", async () => {
+    await open(session({ readings: READINGS }));
+
+    const verdict = screen.getByText(/Decisión de la arquitectura/i).closest("section")!;
+    expect(within(verdict).getByRole("button", { name: "Día siguiente" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reiniciar" })).toHaveClass("cy-secondary");
+  });
+
+  it("offers method details as progressive disclosure, open by default", async () => {
+    await open(session({ readings: READINGS }));
+
+    const details = screen.getByText("Detalle por método").closest("details")!;
+    expect(details).toHaveAttribute("open");
+  });
+
+  it("never draws or mentions readings dated after the revealed clock, even if the payload carries them", async () => {
+    await open(
+      session({
+        revealed_through: "2023-07-06",
+        readings: [...READINGS, { date: "2023-07-07", soil_moisture: 0.11 }],
+        threshold: 0.25,
+      }),
+    );
+
+    const chart = screen.getByRole("img", { name: /Humedad revelada/i });
+    expect(chart).not.toHaveTextContent("2023-07-07");
+    expect(screen.getByTestId("moisture-summary")).not.toHaveTextContent("0.110");
+    expect(screen.getByTestId("moisture-summary")).toHaveTextContent("0.270");
+  });
+
+  it("renders without a chart when no readings are revealed", async () => {
+    await open(session({ readings: [] }));
+
+    expect(screen.queryByRole("img", { name: /Humedad revelada/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Decisión de la arquitectura/i)).toBeInTheDocument();
+  });
+
+  it("draws a single revealed point with one date label", async () => {
+    await open(session({ readings: [{ date: "2023-07-06", soil_moisture: 0.27 }] }));
+
+    const chart = screen.getByRole("img", { name: /Humedad revelada/i });
+    expect(chart.textContent?.match(/2023-07-06/g)).toHaveLength(1);
+  });
+
+  it("keeps only the last 30 revealed readings", async () => {
+    const dated = Array.from({ length: 40 }, (_, i) => ({
+      date: new Date(Date.UTC(2023, 4, 1 + i)).toISOString().slice(0, 10),
+      soil_moisture: 0.3,
+    }));
+    await open(session({ readings: dated, revealed_through: dated[39].date }));
+
+    const chart = screen.getByRole("img", { name: /Humedad revelada/i });
+    expect(chart).toHaveTextContent(dated[10].date);
+    expect(chart).not.toHaveTextContent(dated[9].date);
+  });
+
+  it("explains why the primary action is disabled when no more days can be revealed", async () => {
+    await open(session({ readings: READINGS, can_advance: false }));
+
+    expect(screen.getByRole("button", { name: "Día siguiente" })).toBeDisabled();
+    expect(screen.getByText(/No quedan días por revelar/i)).toBeInTheDocument();
+    expect(screen.queryByText(/avanzá el reloj/i)).not.toBeInTheDocument();
   });
 });
