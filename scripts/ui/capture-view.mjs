@@ -1,6 +1,7 @@
 // Uso: node scripts/ui/capture-view.mjs <url> <prefijoSalida> [textoDeClic ...]
 // Controla Chrome por CDP (Node >= 22, sin dependencias). Captura escritorio (1366x768) y estrecho (360x740).
 // Requiere un frontend servido (p. ej. `npm run dev` con proxy de /api al backend) y Chrome instalado.
+// Limitación: la ruta de Chrome está fija a Windows (C:/Program Files/Google/Chrome) y usa %TEMP% para el perfil; no es portable tal cual.
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 

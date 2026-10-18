@@ -7,7 +7,8 @@ const LABELS: Record<string,string> = { logistic_regression:"Logistic Regression
 const fmt = (value:number|null) => value === null ? "—" : value.toFixed(3);
 
 function MoistureChart({ session }: { session: CicytexSession }) {
-  const points = session.readings.slice(-30);
+  // Defensa en profundidad: nunca se dibuja nada posterior al reloj revelado.
+  const points = session.readings.filter((r) => r.date <= session.revealed_through).slice(-30);
   if (!points.length) return null;
   const values = [...points.map((p) => p.soil_moisture), session.threshold];
   // Margen del 10 % para que el umbral no se superponga con el eje.
@@ -38,7 +39,7 @@ function MoistureChart({ session }: { session: CicytexSession }) {
         <text x={right} y={Math.max(14, y(session.threshold) - 6)} textAnchor="end">P20 {session.threshold.toFixed(3)}</text>
         <polyline points={xy} className="cy-moisture" />
         <circle cx={x(points.length - 1)} cy={y(last.soil_moisture)} r="5" className="cy-now" />
-        <text x={left} y={bottom + 20}>{points[0].date}</text>
+        {points.length > 1 && <text x={left} y={bottom + 20}>{points[0].date}</text>}
         <text x={right} y={bottom + 20} textAnchor="end">{last.date}</text>
       </svg>
       <p data-testid="moisture-summary">
@@ -164,10 +165,16 @@ export function CicytexDefensePage() {
       <button
         className="cy-primary"
         disabled={busy || !session.can_advance}
+        aria-describedby={session.can_advance ? undefined : "cy-advance-note"}
         onClick={() => void act(() => advanceCicytexSession(session.session_id))}
       >
         Día siguiente
       </button>
+      {!session.can_advance && (
+        <p className="cy-note" id="cy-advance-note">
+          No quedan días por revelar en esta emisión.
+        </p>
+      )}
       <button
         className="cy-secondary"
         disabled={busy}
@@ -359,7 +366,9 @@ export function CicytexDefensePage() {
             </div>
             ) : (
               <p className="cy-empty">
-                Todavía no hay objetivos revelados: avanzá el reloj con «Día siguiente» para comparar los métodos.
+                {session?.can_advance
+                  ? "Todavía no hay objetivos revelados: avanzá el reloj con «Día siguiente» para comparar los métodos."
+                  : "Todavía no hay objetivos revelados en esta emisión."}
               </p>
             )}
             <p>Solo se usan objetivos cuya fecha ya reveló esta sesión.</p>

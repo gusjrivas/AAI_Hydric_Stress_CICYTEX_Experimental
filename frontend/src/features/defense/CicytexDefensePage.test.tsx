@@ -387,4 +387,53 @@ describe("CicytexDefensePage visual journey", () => {
     const details = screen.getByText("Detalle por método").closest("details")!;
     expect(details).toHaveAttribute("open");
   });
+
+  it("never draws or mentions readings dated after the revealed clock, even if the payload carries them", async () => {
+    await open(
+      session({
+        revealed_through: "2023-07-06",
+        readings: [...READINGS, { date: "2023-07-07", soil_moisture: 0.11 }],
+        threshold: 0.25,
+      }),
+    );
+
+    const chart = screen.getByRole("img", { name: /Humedad revelada/i });
+    expect(chart).not.toHaveTextContent("2023-07-07");
+    expect(screen.getByTestId("moisture-summary")).not.toHaveTextContent("0.110");
+    expect(screen.getByTestId("moisture-summary")).toHaveTextContent("0.270");
+  });
+
+  it("renders without a chart when no readings are revealed", async () => {
+    await open(session({ readings: [] }));
+
+    expect(screen.queryByRole("img", { name: /Humedad revelada/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Decisión de la arquitectura/i)).toBeInTheDocument();
+  });
+
+  it("draws a single revealed point with one date label", async () => {
+    await open(session({ readings: [{ date: "2023-07-06", soil_moisture: 0.27 }] }));
+
+    const chart = screen.getByRole("img", { name: /Humedad revelada/i });
+    expect(chart.textContent?.match(/2023-07-06/g)).toHaveLength(1);
+  });
+
+  it("keeps only the last 30 revealed readings", async () => {
+    const dated = Array.from({ length: 40 }, (_, i) => ({
+      date: new Date(Date.UTC(2023, 4, 1 + i)).toISOString().slice(0, 10),
+      soil_moisture: 0.3,
+    }));
+    await open(session({ readings: dated, revealed_through: dated[39].date }));
+
+    const chart = screen.getByRole("img", { name: /Humedad revelada/i });
+    expect(chart).toHaveTextContent(dated[10].date);
+    expect(chart).not.toHaveTextContent(dated[9].date);
+  });
+
+  it("explains why the primary action is disabled when no more days can be revealed", async () => {
+    await open(session({ readings: READINGS, can_advance: false }));
+
+    expect(screen.getByRole("button", { name: "Día siguiente" })).toBeDisabled();
+    expect(screen.getByText(/No quedan días por revelar/i)).toBeInTheDocument();
+    expect(screen.queryByText(/avanzá el reloj/i)).not.toBeInTheDocument();
+  });
 });
