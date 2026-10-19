@@ -11,6 +11,8 @@ export type CicytexProvenance = components["schemas"]["CicytexProvenanceResponse
 
 type CatalogOperation = operations["catalog_api_v2_cicytex_replay_catalog_get"];
 type CreateSessionOperation = operations["create_session_api_v2_cicytex_replay_sessions_post"];
+type GetSessionOperation =
+  operations["get_session_api_v2_cicytex_replay_sessions__session_id__get"];
 type AdvanceSessionOperation =
   operations["advance_api_v2_cicytex_replay_sessions__session_id__advance_post"];
 type ResetSessionOperation =
@@ -41,6 +43,11 @@ export const getCicytexProvenance = (): Promise<CicytexProvenance> =>
 
 export const getCicytexCatalog = (): Promise<CatalogResponse> =>
   json(fetch(`${API}/api/v2/cicytex/replay/catalog`));
+
+export const getCicytexSession = (
+  id: GetSessionOperation["parameters"]["path"]["session_id"],
+): Promise<CicytexSession> =>
+  json(fetch(`${API}/api/v2/cicytex/replay/sessions/${encodeURIComponent(id)}`));
 
 export const createCicytexSession = (
   sensor_id: SessionRequest["sensor_id"],

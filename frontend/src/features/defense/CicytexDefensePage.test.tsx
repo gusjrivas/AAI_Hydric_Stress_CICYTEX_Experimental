@@ -175,6 +175,7 @@ describe("CicytexDefensePage operation robustness", () => {
     await waitFor(() => expect(api.getCicytexCatalog).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Abrir emisión congelada" }));
     const form = (await screen.findByRole("button", { name: "Registrar feedback" })).closest("form")!;
+    fireEvent.click(screen.getByLabelText(/Sí, coincide/));
 
     fireEvent.submit(form);
     fireEvent.submit(form);
@@ -237,7 +238,8 @@ describe("CicytexDefensePage feedback draft isolation", () => {
     await screen.findByRole("button", { name: "Registrar feedback" });
 
     expect(screen.getByLabelText(/Observación opcional/)).toHaveValue("");
-    expect(screen.getByLabelText(/Sí, coincide/)).toBeChecked();
+    expect(screen.getByLabelText(/Sí, coincide/)).not.toBeChecked();
+    expect(screen.getByLabelText(/No coincide/)).not.toBeChecked();
   });
 
   it("clears the draft when the session is reset", async () => {
@@ -250,7 +252,8 @@ describe("CicytexDefensePage feedback draft isolation", () => {
     await waitFor(() => expect(api.resetCicytexSession).toHaveBeenCalled());
 
     await waitFor(() => expect(screen.getByLabelText(/Observación opcional/)).toHaveValue(""));
-    expect(screen.getByLabelText(/Sí, coincide/)).toBeChecked();
+    expect(screen.getByLabelText(/Sí, coincide/)).not.toBeChecked();
+    expect(screen.getByLabelText(/No coincide/)).not.toBeChecked();
   });
 
   it("clears the draft when another session is opened for the same selection", async () => {
