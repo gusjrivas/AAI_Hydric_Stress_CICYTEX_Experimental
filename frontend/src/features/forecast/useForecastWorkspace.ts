@@ -1,3 +1,4 @@
+import { userFacingErrorMessage } from "../shared/errorMessage";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   HttpError,
@@ -127,7 +128,7 @@ export function useForecastWorkspace(sensorId: string): ForecastWorkspace {
         }
         if (!opts.silent) {
           setHistoryStatus("error");
-          setHistoryError((err as Error).message);
+          setHistoryError(userFacingErrorMessage(err));
         }
         throw err;
       }
@@ -152,7 +153,7 @@ export function useForecastWorkspace(sensorId: string): ForecastWorkspace {
           return;
         }
         setHistoryStatus("error");
-        setHistoryError((err as Error).message);
+        setHistoryError(userFacingErrorMessage(err));
       });
   }, [sensorId]);
 
@@ -221,7 +222,7 @@ export function useForecastWorkspace(sensorId: string): ForecastWorkspace {
         return true;
       } catch (err) {
         if (sensorRef.current !== sensorAtCall) return false;
-        setRowErrors((prev) => ({ ...prev, [fecha]: (err as Error).message }));
+        setRowErrors((prev) => ({ ...prev, [fecha]: userFacingErrorMessage(err) }));
         return false;
       } finally {
         unlock(sensorAtCall);
@@ -248,7 +249,7 @@ export function useForecastWorkspace(sensorId: string): ForecastWorkspace {
         return true;
       } catch (err) {
         if (sensorRef.current !== sensorAtCall) return false;
-        setRowErrors((prev) => ({ ...prev, [fecha]: (err as Error).message }));
+        setRowErrors((prev) => ({ ...prev, [fecha]: userFacingErrorMessage(err) }));
         return false;
       } finally {
         unlock(sensorAtCall);
@@ -267,7 +268,7 @@ export function useForecastWorkspace(sensorId: string): ForecastWorkspace {
       return result;
     } catch (err) {
       if (sensorRef.current === sensorAtCall) {
-        setRecalibrateError((err as Error).message);
+        setRecalibrateError(userFacingErrorMessage(err));
       }
       return null;
     } finally {

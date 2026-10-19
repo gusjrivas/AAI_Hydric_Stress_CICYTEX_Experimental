@@ -115,3 +115,11 @@
 
 /* El motivo de bloqueo de una fila (ForecastPage) cae en la pista de 6 px de la rejilla a 1366 px: se extiende por la tarjeta. */
 .sl-section .fp-row > .fp-disclaimer { grid-column: 2 / -1; margin: 0; }
+
+/* Objetivos táctiles >=44px a <=600px (WCAG 2.5.8 / criterio del proyecto). */
+@media (max-width: 600px) {
+  .sensor-lab select,
+  .sensor-lab .fp-filters select { min-height: 44px; }
+  .sensor-lab summary { min-height: 44px; padding-block: 12px; box-sizing: border-box; }
+  .sensor-lab .no-readings-hint a { display: inline-flex; align-items: center; min-height: 44px; }
+}

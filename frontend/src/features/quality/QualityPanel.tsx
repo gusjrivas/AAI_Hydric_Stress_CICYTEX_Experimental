@@ -1,3 +1,4 @@
+import { userFacingErrorMessage } from "../shared/errorMessage";
 import { NoReadingsHint } from "../shared/NoReadingsHint";
 import { useEffect, useState } from "react";
 import "./QualityPanel.css";
@@ -53,7 +54,7 @@ export function QualityPanel({
       })
       .catch((err) => {
         if (cancelled) return;
-        setError((err as Error).message);
+        setError(userFacingErrorMessage(err));
         setStatus("error");
       });
     return () => {
