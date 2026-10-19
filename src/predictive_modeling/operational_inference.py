@@ -51,6 +51,12 @@ class OperationalBundle:
     def horizon(self) -> int:
         return self.metadata["contract"]["horizon_days"]
 
+    @property
+    def code_identity(self) -> dict[str, Any] | None:
+        """Training-time commit/dirty record, or None when the bundle predates
+        the field ("not registered"); never inferred from the current checkout."""
+        return self.metadata.get("code_identity")
+
 
 def load_operational_bundle(directory: Path, *, sensor_id: str, horizon: int) -> OperationalBundle:
     """Read each artifact once, check bytes before deserialization, never fit."""
