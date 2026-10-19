@@ -122,7 +122,7 @@ commit `5098fd9`).
 
 - Playwright y axe: descartados hasta ahora por decisión de alcance (sin dependencias
   nuevas). Siguen sin incorporarse; admitirlos como dependencia nueva es una decisión
-  pendiente del dueño del proyecto. No hay auditoría automática de accesibilidad. Los
+  pendiente de decisión de alcance. No hay auditoría automática de accesibilidad. Los
   recorridos de navegador sí corren en CI desde el PR #62, sin dependencias nuevas.
 - Unificar las páginas: descartado por lo expuesto en la decisión 2.
 - Rehidratación autónoma de la sesión CICYTEX por servidor (cookie o identidad de
@@ -185,7 +185,7 @@ Límites y pendientes (no verificados o no resueltos):
 - Sin linaje de recalibración operativo.
 - Sin SHA, commit ni MLflow para `producer_v2` ni para el laboratorio (exigiría cambios
   de backend).
-- Sin auditoría axe ni Playwright (decisión del dueño).
+- Sin auditoría axe ni Playwright (decisión de alcance: sin dependencias nuevas; no consta una decisión del dueño en el repositorio).
 - Las fixtures no prueban el backend real; un cambio de contrato exige regrabarlas.
 - Algunas verificaciones visuales (capturas en el scratchpad) no son reproducibles desde
   el repositorio.

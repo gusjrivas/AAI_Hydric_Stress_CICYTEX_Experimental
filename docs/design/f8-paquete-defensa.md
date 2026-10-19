@@ -6,6 +6,9 @@ Convención: «no verificado» = no comprobado en esta redacción.
 
 ## 1. Guion de demo (3-5 min)
 
+Guion detallado con datos identificados, plan B con fixtures y ensayo técnico cronometrado:
+`docs/design/demo-guion-defensa.md`. El ensayo humano con quien defiende está pendiente (no bloquea tareas técnicas).
+
 Previo (fuera de tiempo): backend CICYTEX y frontend arriba (sección 5), navegador en `#resumen`.
 
 | # | Tiempo | Ruta | Mostrar | Decir |
@@ -164,10 +167,13 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
 4. **Recorridos de navegador en CI con fixtures, sin auditoría axe ni Playwright.** Desde #62 CI
    ejecuta `verify-journeys.mjs` (job `browser-journeys`, fixtures deterministas, sin backend real)
    además de vitest, build y comprobación de tipos OpenAPI. Playwright y axe siguen sin
-   incorporarse; admitirlos es decisión del dueño del proyecto.
+   incorporarse; admitirlos exigiría una dependencia nueva y una decisión de alcance
+   aún no tomada (no consta en el repositorio quién la tomaría).
 5. **Laya desactivada**; su evaluación científica no está habilitada porque falta el corpus
-   humano (ADR-0014). La etiqueta literal «BLOCKED» para Laya no figura en ADR-0014 (que solo menciona el corpus etiquetado) y queda como no verificada; proviene del mandato del dueño del proyecto.
-   Esa ausencia no bloquea arquitectura/UI.
+   humano (ADR-0014). El literal «BLOCKED» no figura en ADR-0014 (que solo menciona el corpus etiquetado), pero sí en
+   `src/human_feedback/offline_readiness.py` (`BLOCKED_INSUFFICIENT_EVIDENCE`, `BLOCKED_SCIENTIFIC_METHOD_PENDING`; leído, no ejecutado);
+   la UI no lo muestra. Es un impedimento acotado a la evaluación de Laya (causa: sin corpus adjudicado; desbloqueo: corpus y protocolo
+   humano intersitio) y no bloquea arquitectura/UI.
 6. **Sin telemetría simulada**: nada en la UI se presenta como monitoreo en vivo.
 7. **Niveles de prueba no equivalentes**: componente (jsdom) ≠ navegador real (script CDP) ≠
    validación visual puntual. Ninguno es auditoría de accesibilidad ni evidencia científica.
