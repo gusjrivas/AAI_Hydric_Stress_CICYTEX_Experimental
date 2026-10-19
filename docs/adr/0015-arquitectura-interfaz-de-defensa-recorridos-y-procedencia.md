@@ -1,6 +1,6 @@
 # ADR-0015: Arquitectura de la interfaz de defensa: recorridos por sitio, procedencia de solo lectura y verificación sin dependencias nuevas
 
-Estado: **Aceptado el 2026-10-18**.
+Estado: **Propuesto el 2026-10-18** (pasa a Aceptado cuando el dueño del proyecto lo confirme).
 
 Trazabilidad: HU6 (`architecture-integration`) y UI (`alerting-ui`); HU5
 (`human-feedback`) sólo por el borrador de revisión del recorrido CICYTEX. Fase

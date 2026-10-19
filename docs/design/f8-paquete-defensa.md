@@ -132,7 +132,7 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
   `cicytex_replay_sessions.sqlite3` bajo el directorio de datos del backend.
 - Frontend: la base de API sale de `VITE_API_BASE_URL` (por defecto `http://localhost:8000`).
   El proxy de `/api` hacia `http://127.0.0.1:8010` existe solo en `frontend/vite.verify.config.mjs`
-  (archivo sin versionar al redactar esto, puerto 5199), usado por `scripts/ui/verify-journeys.mjs`;
+  (archivo versionado desde #54, puerto 5199), usado por `scripts/ui/verify-journeys.mjs`;
   `vite.config.ts` no define proxy.
 - Verificación en navegador (solo recorrido CICYTEX; no cubre Pergamino, Melchor Romero ni laboratorio): `BASE_URL=http://localhost:5199 node scripts/ui/verify-journeys.mjs`
   (requiere Node >= 22, Chrome en ruta fija de Windows).
@@ -153,7 +153,7 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
 4. **Sin E2E automatizado en CI ni auditoría axe**, por decisión de no sumar dependencias. CI
    ejecuta vitest, build y comprobación de tipos OpenAPI; `verify-journeys.mjs` es manual.
 5. **Laya desactivada**; su evaluación científica no está habilitada porque falta el corpus
-   humano (ADR-0014). La etiqueta literal «BLOCKED» para Laya no la verifiqué en los documentos.
+   humano (ADR-0014). La etiqueta literal «BLOCKED» para Laya no figura en ADR-0014 (que solo menciona el corpus etiquetado) y queda como no verificada; proviene del mandato del dueño del proyecto.
    Esa ausencia no bloquea arquitectura/UI.
 6. **Sin telemetría simulada**: nada en la UI se presenta como monitoreo en vivo.
 7. **Niveles de prueba no equivalentes**: componente (jsdom) ≠ navegador real (script CDP) ≠
