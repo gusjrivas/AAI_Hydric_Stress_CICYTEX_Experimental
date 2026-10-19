@@ -56,6 +56,8 @@ interface Draft {
   comment: string;
 }
 
+type FocusTarget = "pending" | "notice" | "prompt" | "blocked" | "alert";
+
 export function ForecastCard({
   sensorId,
   forecast: initialForecast,
@@ -88,15 +90,17 @@ export function ForecastCard({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // Rechazo 409 real del backend (el estado cambió entre la consulta y el POST):
-  // bloquea esta revisión hasta que llegue un estado nuevo del pronóstico.
   // Guardia síncrona contra doble envío (el estado de React se actualiza luego del clic).
   const submittingRef = useRef(false);
   // Destino estable del foco cuando el control activo se deshabilita o desaparece.
-  const [focusRequest, setFocusRequest] = useState<{ target: "pending" | "notice" | "prompt"; n: number } | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ target: FocusTarget; n: number } | null>(null);
   const pendingRef = useRef<HTMLParagraphElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const promptRef = useRef<HTMLParagraphElement>(null);
+  const blockedRef = useRef<HTMLParagraphElement>(null);
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  // Rechazo 409 real del backend (el estado cambió entre la consulta y el POST):
+  // bloquea esta revisión hasta que llegue un estado nuevo del pronóstico.
   const [serverBlock, setServerBlock] = useState<{ reason: ReviewBlockedReason; review: ForecastReview } | null>(null);
 
   const review = forecast.review;
@@ -109,13 +113,13 @@ export function ForecastCard({
   const isCorrecting = review.status !== "pending";
   const frozen = submitting || formError !== null;
 
-  function requestFocus(target: "pending" | "notice" | "prompt") {
+  function requestFocus(target: FocusTarget) {
     setFocusRequest((previous) => ({ target, n: (previous?.n ?? 0) + 1 }));
   }
 
   useEffect(() => {
     if (!focusRequest) return;
-    const element = { pending: pendingRef, notice: noticeRef, prompt: promptRef }[focusRequest.target].current;
+    const element = { pending: pendingRef, notice: noticeRef, prompt: promptRef, blocked: blockedRef, alert: alertRef }[focusRequest.target].current;
     element?.focus();
   }, [focusRequest]);
 
@@ -165,6 +169,7 @@ export function ForecastCard({
         setDraft(null);
         setRequestId(null);
         setNotice("Se registró otra opinión mientras completabas este formulario.");
+        requestFocus("notice");
         try {
           const fresh = await refetchFn(sensorId, forecast.forecast_id);
           setForecast(fresh);
@@ -180,35 +185,41 @@ export function ForecastCard({
         setDraft(null);
         setRequestId(null);
         setNotice("Ese envío ya se había usado con otro contenido. Iniciá la revisión de nuevo si hace falta.");
+        requestFocus("notice");
         return;
       }
       if (error instanceof TargetObservationBlockedError) {
         setRequestId(null);
         setFormError(null);
         setServerBlock({ reason: error.reason, review });
+        requestFocus("blocked");
         return;
       }
       if (error instanceof DemoWriteLockedError) {
         setDraft(null);
         setRequestId(null);
         setNotice(error.message);
+        requestFocus("notice");
         return;
       }
       if (error instanceof ReviewNotOpenError) {
         setDraft(null);
         setRequestId(null);
         setNotice("Todavía no se puede revisar este resultado.");
+        requestFocus("notice");
         return;
       }
       if (error instanceof ForecastNotFoundError) {
         setDraft(null);
         setRequestId(null);
         setNotice(error.message);
+        requestFocus("notice");
         return;
       }
       // Error recuperable (red, servidor no disponible): se conserva el
       // formulario y el mismo request_id para no duplicar el envío al reintentar.
       setFormError(error instanceof Error ? error.message : "No se pudo enviar la revisión.");
+      requestFocus("alert");
     } finally {
       submittingRef.current = false;
     }
@@ -274,13 +285,13 @@ export function ForecastCard({
       {notice && <p role="status" tabIndex={-1} ref={noticeRef}>{notice}</p>}
 
       {!reviewable && observationMessage && (
-        <p className="forecast-card-blocked" role="status">
+        <p className="forecast-card-blocked" role="status" tabIndex={-1} ref={blockedRef}>
           <LockIcon />
           {observationMessage}
         </p>
       )}
       {!reviewable && !observationMessage && (
-        <p className="forecast-card-blocked">
+        <p className="forecast-card-blocked" tabIndex={-1} ref={blockedRef}>
           <LockIcon />
           {review.blocked_reason === "review_not_open"
             ? `Vas a poder revisar este resultado a partir del ${displayIssuedAt(review.review_open_at)}.`
@@ -329,7 +340,7 @@ export function ForecastCard({
           </label>
           <p role="status" tabIndex={-1} ref={pendingRef} className="forecast-card-pending">{submitting ? "Guardando tu opinión…" : ""}</p>
           {formError && (
-            <p role="alert">
+            <p role="alert" tabIndex={-1} ref={alertRef}>
               {formError} El envío no se duplicará: al reintentar se usa la misma solicitud.
             </p>
           )}

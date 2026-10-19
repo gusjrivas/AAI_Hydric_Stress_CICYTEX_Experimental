@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -176,6 +176,80 @@ describe("ForecastCard review submission safety", () => {
     await waitFor(() => {
       expect(document.activeElement).toHaveAttribute("role", "status");
       expect(document.activeElement).toHaveTextContent(/tu opinión quedó guardada/i);
+    });
+  });
+
+  it("blocks a second submit dispatched in the same tick, before React flushes state (synchronous guard)", async () => {
+    const spy = vi.spyOn(forecastsApi, "submitReview").mockImplementation(() => new Promise<ForecastReview>(() => {}));
+    render(<ForecastCard sensorId="sensor-a" forecast={baseForecast} />);
+    await userEvent.click(choices().confirm);
+    const form = screen.getByRole("button", { name: /guardar opinión/i }).closest("form") as HTMLFormElement;
+    act(() => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  describe("focus stays on a stable, meaningful element on error paths", () => {
+    async function submitWith(error: Error, props: Partial<React.ComponentProps<typeof ForecastCard>> = {}) {
+      vi.spyOn(forecastsApi, "submitReview").mockRejectedValue(error);
+      const user = userEvent.setup();
+      render(<ForecastCard sensorId="sensor-a" forecast={baseForecast} {...props} />);
+      await user.click(choices().confirm);
+      await user.click(screen.getByRole("button", { name: /guardar opinión/i }));
+    }
+    function expectFocusedText(text: RegExp) {
+      return waitFor(() => {
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toHaveAttribute("tabindex", "-1");
+        expect(document.activeElement).toHaveTextContent(text);
+      });
+    }
+
+    it("revision conflict", async () => {
+      await submitWith(new forecastsApi.RevisionConflictError(1), {
+        refetchFn: async () => ({ ...baseForecast, review: savedReview }),
+      });
+      await expectFocusedText(/ya estás viendo el resultado actualizado/i);
+    });
+
+    it("idempotency conflict", async () => {
+      await submitWith(new forecastsApi.ReviewIdempotencyConflictError());
+      await expectFocusedText(/ya se había usado con otro contenido/i);
+    });
+
+    it("demo write locked", async () => {
+      await submitWith(new forecastsApi.DemoWriteLockedError());
+      await expectFocusedText(/demostración/i);
+    });
+
+    it("review not open", async () => {
+      await submitWith(new forecastsApi.ReviewNotOpenError(null));
+      await expectFocusedText(/todavía no se puede revisar/i);
+    });
+
+    it("forecast not found", async () => {
+      await submitWith(new forecastsApi.ForecastNotFoundError());
+      await expectFocusedText(/no se encontró ese pronóstico/i);
+    });
+
+    it("target observation blocked (form stays mounted)", async () => {
+      await submitWith(new forecastsApi.TargetObservationBlockedError("review_not_open"));
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toHaveAttribute("tabindex", "-1");
+        expect(document.activeElement).not.toHaveTextContent(/^$/);
+      });
+    });
+
+    it("network error focuses the alert, not an empty status", async () => {
+      await submitWith(new Error("Sin conexión"));
+      await waitFor(() => {
+        expect(document.activeElement).toHaveAttribute("role", "alert");
+        expect(document.activeElement).toHaveTextContent(/sin conexión/i);
+        expect(document.activeElement).toHaveAttribute("tabindex", "-1");
+      });
     });
   });
 
