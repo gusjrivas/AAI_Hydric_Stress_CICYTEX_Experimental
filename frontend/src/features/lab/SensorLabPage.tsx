@@ -162,27 +162,11 @@ export function SensorLabPage({
             <dt>Reloj local ficticio</dt>
             <dd>{lab.clockDate ?? "Sin iniciar"}</dd>
           </div>
-          <div>
-            <dt>Commit</dt>
-            <dd>no disponible en este recorrido</dd>
-          </div>
-          <div>
-            <dt>SHA-256 del dataset</dt>
-            <dd>no disponible en este recorrido</dd>
-          </div>
-          <div>
-            <dt>Corridas de MLflow</dt>
-            <dd>no disponible en este recorrido</dd>
-          </div>
-          <div>
-            <dt>Versión de modelo</dt>
-            <dd>no disponible en este recorrido</dd>
-          </div>
-          <div>
-            <dt>Linaje de recalibración</dt>
-            <dd>no disponible en este recorrido</dd>
-          </div>
         </dl>
+        <p className="sl-unavailable">
+          No disponible en este recorrido: commit, SHA-256 del dataset, corridas de MLflow, versión de modelo
+          y linaje de recalibración.
+        </p>
         <p>
           El reloj es ficticio: organiza los escenarios y no representa fechas de medición reales. Los datos y
           la revisión humana son sintéticos y no aportan evidencia científica.

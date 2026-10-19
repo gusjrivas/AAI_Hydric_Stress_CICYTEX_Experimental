@@ -107,3 +107,11 @@
 .sl-trace dt { font-size: .75rem; color: var(--color-cyan-text); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
 .sl-trace dd { margin: 4px 0 0; font-weight: 650; overflow-wrap: anywhere; }
 .sl-trace p { margin: 0; font-size: .875rem; line-height: 1.55; color: var(--color-muted); }
+.sl-trace .sl-unavailable { color: var(--color-ink); font-weight: 650; }
+
+/* La nota «Cómo revisar» y la línea en cursiva (ForecastPage) usan el ancho útil de la sección del laboratorio. */
+.sl-section .fp-banner { max-width: none; }
+.sl-section .fp-disclaimer { max-width: none; }
+
+/* El motivo de bloqueo de una fila (ForecastPage) cae en la pista de 6 px de la rejilla a 1366 px: se extiende por la tarjeta. */
+.sl-section .fp-row > .fp-disclaimer { grid-column: 2 / -1; margin: 0; }
