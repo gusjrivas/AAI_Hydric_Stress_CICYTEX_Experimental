@@ -126,10 +126,10 @@ Tiempos de máquina por tramo en ms (corridas 1 / 2 / 3). Son el costo de la UI,
 
 Conclusión: ninguna acción de UI supera 1,5 s salvo el escenario A del laboratorio (2,9-11,9 s según la corrida; la revisión midió 4,5 s y 11,9 s, con 120 lecturas
 sintéticas generadas por la UI); el presupuesto de 5:00 lo consume el discurso, no la aplicación. Tiempo de habla
-Nota: el ensayo automatizado no comprueba la alerta de Melchor Romero (+3 días, 2 de 3 modelos); esa afirmación se verifica en `verify-journeys.mjs` y en los fixtures, no en `rehearse-demo.mjs`.
-
 estimado del texto de «Decir» de los pasos 1-8a/8b/8c: ~442 palabras ≈ 3:09 a 140 ppm, **sin** medir el habla real ni los
 movimientos del ratón, por lo que 5:00 deja ~1:50 de margen para clics y silencios.
+
+Nota: el ensayo automatizado no comprueba la alerta de Melchor Romero (+3 días, 2 de 3 modelos); esa afirmación se verifica en `verify-journeys.mjs` y en los fixtures, no en `rehearse-demo.mjs`.
 
 **No ejecutado / no verificado:** plan A (backend real, `start_defense_demo.ps1`, otras sondas/horizontes/emisiones de
 CICYTEX); el catálogo caído, el 503 por paquete ausente y el backend apagado del laboratorio en navegador;
