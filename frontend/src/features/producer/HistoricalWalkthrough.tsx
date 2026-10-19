@@ -126,6 +126,12 @@ export function HistoricalWalkthrough({
   const [emissionDate, setEmissionDate] = useState(defense ? availableDates[0] : "");
   const [revealedThrough, setRevealedThrough] = useState("");
   const effectiveReveal = revealedThrough || emissionDate;
+  // Borrador del campo: mientras la persona edita por segmentos el navegador emite '' y el campo no debe saltar de vuelta
+  // a la emisión; el borrador deja de valer apenas cambia el reloj efectivo.
+  const [clockDraft, setClockDraft] = useState<{ value: string; base: string } | null>(null);
+  // Un borrador obsoleto se descarta en cuanto el reloj efectivo cambia, para que A -> B -> A no lo reviva.
+  if (clockDraft && clockDraft.base !== effectiveReveal) setClockDraft(null);
+  const clockFieldValue = clockDraft && clockDraft.base === effectiveReveal ? clockDraft.value : effectiveReveal;
   const endNoteId = useId();
   const endNoteRef = useRef<HTMLParagraphElement | null>(null);
   const atEnd = effectiveReveal >= revealMax;
@@ -290,13 +296,14 @@ export function HistoricalWalkthrough({
           Recorrido hasta (qué observaciones y revisiones se revelan)
           <input
             type="date"
-            value={revealedThrough}
+            value={clockFieldValue}
             min={emissionDate || undefined}
             max={defense ? revealMax : undefined}
             disabled={!emissionDate}
             onChange={(event) => {
               const value = event.target.value;
               if (defense && value && (value < emissionDate || value > revealMax)) return;
+              setClockDraft({ value, base: value || emissionDate });
               setRevealedThrough(value);
             }}
           />

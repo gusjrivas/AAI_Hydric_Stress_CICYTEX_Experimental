@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HistoricalWalkthrough } from "./HistoricalWalkthrough";
@@ -110,6 +110,34 @@ describe("HistoricalWalkthrough — veredicto, jerarquía, trazabilidad, defensa
     expect(note).toHaveAttribute("role", "status");
     expect(note).toHaveFocus();
     expect(note.id).not.toBe("historical-step-end-note");
+  });
+
+  it("shows the effective reveal date in the clock field from the start", async () => {
+    setup(batch(true));
+    const clock = await screen.findByLabelText(/recorrido hasta/i);
+    expect(clock).toHaveValue("2023-06-13");
+  });
+
+  it("keeps a half-edited (empty) clock field empty while editing instead of snapping back", async () => {
+    setup(batch(true));
+    const clock = await screen.findByLabelText(/recorrido hasta/i);
+    fireEvent.change(clock, { target: { value: "2023-06-15" } });
+    expect(clock).toHaveValue("2023-06-15");
+    fireEvent.change(clock, { target: { value: "" } });
+    expect(clock).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", { name: /día siguiente/i }));
+    await waitFor(() => expect(screen.getByLabelText(/recorrido hasta/i)).toHaveValue("2023-06-14"));
+  });
+
+  it("does not revive an old empty draft after the clock goes A -> B -> A", async () => {
+    setup(batch(true));
+    const clock = await screen.findByLabelText(/recorrido hasta/i);
+    fireEvent.change(clock, { target: { value: "" } });
+    expect(clock).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", { name: /día siguiente/i }));
+    await waitFor(() => expect(screen.getByLabelText(/recorrido hasta/i)).toHaveValue("2023-06-14"));
+    await userEvent.click(screen.getByRole("button", { name: /día anterior/i }));
+    await waitFor(() => expect(screen.getByLabelText(/recorrido hasta/i)).toHaveValue("2023-06-13"));
   });
 
   it("traces the displayed prediction and declares unavailable lineage explicitly", async () => {
