@@ -3,7 +3,7 @@
 Documento de apoyo a la decisión. No modifica el ADR 0015, que sigue **Propuesto**. No hay
 aprobación del dueño del proyecto; la aceptación formal es suya (sección 5).
 
-Base: `main` en `9cea43f` (merge del PR #62). Trazabilidad: HU6 (`architecture-integration`),
+Base: `main` en `9cea43f` (merge del PR #62). Posterior: #63–#67 fusionados; el estado vigente está en el ADR 0015 y en `docs/seguimiento-tareas.md`. Trazabilidad: HU6 (`architecture-integration`),
 UI (`alerting-ui`), HU5 sólo por el borrador de revisión. Fase CRISP-DM: despliegue.
 Sin impacto en modelos, umbrales, protocolo, hipótesis, HU7/HU8 ni en la desactivación de Laya.
 Método: lectura puntual de código y tests; no se ejecutó ninguna suite (ver sección 6).
@@ -110,6 +110,7 @@ seguimiento).
 - No se ejecutó ningún test (vitest, pytest, `api:check`, `verify-journeys.mjs`); todo es lectura.
 - No se leyó el cuerpo de `HistoricalWalkthrough.tsx` (reloj en cliente, filtro de filas futuras)
   ni de `SensorLabPage.tsx`; sólo su existencia y referencias.
+- Posterior: #63–#67 fusionados; el estado vigente está en el ADR 0015 y en `docs/seguimiento-tareas.md`.
 - Actualización posterior: los PR #61 (`c7e13b8`) y #62 (`9cea43f`) están fusionados según `gh pr view` (#45 a #62, todos MERGED). Las secciones 1 a 4 se redactaron sobre `e575a30` y no se reescribieron; las modificaciones propuestas ya se aplicaron al ADR en el cambio `sync-ui-docs-f5-f8`, que sigue **Propuesto**.
 - No se verificaron los hashes de `GENERATED_ARTIFACTS` ni que el artefacto OpenAPI coincida.
 - No se verificó la durabilidad del almacén de sesiones del backend ante reinicios.

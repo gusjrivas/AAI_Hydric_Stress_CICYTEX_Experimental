@@ -86,3 +86,12 @@ revisión independiente sin P0/P1/P2.
   - Pronóstico operativo: `ForecastPage.targetMaturity.test.tsx` cubre objetivo inmaduro, cambio de día UTC, compuerta de demo y 409.
 - No verificado: persistencia de revisión tras recarga y permisos de acción por modo. Quedan para F7 (verificación integral); si se reproduce un defecto se abre un RED específico.
 - Capturas antes/después de la interfaz: pendientes (F7/F8).
+
+## Hito: cierre documental de F5-F8 hasta #67 (2026-10-19)
+
+- Base: `main` en `5e22733` (merge de #67). Merge commits verificados con `gh pr view N --json mergeCommit`, todos MERGED: #59 `a433b4d`, #60 `e575a30`, #61 `c7e13b8`, #62 `9cea43f`, #63 `f43c3b4`, #64 `584bd94`, #65 `c5dc55e`, #66 `6106b78`, #67 `5e22733`. Change: `close-ui-plan-f5-f8-evidence` (solo documentación).
+- Hechos: #64 registra `code_identity` en `bundle.json` de ejecuciones nuevas; #67 agrega endpoint y panel de procedencia (emisiones previas «no registrado»; configuración, MLflow y semilla «no disponible»); #66 deja objetivos táctiles de 44 px por regla CSS en el laboratorio (no medido en navegador), mensaje de red en español y test con backend apagado; #65 aporta guion de demo y ensayo técnico (22 PASS x3, contra fixtures); `verify-journeys.mjs` dio 80 PASS, 0 FAIL, 1 INFO con #67, y el job `browser-journeys` de CI figura en pass para #67 (`gh pr checks 67`).
+- Estado de fases: F0, F1, F2 ✅. F4 a F8 siguen 🟡; ninguna se promueve (detalle y motivos en `docs/seguimiento-tareas.md`). El ADR 0015 sigue Propuesto.
+- Pendientes humanos: ensayo de la demo con Gustavo; aceptación del ADR 0015 por el dueño; decisión sobre Playwright/axe.
+- Pendientes técnicos: incremento 3 de linaje (identidad del paquete en sesiones SQLite de CICYTEX); inputs `.fp-filters` (36 px) y enlace `NoReadingsHint` (~20 px) en `ResumenView`; revisión visual con un bundle que tenga `code_identity`; sin auditoría de accesibilidad automatizada; los recorridos no cubren lab C/D ni POST de revisión; Chrome en CI falló una vez («no respondió por CDP») y se relanzó (posible fragilidad); tests flaky bajo carga conocidos.
+- Codebase Memory: no se refrescó en este cambio (sin evidencia); queda pendiente según el plan.
