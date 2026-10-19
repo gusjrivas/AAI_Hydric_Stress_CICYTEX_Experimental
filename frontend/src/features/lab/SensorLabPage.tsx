@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import "./SensorLabPage.css";
 import { QualityPanel } from "../quality/QualityPanel";
 import { ForecastPage } from "../forecast/ForecastPage";
 import { useForecastWorkspace } from "../forecast/useForecastWorkspace";
 import { makeLabSensorId } from "./labSensor";
-import { useSensorLabScenarios } from "./useSensorLabScenarios";
+import { LAB_SEED, useSensorLabScenarios } from "./useSensorLabScenarios";
 import type { LabPhase } from "./useSensorLabScenarios";
 
 const PHASE_LABELS: Record<LabPhase, string> = {
@@ -37,6 +37,20 @@ const NEXT_ACTION: Record<LabPhase, string> = {
 export const LAB_ERROR_GUIDANCE =
   "Este paso no pudo completarse. Para evitar modificar lecturas ya guardadas, iniciá una sesión nueva. Los datos de la sesión anterior se conservan.";
 
+/** Por qué un paso está deshabilitado, según la fase real; no agrega reglas fuera de la secuencia A–D. */
+const DISABLED_STEP_NOTE: Record<LabPhase, string> = {
+  idle: "Se habilita al completar el paso anterior. Por ahora solo está disponible el paso A.",
+  seeding: "Se habilita al completar el paso anterior. Hay un paso en curso: esperá a que termine.",
+  normal: "Se habilita al completar el paso anterior. Por ahora solo está disponible el paso B.",
+  "injecting-anomaly": "Se habilita al completar el paso anterior. Hay un paso en curso: esperá a que termine.",
+  anomaly: "Se habilita al completar el paso anterior. Por ahora solo está disponible el paso C.",
+  interrupting: "Se habilita al completar el paso anterior. Hay un paso en curso: esperá a que termine.",
+  interrupted: "Se habilita al completar el paso anterior. Por ahora solo está disponible el paso D.",
+  recovering: "Se habilita al completar el paso anterior. Hay un paso en curso: esperá a que termine.",
+  recovered: "El recorrido A–D terminó: no quedan pasos pendientes. Iniciá una sesión nueva para repetirlo.",
+  error: "El paso anterior no pudo completarse, así que los pasos siguientes no están disponibles. Iniciá una sesión nueva.",
+};
+
 function realNowLabel(): string {
   return new Intl.DateTimeFormat("es-AR", {
     dateStyle: "medium",
@@ -57,6 +71,7 @@ export function SensorLabPage({
   /** Abre el sensor de la sesión en Herramientas técnicas (Resumen e historial). */
   onOpenInTools?: (sensorId: string) => void;
 } = {}) {
+  const disabledNoteId = useId();
   const [sensorId, setSensorId] = useState(() => makeLabSensorId());
   const [qualityRefreshToken, setQualityRefreshToken] = useState(0);
   const workspace = useForecastWorkspace(sensorId);
@@ -80,6 +95,11 @@ export function SensorLabPage({
   const canRunB = lab.phase === "normal";
   const canRunC = lab.phase === "anomaly";
   const canRunD = lab.phase === "interrupted";
+  const stepProps = (enabled: boolean) => ({
+    className: enabled ? "sl-btn-primary" : "sl-btn-secondary",
+    disabled: !enabled || lab.busy,
+    "aria-describedby": enabled ? undefined : disabledNoteId,
+  });
 
   return (
     <div className="sensor-lab">
@@ -121,17 +141,55 @@ export function SensorLabPage({
         </section>
       </div>
 
+      <section aria-label="Trazabilidad de esta sesión de prueba" className="sl-trace">
+        <h2>Trazabilidad de esta sesión de prueba</h2>
+        <dl>
+          <div>
+            <dt>Sensor de prueba (sensor_id)</dt>
+            <dd>
+              <code>{sensorId}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>Semilla del generador</dt>
+            <dd>{LAB_SEED}</dd>
+          </div>
+          <div>
+            <dt>Procedencia de las lecturas</dt>
+            <dd>sintético</dd>
+          </div>
+          <div>
+            <dt>Reloj local ficticio</dt>
+            <dd>{lab.clockDate ?? "Sin iniciar"}</dd>
+          </div>
+          <div>
+            <dt>Commit</dt>
+            <dd>no disponible en este recorrido</dd>
+          </div>
+          <div>
+            <dt>SHA-256 del dataset</dt>
+            <dd>no disponible en este recorrido</dd>
+          </div>
+          <div>
+            <dt>Corridas de MLflow</dt>
+            <dd>no disponible en este recorrido</dd>
+          </div>
+          <div>
+            <dt>Versión de modelo</dt>
+            <dd>no disponible en este recorrido</dd>
+          </div>
+          <div>
+            <dt>Linaje de recalibración</dt>
+            <dd>no disponible en este recorrido</dd>
+          </div>
+        </dl>
+        <p>
+          El reloj es ficticio: organiza los escenarios y no representa fechas de medición reales. Los datos y
+          la revisión humana son sintéticos y no aportan evidencia científica.
+        </p>
+      </section>
+
       <dl className="sl-identity">
-        <div>
-          <dt>Sensor de prueba</dt>
-          <dd>
-            <code>{sensorId}</code>
-          </dd>
-        </div>
-        <div>
-          <dt>Reloj simulado</dt>
-          <dd>{lab.clockDate ?? "Sin iniciar"}</dd>
-        </div>
         <div>
           <dt>Hora real del sistema (UTC)</dt>
           <dd>{realNowLabel()}</dd>
@@ -162,13 +220,13 @@ export function SensorLabPage({
       <div className="sl-controls" role="group" aria-label="Escenarios del laboratorio">
         <ol className="sl-steps">
           <li>
-            <button type="button" onClick={() => void lab.runScenarioA()} disabled={!canStartA || lab.busy}>
+            <button type="button" onClick={() => void lab.runScenarioA()} {...stepProps(canStartA)}>
               {lab.phase === "seeding" ? "Generando…" : "A — Generar historial de prueba"}
             </button>
             <p>Carga 120 días sintéticos con variaciones normales y solicita un pronóstico.</p>
           </li>
           <li>
-            <button type="button" onClick={() => void lab.runScenarioB()} disabled={!canRunB || lab.busy}>
+            <button type="button" onClick={() => void lab.runScenarioB()} {...stepProps(canRunB)}>
               {lab.phase === "injecting-anomaly" ? "Enviando…" : "B — Introducir una lectura anómala"}
             </button>
             <p>
@@ -177,7 +235,7 @@ export function SensorLabPage({
             </p>
           </li>
           <li>
-            <button type="button" onClick={() => void lab.runScenarioC()} disabled={!canRunC || lab.busy}>
+            <button type="button" onClick={() => void lab.runScenarioC()} {...stepProps(canRunC)}>
               {lab.phase === "interrupting" ? "Simulando…" : "C — Simular una interrupción"}
             </button>
             <p>
@@ -187,7 +245,7 @@ export function SensorLabPage({
             </p>
           </li>
           <li>
-            <button type="button" onClick={() => void lab.runScenarioD()} disabled={!canRunD || lab.busy}>
+            <button type="button" onClick={() => void lab.runScenarioD()} {...stepProps(canRunD)}>
               {lab.phase === "recovering" ? "Simulando…" : "D — Simular la recuperación"}
             </button>
             <p>
@@ -196,7 +254,10 @@ export function SensorLabPage({
             </p>
           </li>
         </ol>
-        <button type="button" className="sl-reset" onClick={startNewSession}>
+        <p id={disabledNoteId} className="sl-disabled-note">
+          {DISABLED_STEP_NOTE[lab.phase]}
+        </p>
+        <button type="button" className="sl-reset sl-btn-secondary" onClick={startNewSession}>
           Iniciar una sesión nueva
         </button>
       </div>
