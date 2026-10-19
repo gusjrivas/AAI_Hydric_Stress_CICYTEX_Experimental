@@ -17,7 +17,7 @@ Previo (fuera de tiempo): backend CICYTEX y frontend arriba (sección 5), navega
 | 5 | 2:20-3:00 | misma | «Día siguiente»: avanza el reloj; el gráfico revela solo lecturas hasta el reloj. | «El futuro no está en el payload mostrado; no hay fuga temporal en la vista.» |
 | 6 | 3:00-3:40 | misma | Realidad revelada: comparación contra P20 y comparación acumulada de métodos. | «Ahora que la realidad se reveló comparamos. Es un recorrido, no una campaña de evaluación.» |
 | 7 | 3:40-4:20 | misma | Feedback humano habilitado solo con realidad revelada; enviarlo; cambiar de sensor/reiniciar y mostrar borrador limpio. | «El feedback queda aislado por sesión y no se filtra a otra.» |
-| 8 | 4:20-5:00 | `#defensa-pergamino`, `#defensa-melchor-romero`, `#laboratorio-sensores` (opcional) | Los otros sitios y el laboratorio sintético (insignia de modo distinta). | «Trazabilidad por predicción solo existe en CICYTEX; el laboratorio es sintético y no es evidencia científica.» |
+| 8 | 4:20-5:00 | `#defensa-pergamino`, `#defensa-melchor-romero`, `#laboratorio-sensores` (opcional) | Los otros sitios (recorrido histórico compartido: veredicto, acciones, trazabilidad declarada, campo «Recorrido hasta») y el laboratorio sintético (insignia de modo distinta; jerarquía de acciones, nota de paso deshabilitado, trazabilidad sintética). En el laboratorio, solo se verificó hasta el paso B (ver sección 6). | «Pergamino y Melchor Romero comparten un recorrido histórico con trazabilidad del payload de `producer_v2` (sin SHA-256 de dataset, commit ni MLflow: se declaran no disponibles); el laboratorio es sintético, con procedencia sintética declarada y sin valor de evidencia científica.» |
 
 Si falla el backend en vivo: mostrar el error con reintento (sección 4) y las capturas
 `docs/design/capturas/f7-cicytex-*.png`.
@@ -66,7 +66,7 @@ Tres dominios separados: CICYTEX (paquete causal archivado), productor (Pergamin
 Romero) y laboratorio (sintético). La flecha a Laya está punteada: integrada pero apagada
 (ADR-0014). El diagrama es una síntesis: el detalle por nodo vive en el catálogo de `#arquitectura`.
 
-## 3. Mapa antes/después (PRs #45-#53)
+## 3. Mapa antes/después (PRs #45-#57)
 
 | PR | Estado | Qué cambió en la UI |
 | --- | --- | --- |
@@ -78,19 +78,29 @@ Romero) y laboratorio (sintético). La flecha a Laya está punteada: integrada p
 | #50 | merged | F7 parcial: pruebas de resiliencia sin backend, Laya apagada y teclado. |
 | #51 | merged | Aislamiento del borrador de feedback CICYTEX por sesión. |
 | #52 | merged | Recorrido visual integral de CICYTEX. |
-| #53 | **mergeado** (`a4a6ba4`) | F6: trazabilidad de una predicción concreta (endpoint `provenance` de solo lectura, 503 si el paquete no cumple el contrato). |
+| #53 | merged (`a4a6ba4`) | F6: trazabilidad de una predicción concreta en CICYTEX (endpoint `provenance` de solo lectura, 503 si el paquete no cumple el contrato). |
+| #54 | merged (`b665c8d`) | Docs: verificación en navegador real del recorrido CICYTEX y primera versión de este paquete (F7/F8). |
+| #55 | merged (`696154f`) | F5/F6: recorrido histórico compartido por Pergamino y Melchor Romero: veredicto, acciones primaria/secundaria, trazabilidad declarada (lo que `producer_v2` no expone figura «no disponible») y filtro cliente de observaciones futuras. |
+| #56 | merged (`653e4a7`) | F5: campo «Recorrido hasta» con el reloj efectivo desde el inicio (borrador local; descarta un borrador obsoleto cuando cambia el reloj efectivo). |
+| #57 | merged (`43bdfb3`) | F5/F6: laboratorio de sensores con jerarquía de acciones, nota de paso deshabilitado y trazabilidad sintética declarada (semilla, reloj ficticio, datos sintéticos). |
 
 Antes: vistas sin separación explícita de modo, sin mapa de arquitectura, recorrido CICYTEX
-frágil ante fallos. Después: modo visible, catálogo navegable por teclado, recorrido con
-reintento/estados de carga/aislamiento de borrador y, con #53, trazabilidad. Los títulos
-provienen de `gh pr view`; el detalle por PR no se releyó aquí.
+frágil ante fallos y sin rediseño ni trazabilidad en los demás sitios. Después: modo visible,
+catálogo navegable por teclado y, en los cuatro sitios, recorrido rediseñado con trazabilidad
+declarada, con la salvedad de los datos disponibles en cada uno: CICYTEX (identidad del
+paquete: hash y commit; versión de modelo y linaje de recalibración no disponibles),
+Pergamino y Melchor Romero (payload de `producer_v2`; sin SHA-256 de dataset, commit,
+semilla, corridas MLflow ni particiones) y laboratorio (procedencia sintética: semilla y
+reloj ficticio; no es evidencia científica). Los títulos y los merge commits provienen de
+`gh pr view`; el detalle por PR no se releyó aquí.
 
 ## 4. Matriz de robustez
 
 Evidencia: `App.resilience.test.tsx` (AR), `CicytexDefensePage.test.tsx` (CP),
 `backend/tests/test_cicytex_replay_provenance.py` (BP), `scripts/ui/verify-journeys.mjs`
 con resultados en `docs/design/capturas/f7-verificacion-navegador.json` (NAV, 13 chequeos,
-12 `ok: true` y J6 `ok: null` informativo).
+12 `ok: true` y J6 `ok: null` informativo; solo recorrido CICYTEX), más las pruebas de componente de
+#55-#57 y la verificación visual de la sección 6.
 
 | Escenario | Comportamiento | Evidencia | Nivel |
 | --- | --- | --- | --- |
@@ -105,6 +115,10 @@ con resultados en `docs/design/capturas/f7-verificacion-navegador.json` (NAV, 13
 | Recarga | Se conserva la ruta; la sesión no se reabre; la selección vuelve a valores por defecto (ver sección 6). | NAV J6, J6b | Navegador real |
 | Permisos por estado | Sin sesión no hay «Día siguiente» ni feedback; con realidad oculta no hay feedback; realidad revelada lo habilita; «Día siguiente» deshabilitado sin más días con explicación. | NAV J1, J2b, J5; CP (`explains why the primary action is disabled...`) | Componente + navegador real |
 | Lecturas futuras | Nunca se dibujan ni mencionan lecturas posteriores al reloj, aunque el payload las traiga. | CP (`never draws or mentions readings...`) | Componente |
+| Observaciones futuras (Pergamino/Melchor Romero) | El cliente filtra filas posteriores al reloj del recorrido. | Pruebas de componente de #55 (no releídas en esta redacción) | Componente |
+| Campo «Recorrido hasta» | Muestra el reloj efectivo desde el inicio; descarta un borrador local obsoleto al cambiar el reloj efectivo. | Pruebas de componente de #56 (no releídas en esta redacción) | Componente |
+| Pergamino y Melchor Romero a 1366 y 360 px | Sin desbordes de página y sin texto fijo de Pergamino en Melchor Romero. | Chrome headless contra backend real; capturas en el scratchpad, no versionadas | Verificación visual puntual, no repetible desde el repo |
+| Laboratorio de sensores | Verificado solo hasta el paso B; los pasos C y D no se ejecutaron ni se vio el final de página a 360 px. | Misma verificación visual | Parcial; el resto, no verificado |
 | Accesibilidad automatizada (axe) | No se ejecuta. | - | No verificado |
 
 ## 5. Arranque y recuperación
@@ -120,7 +134,7 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
   El proxy de `/api` hacia `http://127.0.0.1:8010` existe solo en `frontend/vite.verify.config.mjs`
   (archivo sin versionar al redactar esto, puerto 5199), usado por `scripts/ui/verify-journeys.mjs`;
   `vite.config.ts` no define proxy.
-- Verificación en navegador: `BASE_URL=http://localhost:5199 node scripts/ui/verify-journeys.mjs`
+- Verificación en navegador (solo recorrido CICYTEX; no cubre Pergamino, Melchor Romero ni laboratorio): `BASE_URL=http://localhost:5199 node scripts/ui/verify-journeys.mjs`
   (requiere Node >= 22, Chrome en ruta fija de Windows).
 - Si el backend cae: la UI muestra el error y reintenta con el mismo botón o «Reintentar» del
   catálogo; al volver el backend se retoma. Las sesiones están en SQLite, pero la UI no las
@@ -131,7 +145,10 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
 1. **Sin rehidratación de sesión.** Al recargar se conserva la ruta, pero la selección vuelve a
    valores por defecto (sensor CP1_S1, h=1, emisión 2023-07-06) y la sesión no se reabre; el
    estado vive en el servidor, la UI no lo recupera (NAV J6: «sesión visible=false»).
-2. **Trazabilidad solo en CICYTEX**; Pergamino, Melchor Romero y laboratorio no la tienen.
+2. **Trazabilidad con alcance distinto por sitio.** CICYTEX: identidad del paquete (hash y commit).
+   Pergamino y Melchor Romero: payload de `producer_v2`; SHA-256 de dataset, commit, semilla,
+   corridas MLflow y particiones figuran «no disponible» (el backend no los expone). Laboratorio:
+   procedencia sintética declarada (semilla, reloj ficticio), sin valor de evidencia.
 3. **Linaje de recalibración y versión de modelo: no disponibles** en el recorrido; la UI lo declara.
 4. **Sin E2E automatizado en CI ni auditoría axe**, por decisión de no sumar dependencias. CI
    ejecuta vitest, build y comprobación de tipos OpenAPI; `verify-journeys.mjs` es manual.
@@ -140,19 +157,29 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
    Esa ausencia no bloquea arquitectura/UI.
 6. **Sin telemetría simulada**: nada en la UI se presenta como monitoreo en vivo.
 7. **Niveles de prueba no equivalentes**: componente (jsdom) ≠ navegador real (script CDP) ≠
-   validación visual. Ninguno es auditoría de accesibilidad ni evidencia científica.
-8. La trazabilidad (#53, mergeado) existe solo para CICYTEX; los otros sitios no la tienen.
-9. El script de navegador está atado a Windows/Chrome y a un backend con el paquete CICYTEX.
+   validación visual puntual. Ninguno es auditoría de accesibilidad ni evidencia científica.
+8. **Sin SHA/commit/MLflow para `producer_v2` ni para el laboratorio**: agregarlos exigiría cambios
+   de backend, fuera del alcance de la UI.
+9. El script de navegador (`verify-journeys.mjs`, 12 PASS + 1 INFO) está atado a Windows/Chrome y a un
+   backend con el paquete CICYTEX, y sigue cubriendo solo CICYTEX.
+10. **Laboratorio verificado solo hasta el paso B** en Chrome headless; los pasos C y D no se
+    ejecutaron y no se vio el final de página a 360 px.
+11. **Dos defectos menores del laboratorio, no corregidos**: la nota «Cómo revisar» ocupa media pantalla
+    a 1366 px y los campos «no disponible» repiten texto largo en negrita en la trazabilidad.
+12. **Observación sin resolver**: «Confirmar resultado» y «Rechazar resultado» tienen igual peso visual;
+    la decisión de diseño está pendiente del dueño del proyecto.
+13. Las capturas de la verificación visual de #55-#57 están en el scratchpad y no se versionan;
+    no son reproducibles desde el repositorio.
 
 ## 7. Preguntas probables del tribunal
 
 1. **¿La UI usa información futura?** La vista revela solo hasta el reloj de la sesión y hay una prueba de componente que ignora lecturas posteriores aunque lleguen. No verificado a nivel de la API completa en esta redacción.
 2. **¿Esto demuestra que el modelo funciona?** No. Es un recorrido de reproducción de un paquete archivado; no reabre la campaña ni usa el holdout final para elegir nada.
-3. **¿De dónde sale cada predicción?** El panel de trazabilidad muestra fuente, emisión, objetivo, modelos congelados e identidad del paquete (hash y commit). Versión de modelo y linaje de recalibración no están disponibles y se declaran así.
+3. **¿De dónde sale cada predicción?** En CICYTEX, el panel muestra fuente, emisión, objetivo, modelos congelados e identidad del paquete (hash y commit); versión de modelo y linaje de recalibración se declaran no disponibles. En Pergamino y Melchor Romero se muestra lo que expone `producer_v2`; SHA-256 de dataset, commit, semilla y MLflow figuran no disponibles. El laboratorio declara procedencia sintética.
 4. **¿Qué pasa si falta el paquete?** La API responde 503 y la UI mantiene el recorrido y lo informa. Verificado con tests; en navegador real, no verificado.
 5. **¿Qué pasa al recargar?** Se conserva la ruta; la sesión no se reabre y la selección vuelve a los valores por defecto. Es una limitación conocida.
 6. **¿Laya participa en las decisiones?** No: está desactivada por defecto y su evaluación no está habilitada por falta de corpus humano (ADR-0014).
 7. **¿Hay datos en vivo o IoT real?** No hay telemetría en vivo. Los sensores son fuente de datos; el laboratorio es sintético y no es evidencia científica.
-8. **¿Está probado de punta a punta en CI?** No. CI corre tests de componente; el recorrido en navegador real se corrió con un script manual (12 chequeos `ok`, 1 informativo). No hay auditoría axe.
+8. **¿Está probado de punta a punta en CI?** No. CI corre tests de componente; el recorrido CICYTEX en navegador real se corrió con un script manual (12 chequeos `ok`, 1 informativo). Pergamino, Melchor Romero y el laboratorio (hasta el paso B) solo tuvieron una verificación visual puntual. No hay auditoría axe.
 9. **¿Qué hace el feedback humano?** Se registra por sesión solo con la realidad revelada y el borrador no se filtra entre sesiones. Su efecto sobre modelos no es parte de este paquete.
 10. **¿El sistema decide el riego?** No. Es apoyo a la decisión.
