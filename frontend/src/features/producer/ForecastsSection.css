@@ -47,3 +47,11 @@
 .forecast-card-form button[type="submit"] { background: var(--color-review-confirmed); border-color: var(--color-review-confirmed); color: #fff; }
 .forecast-card-historical-notice { font-size: .8125rem; color: var(--color-muted); line-height: 1.5; }
 .forecast-card-agreement summary { min-height: 44px; display: flex; align-items: center; }
+
+/* Confirmar/Rechazar: mismo peso visual, sin variante primaria; foco visible y blanco táctil >=44px. */
+.forecast-card-choice { min-height: 44px; }
+.forecast-card-actions [tabindex="-1"]:focus, .forecast-card-form [tabindex="-1"]:focus, .forecast-card [role="status"][tabindex="-1"]:focus { outline: 2px solid var(--color-review-confirmed); outline-offset: 2px; }
+.forecast-card-pending:empty { display: none; }
+@media (max-width: 600px) {
+  .forecast-card-choice, .forecast-card-form button { min-height: 44px; }
+}
