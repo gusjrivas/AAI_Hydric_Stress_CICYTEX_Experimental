@@ -5,7 +5,7 @@ Estado: **Propuesto el 2026-10-18** (pasa a Aceptado cuando el dueño del proyec
 Trazabilidad: HU6 (`architecture-integration`) y UI (`alerting-ui`); HU5
 (`human-feedback`) sólo por el borrador de revisión del recorrido CICYTEX. Fase
 CRISP-DM: despliegue e integración experimental. Cambios entregados en los PR #45 a
-#57. No cambia modelos, umbrales, protocolos, hipótesis ni HU7/HU8. Laya sigue
+#62. No cambia modelos, umbrales, protocolos, hipótesis ni HU7/HU8. Laya sigue
 desactivada (ADR-0014).
 
 ## Contexto
@@ -13,7 +13,7 @@ desactivada (ADR-0014).
 La interfaz de defensa debe mostrar cuatro contextos que el ADR-0014 declara no
 intercambiables (Pergamino, Melchor Romero, CICYTEX y laboratorio sintético) sin
 presentar datos simulados como evidencia ni inventar metadatos que el backend no
-expone. Los PR #45 a #57 rediseñaron la navegación, los recorridos y la verificación.
+expone. Los PR #45 a #62 rediseñaron la navegación, los recorridos y la verificación.
 Este ADR registra las decisiones efectivamente presentes en `main`.
 
 ## Decisión
@@ -40,7 +40,12 @@ Este ADR registra las decisiones efectivamente presentes en `main`.
 - CICYTEX: `features/defense/CicytexDefensePage.tsx` con
   `CicytexTraceability.tsx` y `cicytexApi.ts`. Opera una sesión con estado en el
   servidor (`POST /api/v2/cicytex/replay/sessions`, `.../advance`, `.../reset`,
-  `.../feedback`).
+  `.../feedback`). Al recargar, la página guarda en `sessionStorage` (clave
+  `cicytex-defense-session`) sólo una referencia mínima (`session_id`, sensor, horizonte
+  y emisión) y la restaura con `GET .../sessions/{id}` (PR #59). Valida que la sesión
+  coincida con la referencia; si falla la recuperación (por ejemplo 404, registro mal formado o sesión que no coincide) se muestra el aviso `role="alert"`, se borra la referencia y se ofrece «Iniciar otra emisión». El borrador y las notas de feedback no
+  se transfieren. El feedback no preselecciona ninguna opción y el botón de registro
+  queda deshabilitado hasta elegir una (PR #59). La recuperación es por pestaña.
 - Histórico compartido: `features/producer/HistoricalWalkthrough.tsx`, usado por
   `PergaminoDefensePage.tsx` y `MelchorRomeroDefensePage.tsx`. Es de lectura por GET
   sin estado en el servidor; el reloj vive en el cliente y el cliente filtra filas
@@ -61,9 +66,14 @@ se unificó `CicytexDefensePage` sobre `HistoricalWalkthrough`.
 - `GET /api/v2/cicytex/replay/provenance`
   (`backend/app/routers/cicytex_replay.py`) delega en
   `CicytexProvenanceApplication` (`src/historical_replay/cicytex_provenance.py`).
-- Lista blanca de campos: sólo identidad y particiones (hashes, commit, semilla,
-  límites de partición, ids de corridas MLflow del paquete archivado). Métricas y filas
-  de predicción quedan fuera para no adelantar resultados al reloj del replay.
+- Lista blanca de campos (`_TOP_LEVEL` y `_PER_HORIZON` en
+  `src/historical_replay/cicytex_provenance.py`): identidad y particiones (hashes, commit,
+  semilla, límites de partición, ids de corridas MLflow del paquete archivado), además de
+  `proxy`, `ensemble_policy`, `prediction_sha256`, `threshold_train_p20` y
+  `first_legitimate_emission`. Métricas y filas de predicción quedan fuera para no
+  adelantar resultados al reloj del replay. Los hashes son los registrados en el paquete
+  archivado: un SHA-256 calculado hoy identifica el archivo actual; no demuestra
+  retrospectivamente qué archivo intervino en una corrida.
 - Los esquemas de respuesta son cerrados (`extra="forbid"` en
   `backend/app/schemas_cicytex_replay.py`, `CicytexProvenanceResponse`). Si el paquete
   no cumple el contrato, el endpoint responde 503, no 500 (PR #53, `8c78b68`).
@@ -83,9 +93,12 @@ se unificó `CicytexDefensePage` sobre `HistoricalWalkthrough`.
 - `scripts/ui/verify-journeys.mjs` y `scripts/ui/capture-view.mjs` controlan Chrome
   headless por CDP con Node >= 22, sin paquetes adicionales. Procedimiento y
   resultados en `docs/design/f7-verificacion-navegador.md` (PR #54).
-- Límites: no corre en CI (la ruta de Chrome está fija a Windows y usa `%TEMP%`);
-  sólo cubre el recorrido CICYTEX; no es una auditoría de accesibilidad y no usa axe.
-  Cada chequeo comprueba sólo lo que declara.
+- Desde el PR #62 el script cubre cuatro sitios (Melchor Romero, Pergamino, CICYTEX y
+  laboratorio) y la ficha de Laya en `#arquitectura`, contra un servidor de fixtures
+  determinista (`scripts/ui/fixture-server.mjs`), y corre en CI en el job
+  `browser-journeys`. Sigue sin Playwright ni axe y no es una auditoría de
+  accesibilidad. Cada chequeo comprueba sólo lo que declara. Las fixtures fijan el
+  contrato grabado: no prueban el backend real.
 
 ### 5. Contrato OpenAPI congelado
 
@@ -107,14 +120,19 @@ commit `5098fd9`).
 
 ## Alternativas descartadas y limitaciones
 
-- Playwright y axe: descartados por decisión de alcance (sin dependencias nuevas). No
-  hay auditoría automática de accesibilidad ni ejecución en CI.
+- Playwright y axe: descartados hasta ahora por decisión de alcance (sin dependencias
+  nuevas). Siguen sin incorporarse; admitirlos como dependencia nueva es una decisión
+  pendiente del dueño del proyecto. No hay auditoría automática de accesibilidad. Los
+  recorridos de navegador sí corren en CI desde el PR #62, sin dependencias nuevas.
 - Unificar las páginas: descartado por lo expuesto en la decisión 2.
-- Rehidratar la sesión CICYTEX tras recargar: **no hecho**. La ruta se conserva al
-  recargar, pero la sesión no se reabre (limitación declarada). Decidir si se
-  implementa queda pendiente de una decisión de alcance.
-- Pendientes declarados en `docs/seguimiento-tareas.md`: script de navegador para los
-  otros sitios, Tab con sesión abierta y ejecución en CI.
+- Rehidratación autónoma de la sesión CICYTEX por servidor (cookie o identidad de
+  usuario): sigue descartada. La recuperación al recargar ya existe, pero del lado del
+  cliente (`sessionStorage` más `GET /sessions/{id}`, PR #59), por pestaña; otra
+  pestaña o ventana no la recupera. La durabilidad del almacén de sesiones del backend
+  ante un reinicio no se verificó.
+- Pendientes declarados en `docs/seguimiento-tareas.md`: revisiones POST de Pergamino
+  y Melchor Romero y pasos C y D del laboratorio en el script de navegador. El teclado
+  con la sesión abierta ya se verifica en CICYTEX (C8) y en el laboratorio (L8).
 
 ## Mapa de PR (`gh pr view`, estado MERGED)
 
@@ -133,6 +151,11 @@ commit `5098fd9`).
 | #55 | `696154f` | recorrido histórico compartido con veredicto, acciones y trazabilidad declarada (F5/F6) |
 | #56 | `653e4a7` | campo «Recorrido hasta» con el reloj efectivo desde el inicio (F5) |
 | #57 | `43bdfb3` | laboratorio de sensores con acciones jerarquizadas y trazabilidad sintética declarada (F5/F6) |
+| #58 | `73a1cfc` | docs: ADR 0015, paquete de defensa y tracking F5–F8 (F8) |
+| #59 | `a433b4d` | recuperar la sesión CICYTEX al recargar y feedback sin preselección (F5, HU5/HU6) |
+| #60 | `e575a30` | acciones de revisión equivalentes, foco estable y envío único (F5, HU5/HU6) |
+| #61 | `c7e13b8` | laboratorio: lectura, declaración única de no disponibles y recorrido a 360 px (F5) |
+| #62 | `9cea43f` | recorridos de navegador de los cuatro sitios con fixtures deterministas y job de CI (F7) |
 
 Los commits `8c78b68`, `606eec7` y `5098fd9` citados arriba son commits internos del
 PR #53, no merge commits.
@@ -141,28 +164,31 @@ PR #53, no merge commits.
 
 Hechos verificados:
 
-- Tests de componente y de API de los cambios (vitest, pruebas de `provenance`,
-  guards OpenAPI y de router delgado).
-- Navegador real por script (`scripts/ui/verify-journeys.mjs`): 12 PASS y 1 INFO (J6),
-  solo recorrido CICYTEX.
-- Verificación visual puntual en Chrome headless contra backend real (capturas en el
-  scratchpad, no versionadas): Pergamino y Melchor Romero a 1366 y 360 px sin desbordes
-  de página ni texto fijo de Pergamino en Melchor Romero; laboratorio verificado solo
-  hasta el paso B (los pasos C y D no se ejecutaron).
+- Tests de componente (jsdom) y de API de los cambios (vitest, pruebas de `provenance`,
+  guards OpenAPI y de router delgado). Los tests de #59 y #60
+  (`CicytexDefensePage.restore.test.tsx`, `ForecastCard.reviewActions.test.tsx`) son de
+  componente, sin navegador real.
+- Navegador real por script (`scripts/ui/verify-journeys.mjs`, PR #62), contra fixtures
+  deterministas y en CI: 78 PASS, 0 FAIL y 1 INFO (A9, lista las rutas sin fixture
+  `GET /api/v2/sectors` y `/api/v2/sensors`). Cubre recarga con sesión restaurada y con
+  404 y feedback sin preselección en CICYTEX; no cubre la igualdad de peso visual de
+  «Confirmar» y «Rechazar» (esa propiedad la prueba sólo el test de componente de #60).
+- Verificación visual del laboratorio a 360 px en el PR #61, pasos A a D.
 
 Límites y pendientes (no verificados o no resueltos):
 
-- Laboratorio: pasos C y D y final de página a 360 px sin verificar; dos defectos
-  menores no corregidos (la nota «Cómo revisar» ocupa media pantalla a 1366 px; los
-  campos «no disponible» repiten texto largo en negrita en la trazabilidad).
-- «Confirmar resultado» y «Rechazar resultado» tienen igual peso visual: decisión de
-  diseño pendiente del dueño del proyecto.
-- Sin rehidratación de la sesión CICYTEX tras recargar.
+- Laboratorio: tamaños táctiles por debajo de lo deseable declarados en #61 (selectores
+  36 px, `summary` 21 px, enlace 20 px); el mensaje crudo en inglés «Failed to fetch»
+  sigue visible; el laboratorio con backend apagado no se probó.
+- Las revisiones POST de Pergamino y Melchor Romero y los pasos C y D del laboratorio no
+  están en el script de navegador.
 - Sin linaje de recalibración operativo.
 - Sin SHA, commit ni MLflow para `producer_v2` ni para el laboratorio (exigiría cambios
   de backend).
-- El script de navegador no cubre los otros sitios; no hay E2E en CI ni auditoría axe.
-- Las verificaciones visuales no son reproducibles desde el repositorio.
+- Sin auditoría axe ni Playwright (decisión del dueño).
+- Las fixtures no prueban el backend real; un cambio de contrato exige regrabarlas.
+- Algunas verificaciones visuales (capturas en el scratchpad) no son reproducibles desde
+  el repositorio.
 
 ## Consecuencias
 
