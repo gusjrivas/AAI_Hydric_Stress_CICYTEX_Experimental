@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -103,18 +105,42 @@ describe("SensorLabPage · jerarquía de acciones y trazabilidad", () => {
     expect(panel()).toHaveTextContent(/el reloj es ficticio/i);
   });
 
-  it("declares unavailable the artifacts that do not exist in this journey", () => {
+  it("declares once, in a single element, that the five missing artifacts are unavailable", () => {
     render(<SensorLabPage />);
-    for (const label of [
-      "Commit",
-      "SHA-256 del dataset",
-      "Corridas de MLflow",
-      "Versión de modelo",
-      "Linaje de recalibración",
+    const declarations = within(panel()).getAllByText(/no disponible/i);
+    expect(declarations).toHaveLength(1);
+    for (const artifact of [
+      /commit/i,
+      /SHA-256 del dataset/i,
+      /corridas de MLflow/i,
+      /versión de modelo/i,
+      /linaje de recalibración/i,
     ]) {
-      const dt = within(panel()).getByText(label);
-      expect(dt.nextElementSibling).toHaveTextContent(/no disponible/i);
+      expect(declarations[0]).toHaveTextContent(artifact);
     }
+    expect(declarations[0]).toHaveTextContent(/no disponible en este recorrido/i);
+  });
+
+  it("does not repeat the unavailable value as a per-field definition", () => {
+    render(<SensorLabPage />);
+    for (const label of ["Commit", "SHA-256 del dataset", "Corridas de MLflow", "Versión de modelo", "Linaje de recalibración"]) {
+      expect(within(panel()).queryByText(label, { selector: "dt" })).not.toBeInTheDocument();
+    }
+  });
+
+  it("lets the review note and its italic line use the column width inside the lab (CSS)", () => {
+    const css = readFileSync(resolve(__dirname, "SensorLabPage.css"), "utf-8");
+    const rule = css.match(/\.sl-section \.fp-banner[^{]*\{([^}]*)\}/);
+    expect(rule, "regla .sl-section .fp-banner").not.toBeNull();
+    expect(rule![1]).toMatch(/max-width:\s*none/);
+    expect(css).toMatch(/\.sl-section \.fp-disclaimer/);
+  });
+
+  it("places the row-blocking reason across the card instead of in the 6 px signal track (CSS)", () => {
+    const css = readFileSync(resolve(__dirname, "SensorLabPage.css"), "utf-8");
+    const rule = css.match(/\.sl-section \.fp-row > \.fp-disclaimer[^{]*\{([^}]*)\}/);
+    expect(rule, "regla .sl-section .fp-row > .fp-disclaimer").not.toBeNull();
+    expect(rule![1]).toMatch(/grid-column:\s*2\s*\/\s*-1/);
   });
 
   it("states that data and human review are synthetic and give no scientific evidence", () => {
