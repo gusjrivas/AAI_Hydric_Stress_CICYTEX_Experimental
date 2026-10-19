@@ -16,9 +16,9 @@ FRONTEND_ROOT = ROOT / "frontend"
 GENERATED_ROOT = FRONTEND_ROOT / "src" / "api" / "generated"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 GENERATED_ARTIFACTS = {
-    "manifest.json": (348, "b8b8e33ed811ce4a5950c124b3c8a4b518d4903fb7c6cd369ffe54b5113407d5"),
-    "openapi.json": (79_687, "d15a6e66dd7154d0a165c478533dfebd6c31bfac7433e0af2f46c00fd5bd46dc"),
-    "schema.d.ts": (111_587, "26410ecb92f20c03e37859423855618cc36c045ade20236b9f1ec101854ee6c5"),
+    "manifest.json": (348, "830f4902981e3bd1d144da4bf2a7bd8fbec3b19558946b5804d1be4417318b82"),
+    "openapi.json": (83_595, "e5ec1d44f7cee19c3d4f820e997de11c28015bad1bff9b5315d62bbc4e8a85b2"),
+    "schema.d.ts": (116_519, "78d0529417ccbfc470be65118f797f8a97dbb4b73b96ec72827e409b36608f0b"),
 }
 RAW_TO_TRACKED = {
     "openapi.json": "openapi.json",
@@ -205,6 +205,7 @@ def test_generated_schema_has_only_the_owned_product_consumers():
         "features/producer/catalogApi.ts",
         "features/producer/forecastsApi.ts",
         "features/producer/historicalApi.ts",
+        "features/producer/provenanceApi.ts",
         "features/producer/readingsApi.ts",
         "features/quality/api.ts",
     }

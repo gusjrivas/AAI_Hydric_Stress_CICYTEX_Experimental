@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HistoricalWalkthrough } from "./HistoricalWalkthrough";
 import * as historicalApi from "./historicalApi";
+import * as provenanceApi from "./provenanceApi";
 import type { EnsembleDetail, ForecastBatch } from "./forecastsApi";
 import type { ReadingRow, ReadingsResult } from "./readingsApi";
 
@@ -67,9 +68,25 @@ function readings(rows: ReadingRow[], end = "2023-06-13"): ReadingsResult {
 }
 const PAST = ["2023-06-11", "2023-06-12", "2023-06-13"].map((d) => row(d, 0.3));
 
+const COMMIT = "c".repeat(40);
+const PROVENANCE: Awaited<ReturnType<typeof provenanceApi.getBatchProvenance>> = {
+  batch_id: "b", sensor_id: "s", as_of_date: "2023-06-13", contract_version: "producer_daily_h123_v1",
+  snapshot_id: "d".repeat(64), not_persisted: ["full_config", "mlflow_run", "seed"],
+  horizons: [
+    {
+      horizon_days: 1, status: "available", reason_code: null, mode: "ensemble", model_reference: { ...ref(1, "mv-1"), calibrated_through: null },
+      ensemble_identity_sha256: SHA, code_identity: null,
+      components: [{ family: "random_forest", code_identity: { available: true, commit: COMMIT, dirty: false } }],
+    },
+    { horizon_days: 2, status: "unavailable", reason_code: "model_not_available", mode: null, model_reference: null, ensemble_identity_sha256: null, code_identity: null, components: [] },
+    { horizon_days: 3, status: "unavailable", reason_code: "model_not_available", mode: null, model_reference: null, ensemble_identity_sha256: null, code_identity: null, components: [] },
+  ],
+};
+
 function setup(b: ForecastBatch, rows: ReadingRow[] = PAST, props: Partial<Parameters<typeof HistoricalWalkthrough>[0]> = {}) {
   vi.spyOn(historicalApi, "getHistoricalForecastBatch").mockResolvedValue(b);
   vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue(readings(rows));
+  vi.spyOn(provenanceApi, "getBatchProvenance").mockResolvedValue(PROVENANCE);
   return render(<HistoricalWalkthrough sensorId="s" defense {...props} />);
 }
 
@@ -149,9 +166,28 @@ describe("HistoricalWalkthrough — veredicto, jerarquía, trazabilidad, defensa
     }
     expect(trace).toHaveTextContent(/emisión.*13 de jun de 2023/is);
     expect(trace).toHaveTextContent(/Datos externos/);
-    for (const label of ["SHA-256 del dataset", "Commit", "Semilla", "Corridas de MLflow", "Particiones", "Linaje de recalibración"]) {
+    for (const label of ["Particiones", "Linaje de recalibración"]) {
       expect(within(trace).getByText(new RegExp(`${label}.*no disponible`, "is"))).toBeInTheDocument();
     }
+    // Lo que el backend ahora expone ya no se declara "no disponible" en la traza.
+    expect(trace).not.toHaveTextContent(/Commit: no disponible|SHA-256 del dataset: no disponible/);
+  });
+
+  it("shows the real emission provenance (dataset sha, commit) from the backend instead of 'no disponible'", async () => {
+    setup(batch(true));
+    const panel = await screen.findByRole("region", { name: /procedencia de la emisión/i });
+    expect(panel).toHaveTextContent("d".repeat(64));
+    expect(panel).toHaveTextContent(COMMIT);
+    for (const label of ["Configuración completa", "Corrida de MLflow", "Semilla"]) {
+      expect(within(panel).getByText(new RegExp(`${label}.*no disponible`, "is"))).toBeInTheDocument();
+    }
+  });
+
+  it("keeps the walkthrough usable when the provenance endpoint fails", async () => {
+    setup(batch(true));
+    vi.spyOn(provenanceApi, "getBatchProvenance").mockRejectedValue(new Error("caído"));
+    expect(await screen.findByRole("group", { name: /veredicto del ensamble/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /reintentar procedencia/i })).toBeInTheDocument();
   });
 
   it("says the model version is unavailable when the payload carries null, and follows the site's own source", async () => {

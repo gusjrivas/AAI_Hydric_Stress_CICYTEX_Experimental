@@ -47,6 +47,7 @@ export function createFixtureHandler({ load }) {
       if (mode === "disconnected") return { drop: true };
       return (
         cicytex(method, pathname, body) ??
+        producerProvenance(method, pathname) ??
         producer(method, pathname, query) ??
         lab(method, pathname, body) ??
         miss(method, pathname)
@@ -107,6 +108,15 @@ export function createFixtureHandler({ load }) {
       return ok(session.feedback, 201);
     }
     return null;
+  }
+
+  function producerProvenance(method, pathname) {
+    const match = pathname.match(/^\/api\/v2\/sensors\/([^/]+)\/batches\/([^/]+)\/provenance$/);
+    if (!match || method !== "GET") return null;
+    const file = load(`${match[1]}/provenance__${match[2]}.json`);
+    return file
+      ? ok(file)
+      : ok({ error: { code: "batch_not_found", message: "La emisión no existe para este sensor." } }, 404);
   }
 
   function producer(method, pathname, query) {

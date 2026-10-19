@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ForecastCard } from "./ForecastCard";
 import { HistoricalMoistureChart } from "./HistoricalMoistureChart";
+import { EmissionProvenancePanel } from "./EmissionProvenancePanel";
 import { FactsStrip } from "../shared/FactsStrip";
 import { getHistoricalForecastBatch, getHistoricalReadings, submitHistoricalReview } from "./historicalApi";
 import { agreementLabel, displayForecastDate, familyLabel, type Forecast, type ForecastBatch, type ReviewRequest } from "./forecastsApi";
@@ -393,14 +394,11 @@ export function HistoricalWalkthrough({
             </ul>
             <p>No disponible en este recorrido (el backend no lo expone):</p>
             <ul>
-              <li>SHA-256 del dataset: no disponible</li>
-              <li>Commit: no disponible</li>
-              <li>Semilla: no disponible</li>
-              <li>Corridas de MLflow: no disponible</li>
               <li>Particiones: no disponible</li>
               <li>Linaje de recalibración: no disponible</li>
             </ul>
           </section>
+          <EmissionProvenancePanel sensorId={sensorId} batchId={firstForecast.batch_id} />
         </>;
       })()}
       {batchState.status === "ready" && batchState.context === context && (

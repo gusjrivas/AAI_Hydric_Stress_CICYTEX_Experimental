@@ -1,0 +1,107 @@
+{
+  "as_of_date": "2024-10-24",
+  "batch_id": "batch_1bfb24c6bbea0780a8401f13a8ffd23f958ed65f8964838fd321cf3fd25e8660",
+  "contract_version": "producer_daily_h123_v1",
+  "horizons": [
+    {
+      "code_identity": null,
+      "components": [
+        {
+          "code_identity": null,
+          "family": "hist_gradient_boosting_classifier"
+        },
+        {
+          "code_identity": null,
+          "family": "logistic_regression"
+        },
+        {
+          "code_identity": null,
+          "family": "random_forest"
+        }
+      ],
+      "ensemble_identity_sha256": "d0b0aa2ac9a54f957a444065585088748aeb4cb96d50f33d97078e342f4cecf4",
+      "horizon_days": 1,
+      "mode": "ensemble",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 1,
+        "model_version": "d0b0aa2ac9a54f957a444065585088748aeb4cb96d50f33d97078e342f4cecf4",
+        "trained_through": "2024-09-04"
+      },
+      "reason_code": null,
+      "status": "available"
+    },
+    {
+      "code_identity": null,
+      "components": [
+        {
+          "code_identity": null,
+          "family": "hist_gradient_boosting_classifier"
+        },
+        {
+          "code_identity": null,
+          "family": "logistic_regression"
+        },
+        {
+          "code_identity": null,
+          "family": "random_forest"
+        }
+      ],
+      "ensemble_identity_sha256": "e24f4bd101ea638c1b56f9fce069c20bf4df08adacc205eabdbf64d851d42f0c",
+      "horizon_days": 2,
+      "mode": "ensemble",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 2,
+        "model_version": "e24f4bd101ea638c1b56f9fce069c20bf4df08adacc205eabdbf64d851d42f0c",
+        "trained_through": "2024-09-04"
+      },
+      "reason_code": null,
+      "status": "available"
+    },
+    {
+      "code_identity": null,
+      "components": [
+        {
+          "code_identity": null,
+          "family": "hist_gradient_boosting_classifier"
+        },
+        {
+          "code_identity": null,
+          "family": "logistic_regression"
+        },
+        {
+          "code_identity": null,
+          "family": "random_forest"
+        }
+      ],
+      "ensemble_identity_sha256": "eea1bc05a32e21949450a8ac0d06ac30fc0178dfe87487f0062549ac5ece6fda",
+      "horizon_days": 3,
+      "mode": "ensemble",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 3,
+        "model_version": "eea1bc05a32e21949450a8ac0d06ac30fc0178dfe87487f0062549ac5ece6fda",
+        "trained_through": "2024-09-04"
+      },
+      "reason_code": null,
+      "status": "available"
+    }
+  ],
+  "not_persisted": [
+    "full_config",
+    "mlflow_run",
+    "seed"
+  ],
+  "sensor_id": "melchor-romero-demo",
+  "snapshot_id": "fec8074ce8339c91913586e6bf56baf127ee5054ca89ec2e08f6226f91c4211d"
+}

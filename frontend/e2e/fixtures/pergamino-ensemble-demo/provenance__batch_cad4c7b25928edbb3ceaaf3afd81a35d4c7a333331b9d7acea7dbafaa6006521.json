@@ -1,0 +1,107 @@
+{
+  "as_of_date": "2023-06-14",
+  "batch_id": "batch_cad4c7b25928edbb3ceaaf3afd81a35d4c7a333331b9d7acea7dbafaa6006521",
+  "contract_version": "producer_daily_h123_v1",
+  "horizons": [
+    {
+      "code_identity": null,
+      "components": [
+        {
+          "code_identity": null,
+          "family": "hist_gradient_boosting_classifier"
+        },
+        {
+          "code_identity": null,
+          "family": "logistic_regression"
+        },
+        {
+          "code_identity": null,
+          "family": "random_forest"
+        }
+      ],
+      "ensemble_identity_sha256": "39d34b120ee1c7f2e0240e87b624e5b1210559f586c6567edfb981cdc14217f4",
+      "horizon_days": 1,
+      "mode": "ensemble",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 1,
+        "model_version": "39d34b120ee1c7f2e0240e87b624e5b1210559f586c6567edfb981cdc14217f4",
+        "trained_through": "2021-12-31"
+      },
+      "reason_code": null,
+      "status": "available"
+    },
+    {
+      "code_identity": null,
+      "components": [
+        {
+          "code_identity": null,
+          "family": "hist_gradient_boosting_classifier"
+        },
+        {
+          "code_identity": null,
+          "family": "logistic_regression"
+        },
+        {
+          "code_identity": null,
+          "family": "random_forest"
+        }
+      ],
+      "ensemble_identity_sha256": "5eac8f49d2bb49cb158e225181041cbca2ebc95f54cd4a228d17fc5136e5523a",
+      "horizon_days": 2,
+      "mode": "ensemble",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 2,
+        "model_version": "5eac8f49d2bb49cb158e225181041cbca2ebc95f54cd4a228d17fc5136e5523a",
+        "trained_through": "2021-12-31"
+      },
+      "reason_code": null,
+      "status": "available"
+    },
+    {
+      "code_identity": null,
+      "components": [
+        {
+          "code_identity": null,
+          "family": "hist_gradient_boosting_classifier"
+        },
+        {
+          "code_identity": null,
+          "family": "logistic_regression"
+        },
+        {
+          "code_identity": null,
+          "family": "random_forest"
+        }
+      ],
+      "ensemble_identity_sha256": "dbbd1605bf74308e1522a5c0f9ce83ee0cccc6a77ca58bc03a9adc3e77c46097",
+      "horizon_days": 3,
+      "mode": "ensemble",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 3,
+        "model_version": "dbbd1605bf74308e1522a5c0f9ce83ee0cccc6a77ca58bc03a9adc3e77c46097",
+        "trained_through": "2021-12-31"
+      },
+      "reason_code": null,
+      "status": "available"
+    }
+  ],
+  "not_persisted": [
+    "full_config",
+    "mlflow_run",
+    "seed"
+  ],
+  "sensor_id": "pergamino-ensemble-demo",
+  "snapshot_id": "f6cd880097d57005ebd496c2ba4283dcb9e11f6ba866c4002e8138e7f3ecc535"
+}
