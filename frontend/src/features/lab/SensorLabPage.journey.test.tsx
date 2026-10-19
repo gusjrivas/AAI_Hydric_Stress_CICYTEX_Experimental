@@ -72,6 +72,28 @@ describe("SensorLabPage · jerarquía de acciones y trazabilidad", () => {
     expect(stepA()).not.toHaveAttribute("aria-describedby");
   });
 
+  it("states the true reason for each reachable phase through the linked note", async () => {
+    const user = userEvent.setup();
+    render(<SensorLabPage />);
+    const stepC = () => screen.getByRole("button", { name: /simular una interrupción/i });
+    const stepD = () => screen.getByRole("button", { name: /simular la recuperación/i });
+    const noteOf = (button: HTMLElement) => document.getElementById(button.getAttribute("aria-describedby") as string);
+
+    expect(noteOf(stepB())).toHaveTextContent(/solo está disponible el paso A/i);
+    await user.click(stepA());
+    await waitFor(() => expect(stepB()).toBeEnabled());
+    expect(noteOf(stepC())).toHaveTextContent(/solo está disponible el paso B/i);
+    await user.click(stepB());
+    await waitFor(() => expect(stepC()).toBeEnabled());
+    expect(noteOf(stepD())).toHaveTextContent(/solo está disponible el paso C/i);
+    await user.click(stepC());
+    await waitFor(() => expect(stepD()).toBeEnabled());
+    expect(noteOf(stepB())).toHaveTextContent(/solo está disponible el paso D/i);
+    await user.click(stepD());
+    await waitFor(() => expect(stepD()).toBeDisabled());
+    expect(noteOf(stepD())).toHaveTextContent(/el recorrido A–D terminó/i);
+  });
+
   it("shows the traceability panel with sensor, seed, synthetic provenance and fictitious clock", () => {
     render(<SensorLabPage />);
     const p = within(panel());
