@@ -1,3 +1,4 @@
+import { userFacingErrorMessage } from "../shared/errorMessage";
 import { useLayoutEffect, useRef, useState } from "react";
 import { getQualityReport } from "../quality/api";
 import type { QualityReport } from "../quality/api";
@@ -176,7 +177,7 @@ export function useSensorLabScenarios(
       await action(ctx);
     } catch (err) {
       if (!(err instanceof StaleRun) && generationRef.current === generation) {
-        setError((err as Error).message);
+        setError(userFacingErrorMessage(err));
         setPhase("error");
       }
     } finally {

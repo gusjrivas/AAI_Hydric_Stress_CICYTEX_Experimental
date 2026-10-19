@@ -43,4 +43,15 @@ describe("architecture catalog", () => {
     expect(laya?.status).toBe("desactivado");
     expect(laya?.limits).toMatch(/sin sugerencias reales en esta configuración/i);
   });
+  it("keeps every Laya claim optional, disabled by default and never a scientific validation", () => {
+    const laya = ARCHITECTURE_NODES.find((n) => n.id === "laya")!;
+    const text = [laya.label, laya.responsibility, laya.input, laya.output, laya.boundary, laya.limits].join(" ");
+    expect(text).toMatch(/opcional/i);
+    expect(text).toMatch(/deshabilitado por defecto/i);
+    expect(text).toMatch(/sin efecto autom[aá]tico/i);
+    expect(text).toMatch(/utilidad no est[aá] evaluada/i);
+    // Ninguna afirmación de validación científica, corpus real, calibración ni resultados.
+    expect(text).not.toMatch(/validad[oa]|validaci[oó]n cient|corpus real|calibrad[oa]|calibraci[oó]n|accuracy|exactitud|resultados? (reales|obtenidos)|mejora/i);
+    expect(laya.status).toBe("desactivado");
+  });
 });
