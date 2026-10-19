@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { timeoutMs, withTimeout, fetchWithTimeout } from "./timeout.mjs";
 import { chromeArgs, resolveChromePath } from "./chrome.mjs";
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,7 +16,7 @@ export async function launchBrowser({ env = process.env, platform = process.plat
   let targets;
   for (let i = 0; i < 80 && !targets?.length; i++) {
     try {
-      targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+      targets = await (await fetchWithTimeout(`http://127.0.0.1:${port}/json`)).json();
     } catch {
       await sleep(250);
     }
@@ -35,12 +36,14 @@ export async function launchBrowser({ env = process.env, platform = process.plat
     const message = JSON.parse(event.data);
     if (message.id && pending.has(message.id)) pending.get(message.id)(message);
   };
-  const send = (method, params = {}) =>
-    new Promise((resolve) => {
-      const i = ++id;
+  const send = (method, params = {}) => {
+    const i = ++id;
+    const reply = new Promise((resolve) => {
       pending.set(i, resolve);
       ws.send(JSON.stringify({ id: i, method, params }));
     });
+    return withTimeout(reply, timeoutMs(30000), `comando CDP ${method}`).finally(() => pending.delete(i));
+  };
   const evaluate = async (expression) =>
     (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result?.result?.value;
   const waitFor = async (expression, ms = 12000) => {

@@ -8,7 +8,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchBrowser, sleep } from "./lib/cdp.mjs";
-import { createRecorder, summarize } from "./lib/results.mjs";
+import { classifyUnmatched, createRecorder, summarize } from "./lib/results.mjs";
+import { fetchWithTimeout } from "./lib/timeout.mjs";
 import { analyzeTabStops } from "./lib/tab-audit.mjs";
 
 const base = (process.env.BASE_URL ?? "http://127.0.0.1:4173").replace(/\/$/, "");
@@ -16,7 +17,7 @@ const outDir = process.env.OUT_DIR ?? process.argv[2] ?? join(tmpdir(), "ui-jour
 mkdirSync(outDir, { recursive: true });
 
 const fixture = async (path, body) => {
-  const response = await fetch(`${base}/__fixture/${path}`, {
+  const response = await fetchWithTimeout(`${base}/__fixture/${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -304,7 +305,10 @@ try {
     recorders.push(await run());
   }
   const state = await fixture("state");
-  recorders[recorders.length - 1].info("A9", "rutas de API sin fixture durante toda la corrida", state.unmatched.length ? [...new Set(state.unmatched)].sort().join(", ") : "ninguna");
+  const { known, unknown } = classifyUnmatched(state.unmatched);
+  const laya = recorders[recorders.length - 1];
+  if (unknown.length) laya.check("A9", "ninguna ruta de API sin fixture fuera de KNOWN_UNMATCHED", false, unknown.join(", "));
+  else laya.info("A9", "rutas de API sin fixture durante toda la corrida (solo las conocidas e inocuas)", known.length ? known.join(", ") : "ninguna");
 } catch (error) {
   crashed = error;
   console.error(`ERROR en la ejecución: ${error?.stack ?? error}`);
