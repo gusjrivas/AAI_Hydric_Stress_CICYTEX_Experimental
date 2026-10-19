@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForecastReviews } from "./useForecastReviews";
 import {
   DemoWriteLockedError,
@@ -90,6 +90,13 @@ export function ForecastCard({
   const [notice, setNotice] = useState<string | null>(null);
   // Rechazo 409 real del backend (el estado cambió entre la consulta y el POST):
   // bloquea esta revisión hasta que llegue un estado nuevo del pronóstico.
+  // Guardia síncrona contra doble envío (el estado de React se actualiza luego del clic).
+  const submittingRef = useRef(false);
+  // Destino estable del foco cuando el control activo se deshabilita o desaparece.
+  const [focusRequest, setFocusRequest] = useState<{ target: "pending" | "notice" | "prompt"; n: number } | null>(null);
+  const pendingRef = useRef<HTMLParagraphElement>(null);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  const promptRef = useRef<HTMLParagraphElement>(null);
   const [serverBlock, setServerBlock] = useState<{ reason: ReviewBlockedReason; review: ForecastReview } | null>(null);
 
   const review = forecast.review;
@@ -98,8 +105,19 @@ export function ForecastCard({
     activeServerBlock ?? (review.reviewable ? null : (review.blocked_reason ?? "review_not_open"));
   const reviewable = blockedReason === null;
   const observationMessage = blockedReason ? (TARGET_OBSERVATION_MESSAGES[blockedReason] ?? null) : null;
+  const choiceHelpId = `review-choice-help-${initialForecast.forecast_id}`;
   const isCorrecting = review.status !== "pending";
   const frozen = submitting || formError !== null;
+
+  function requestFocus(target: "pending" | "notice" | "prompt") {
+    setFocusRequest((previous) => ({ target, n: (previous?.n ?? 0) + 1 }));
+  }
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const element = { pending: pendingRef, notice: noticeRef, prompt: promptRef }[focusRequest.target].current;
+    element?.focus();
+  }, [focusRequest]);
 
   function openForm(action: ReviewAction) {
     setNotice(null);
@@ -112,13 +130,16 @@ export function ForecastCard({
     setDraft(null);
     setRequestId(null);
     setFormError(null);
+    requestFocus("prompt");
   }
 
   async function submit() {
     // Se vuelve a comprobar aquí: no se confía solo en el atributo disabled.
-    if (!draft || !requestId || submitting || !reviewable) return;
+    if (!draft || !requestId || submitting || submittingRef.current || !reviewable) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setFormError(null);
+    requestFocus("pending");
     try {
       const updatedReview = await submitReviewFn(sensorId, forecast.forecast_id, {
         requestId,
@@ -136,6 +157,7 @@ export function ForecastCard({
       );
       publish(updated);
       onChanged?.(updated);
+      requestFocus("notice");
       return;
     } catch (error) {
       setSubmitting(false);
@@ -187,6 +209,8 @@ export function ForecastCard({
       // Error recuperable (red, servidor no disponible): se conserva el
       // formulario y el mismo request_id para no duplicar el envío al reintentar.
       setFormError(error instanceof Error ? error.message : "No se pudo enviar la revisión.");
+    } finally {
+      submittingRef.current = false;
     }
   }
 
@@ -247,7 +271,7 @@ export function ForecastCard({
         </p>
       )}
 
-      {notice && <p role="status">{notice}</p>}
+      {notice && <p role="status" tabIndex={-1} ref={noticeRef}>{notice}</p>}
 
       {!reviewable && observationMessage && (
         <p className="forecast-card-blocked" role="status">
@@ -266,12 +290,16 @@ export function ForecastCard({
 
       {reviewable && !draft && (
         <div className="forecast-card-actions">
-          <p>¿Coincidió con lo que observaste?</p>
+          <p ref={promptRef} tabIndex={-1}>¿Coincidió con lo que observaste?</p>
+          <p className="forecast-card-hint" id={choiceHelpId}>
+            Elegí una opción para continuar: Confirmar resultado indica que coincidió con lo que observaste; Rechazar
+            resultado indica que no coincidió. Antes de guardar vas a poder revisar tu elección y agregar un comentario.
+          </p>
           <div className="forecast-card-buttons">
-            <button type="button" onClick={() => openForm("confirm")}>
+            <button type="button" className="forecast-card-choice" aria-describedby={choiceHelpId} onClick={() => openForm("confirm")}>
               Confirmar resultado
             </button>
-            <button type="button" onClick={() => openForm("reject")}>
+            <button type="button" className="forecast-card-choice" aria-describedby={choiceHelpId} onClick={() => openForm("reject")}>
               Rechazar resultado
             </button>
           </div>
@@ -299,6 +327,7 @@ export function ForecastCard({
               onChange={(event) => setDraft({ ...draft, comment: event.target.value })}
             />
           </label>
+          <p role="status" tabIndex={-1} ref={pendingRef} className="forecast-card-pending">{submitting ? "Guardando tu opinión…" : ""}</p>
           {formError && (
             <p role="alert">
               {formError} El envío no se duplicará: al reintentar se usa la misma solicitud.
