@@ -5,3 +5,4 @@
 .cy-note{margin:0;font-size:.9rem;color:#2f3d52}
 .cy-trace dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:.5rem 0}.cy-trace dt{font-weight:700}.cy-trace dd{margin:0;overflow-wrap:anywhere}.cy-trace code{font-size:.9em}.cy-trace details>p{margin:.4rem 0;color:#2f3d52}@media(max-width:600px){.cy-trace dl{grid-template-columns:1fr}}
 .cy-trace code{font-size:.95em}
+.cy-restore-notice{background:#fff8e6;border-left:4px solid #b7791f;padding:12px 14px;margin:.5rem 0}.cy-restore-notice p{margin:0 0 8px}.cy-restore-notice button{min-height:36px;border:1px solid #195c3c;background:transparent;color:#195c3c;border-radius:9px;padding:6px 12px;font-weight:600;cursor:pointer}

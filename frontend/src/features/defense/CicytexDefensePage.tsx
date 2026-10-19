@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SiteHeader } from "./SiteHeader";
 import { CicytexTraceability } from "./CicytexTraceability";
-import { advanceCicytexSession, createCicytexSession, getCicytexCatalog, getCicytexProvenance, type CicytexProvenance, resetCicytexSession, submitCicytexFeedback, type CicytexCatalog, type CicytexSession } from "./cicytexApi";
+import { advanceCicytexSession, createCicytexSession, getCicytexCatalog, getCicytexSession, getCicytexProvenance, type CicytexProvenance, resetCicytexSession, submitCicytexFeedback, type CicytexCatalog, type CicytexSession } from "./cicytexApi";
 import "./CicytexDefensePage.css";
 
 const LABELS: Record<string,string> = { logistic_regression:"Logistic Regression", random_forest:"Random Forest", hist_gradient_boosting_classifier:"HistGradientBoosting", ensemble:"Ensamble", persistence:"Persistencia" };
@@ -52,8 +52,69 @@ function MoistureChart({ session }: { session: CicytexSession }) {
   );
 }
 
-type FeedbackDraft = { sessionId: string | null; choice: "confirmada" | "rechazada"; note: string };
-const EMPTY_DRAFT: FeedbackDraft = { sessionId: null, choice: "confirmada", note: "" };
+// Sin preselección: la persona debe elegir explícitamente antes de registrar.
+type FeedbackDraft = { sessionId: string | null; choice: "confirmada" | "rechazada" | null; note: string };
+const EMPTY_DRAFT: FeedbackDraft = { sessionId: null, choice: null, note: "" };
+
+// Referencia mínima a la sesión abierta (nunca el borrador de feedback) para
+// recuperarla al recargar. Solo sessionStorage; cualquier acceso puede fallar.
+const SESSION_KEY = "cicytex-defense-session";
+type SessionRecord = { site: "cicytex"; session_id: string; sensor: string; horizon: number; emission: string };
+
+function writeRecord(next: CicytexSession) {
+  try {
+    const record: SessionRecord = {
+      site: "cicytex",
+      session_id: next.session_id,
+      sensor: next.sensor_id,
+      horizon: next.horizon_days,
+      emission: next.emission_date,
+    };
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(record));
+  } catch {
+    /* sin sessionStorage la página funciona igual, sin recuperación */
+  }
+}
+
+function readRecord(): string | null {
+  try {
+    return window.sessionStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function clearRecord() {
+  try {
+    window.sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* ignorado */
+  }
+}
+
+function parseRecord(raw: string, catalog: CicytexCatalog): SessionRecord {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("el registro guardado está dañado");
+  }
+  const r = value as Partial<Record<keyof SessionRecord, unknown>> | null;
+  if (
+    !r || typeof r !== "object" || r.site !== "cicytex" ||
+    typeof r.session_id !== "string" || !r.session_id ||
+    typeof r.sensor !== "string" || typeof r.horizon !== "number" || typeof r.emission !== "string"
+  ) {
+    throw new Error("el registro guardado no es válido");
+  }
+  if (
+    !catalog.sensors.includes(r.sensor) ||
+    !(catalog.emission_dates_by_horizon[String(r.horizon)] ?? []).includes(r.emission)
+  ) {
+    throw new Error("la selección guardada ya no está en el catálogo");
+  }
+  return r as SessionRecord;
+}
 
 function messageOf(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
@@ -70,6 +131,9 @@ export function CicytexDefensePage() {
   const [session, setSession] = useState<CicytexSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+  const restoreStarted = useRef(false);
+  const openButton = useRef<HTMLButtonElement>(null);
   // El borrador pertenece a una sesión: se liga a su id y se descarta al
   // cambiar la selección, abrir otra sesión o reiniciar la actual.
   const [draft, setDraft] = useState<FeedbackDraft>(EMPTY_DRAFT);
@@ -103,6 +167,59 @@ export function CicytexDefensePage() {
       .then(setProvenance)
       .catch(() => setProvenanceFailed(true));
   }, []);
+  useEffect(() => {
+    // Recuperación al recargar: solo GET, tras conocer el catálogo, una vez.
+    if (!catalog || restoreStarted.current) return;
+    restoreStarted.current = true;
+    const raw = readRecord();
+    if (raw === null) return;
+    const fail = (reason: unknown) => {
+      clearRecord();
+      setRestoreNotice(`No se pudo recuperar la sesión anterior: ${messageOf(reason)}`);
+    };
+    const mine = generation.current;
+    // Se difiere un tick para no actualizar estado de forma síncrona en el efecto.
+    void Promise.resolve()
+      .then(() => {
+        if (mine !== generation.current) return undefined;
+        let record: SessionRecord;
+        try {
+          record = parseRecord(raw, catalog);
+        } catch (reason) {
+          fail(reason);
+          return undefined;
+        }
+        inFlight.current = true;
+        setBusy(true);
+        return getCicytexSession(record.session_id)
+          .then((restored) => {
+            if (mine !== generation.current) return;
+            if (
+              restored.session_id !== record.session_id ||
+              restored.sensor_id !== record.sensor ||
+              restored.horizon_days !== record.horizon ||
+              restored.emission_date !== record.emission
+            ) {
+              fail(new Error("la sesión del servidor no coincide con la guardada"));
+              return;
+            }
+            setSensor(record.sensor);
+            setHorizon(record.horizon);
+            setEmission(record.emission);
+            setDraft(EMPTY_DRAFT);
+            setSession(restored);
+          })
+          .catch((reason) => {
+            if (mine === generation.current) fail(reason);
+          })
+          .finally(() => {
+            if (mine === generation.current) {
+              inFlight.current = false;
+              setBusy(false);
+            }
+          });
+      });
+  }, [catalog]);
   function retryCatalog() {
     setCatalogLoading(true);
     setError(null);
@@ -119,6 +236,7 @@ export function CicytexDefensePage() {
     setBusy(false);
     setSession(null);
     setDraft(EMPTY_DRAFT);
+    setRestoreNotice(null);
     apply();
   }
 
@@ -152,10 +270,11 @@ export function CicytexDefensePage() {
     run(action, (next) => {
       if (options.clearDraft) setDraft(EMPTY_DRAFT);
       setSession(next);
+      writeRecord(next);
     });
 
   function submitFeedback() {
-    if (!session) return;
+    if (!session || !feedbackChoice) return;
     const id = session.session_id;
     void run(
       () =>
@@ -235,6 +354,7 @@ export function CicytexDefensePage() {
           </select>
         </label>
         <button
+          ref={openButton}
           disabled={!catalog || busy}
           onClick={() => void act(() => createCicytexSession(sensor, effectiveEmission, horizon), { clearDraft: true })}
         >
@@ -254,6 +374,20 @@ export function CicytexDefensePage() {
             </>
           )}
         </p>
+      )}
+      {restoreNotice && (
+        <div className="cy-restore-notice">
+          <p role="alert">{restoreNotice}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setRestoreNotice(null);
+              openButton.current?.focus();
+            }}
+          >
+            Iniciar otra emisión
+          </button>
+        </div>
       )}
       {session && (
         <>
@@ -428,7 +562,7 @@ export function CicytexDefensePage() {
                     Observación opcional
                     <textarea rows={3} value={feedbackNote} onChange={(event) => editDraft({ note: event.target.value })} />
                   </label>
-                  <button disabled={busy} type="submit">
+                  <button disabled={busy || !feedbackChoice} type="submit">
                     {busy ? "Registrando…" : "Registrar feedback"}
                   </button>
                 </form>
