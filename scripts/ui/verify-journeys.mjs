@@ -85,8 +85,8 @@ async function tabAudit(rec, id, label, { max = 120, minStops = 6, outFile } = {
 
 // ---------- Melchor Romero y Pergamino (historial persistido) ----------
 const PRODUCER_SITES = [
-  { key: "melchor-romero", prefix: "M", route: "defensa-melchor-romero", name: "Melchor Romero", d0: "2024-10-20", source: "ESA CCI" },
-  { key: "pergamino", prefix: "P", route: "defensa-pergamino", name: "Pergamino", d0: "2023-06-13", source: "ERA5-Land" },
+  { key: "melchor-romero", sensor: "melchor-romero-demo", prefix: "M", route: "defensa-melchor-romero", name: "Melchor Romero", d0: "2024-10-20", source: "ESA CCI" },
+  { key: "pergamino", sensor: "pergamino-ensemble-demo", prefix: "P", route: "defensa-pergamino", name: "Pergamino", d0: "2023-06-13", source: "ERA5-Land" },
 ];
 const VERDICT = `!!document.querySelector('[aria-label="Veredicto del ensamble"]')`;
 
@@ -108,12 +108,24 @@ async function producerSite(cfg) {
   rec.check(`${p}2`, "decisión visible y acuerdo entre modelos declarado", /^(ALERTA|SIN ALERTA) DE HUMEDAD BAJA$/.test(verdict ?? "") && (await evaluate(hasText("Acuerdo entre modelos:"))), verdict);
   rec.check(`${p}3`, "la realidad futura permanece oculta al emitir", await evaluate(`/todavía no disponible según el reloj/i.test(document.querySelector('.historical-verdict-reality')?.textContent||'')`));
   const trace = await evaluate(`document.querySelector('.historical-trace')?.innerText ?? ''`);
-  const missing = ["SHA-256 del dataset: no disponible", "Commit: no disponible", "Semilla: no disponible", "Corridas de MLflow: no disponible", "Linaje de recalibración: no disponible"].filter((t) => !trace.includes(t));
+  const missing = ["Particiones: no disponible", "Linaje de recalibración: no disponible"].filter((t) => !trace.includes(t));
   rec.check(
     `${p}4`,
     "trazabilidad: modelo, identidad SHA-256 y «no disponible» para lo que el backend no expone",
     /Identidad del ensamble \(SHA-256\): [0-9a-f]{64}/.test(trace) && trace.includes("Versión del modelo:") && trace.includes(cfg.source) && missing.length === 0,
     missing.join(" | "),
+  );
+  // Panel de procedencia: el SHA debe ser el snapshot_id real del lote grabado; el commit de un bundle sin code_identity
+  // se declara «no registrado» (nunca inferido); lo que no se persiste se declara «no disponible».
+  const recorded = await (await fetchWithTimeout(`${base}/api/v2/sensors/${cfg.sensor}/historical/${cfg.d0}/forecasts`)).json();
+  await waitFor(`!!document.querySelector('.emission-provenance')`, 8000);
+  const panel = await evaluate(`document.querySelector('.emission-provenance')?.innerText ?? ''`);
+  const absent = ["Configuración completa", "Corrida de MLflow", "Semilla"].filter((label) => !new RegExp(`${label}: no disponible`).test(panel));
+  rec.check(
+    `${p}4b`,
+    "procedencia de la emisión: SHA-256 real del dataset, commit «no registrado» y configuración/MLflow/semilla «no disponible»",
+    panel.includes(`SHA-256 del dataset: ${recorded.snapshot_id}`) && /Commit: no registrado/.test(panel) && absent.length === 0,
+    absent.join(" | "),
   );
   rec.check(`${p}5`, "procedencia y calidad: la falta de datos no se lee como ausencia de alerta", await evaluate(hasText("Una fecha o variable faltante no se interpreta como ausencia de alerta.")));
   rec.check(

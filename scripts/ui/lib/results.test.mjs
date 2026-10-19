@@ -36,7 +36,7 @@ const fill = (site, n) => {
 const full = (omit = {}) => Object.entries(EXPECTED_MIN_CHECKS).map(([site, n]) => fill(site, n - (omit[site] ?? 0)));
 
 test("EXPECTED_MIN_CHECKS fija los conteos actuales por sitio", () => {
-  assert.deepEqual(EXPECTED_MIN_CHECKS, { "melchor-romero": 17, pergamino: 17, cicytex: 26, laboratorio: 12, "arquitectura-laya": 7 });
+  assert.deepEqual(EXPECTED_MIN_CHECKS, { "melchor-romero": 18, pergamino: 18, cicytex: 26, laboratorio: 12, "arquitectura-laya": 7 });
 });
 
 test("summarize falla si un sitio registra menos chequeos que el mínimo y pasa si los tiene", () => {

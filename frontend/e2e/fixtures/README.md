@@ -8,6 +8,7 @@ Respuestas JSON **grabadas de backends reales** (FastAPI, commit base `e575a30` 
 |------------|-------------|-----------|
 | `cicytex/` | Backend con `results/cicytex/causal_replay` (paquete archivado), sonda `CP1_S1`, horizonte +1, emisión 2023-07-06 | catálogo, trazabilidad, sesión creada + 3 avances, plantilla de feedback |
 | `pergamino-ensemble-demo/`, `melchor-romero-demo/` | Backend `producer_v2` (`scripts/run_producer_preview_backend.py`) sobre emisiones ya persistidas (lecturas ERA5-Land/NASA POWER y ESA CCI/NASA POWER) | lote de pronósticos y lecturas por (emisión, reloj): las 5 emisiones al reloj de emisión y la primera emisión avanzada hasta +4 días |
+| `*/provenance__<batch_id>.json` | Mismo backend `producer_v2` (con este repositorio, rama de `add-emission-provenance-panel`) sobre una copia de las emisiones ya persistidas, `GET /api/v2/sensors/{sensor}/batches/{batch_id}/provenance` de cada una de las 5 emisiones por sitio | Procedencia de la emisión (lista blanca). Esas emisiones son anteriores al registro de `code_identity`: el commit figura `null` («no registrado»); no se inventó ningún valor |
 | `lab/` | Backend plano (`uvicorn backend.app.main:app`) con 120 lecturas sintéticas | informe de calidad (plantilla), corrida de pronóstico, historial de feedback, predictor activo |
 
 ## Cómo se generaron

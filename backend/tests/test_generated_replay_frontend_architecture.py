@@ -17,6 +17,7 @@ PRODUCER_CATALOG_API = FRONTEND_SOURCE / "features" / "producer" / "catalogApi.t
 PRODUCER_READINGS_API = FRONTEND_SOURCE / "features" / "producer" / "readingsApi.ts"
 PRODUCER_FORECASTS_API = FRONTEND_SOURCE / "features" / "producer" / "forecastsApi.ts"
 PRODUCER_HISTORICAL_API = FRONTEND_SOURCE / "features" / "producer" / "historicalApi.ts"
+PRODUCER_PROVENANCE_API = FRONTEND_SOURCE / "features" / "producer" / "provenanceApi.ts"
 GENERATED_IMPORT = "../../api/generated/schema"
 
 EXPECTED_OPERATION_IDS = {
@@ -225,6 +226,7 @@ def test_only_owned_clients_consume_the_generated_schema():
         PRODUCER_READINGS_API,
         PRODUCER_FORECASTS_API,
         PRODUCER_HISTORICAL_API,
+        PRODUCER_PROVENANCE_API,
     }
 
 

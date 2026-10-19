@@ -34,6 +34,7 @@ from ..dependencies import (
     require_producer_v2_enabled,
 )
 from ..schemas_v2 import (
+    BatchProvenanceResponse,
     EmissionRequest,
     ErrorResponse,
     ForecastBatchResponse,
@@ -360,6 +361,25 @@ def get_forecast(
             "forecast_not_found", "La emision no existe para este sensor.", 404
         )
     return ForecastResponse(**forecast)
+
+
+@router.get(
+    "/sensors/{sensor_id}/batches/{batch_id}/provenance",
+    response_model=BatchProvenanceResponse,
+    responses=ERROR_RESPONSES,
+)
+def get_batch_provenance(
+    sensor_id: str,
+    batch_id: str,
+    operational_repository: OperationalRepository = Depends(get_operational_repository),
+) -> BatchProvenanceResponse:
+    """Procedencia de solo lectura (lista blanca de identidad) de una emisión."""
+    provenance = operational_repository.get_batch_provenance(batch_id)
+    if provenance is None:
+        raise OperationalRepositoryError(
+            "batch_not_found", "La emisión no existe para este sensor.", 404
+        )
+    return BatchProvenanceResponse(**provenance)
 
 
 @router.post(

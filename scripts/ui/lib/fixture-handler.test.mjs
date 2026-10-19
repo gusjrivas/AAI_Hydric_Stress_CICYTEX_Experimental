@@ -16,6 +16,7 @@ const files = {
   "cicytex/feedback.json": { registered_at: "2023-07-07T00:00:00Z" },
   "pergamino-ensemble-demo/forecasts__2023-06-13__2023-06-13.json": { slots: [] },
   "pergamino-ensemble-demo/readings__2023-06-13.json": { rows: [] },
+  "pergamino-ensemble-demo/provenance__batch_abc.json": { batch_id: "batch_abc", horizons: [] },
   "lab/quality-template.json": { sensor_id: "x", total_rows: 0, period_start: null, period_end: null, out_of_range: {}, duplicate_timestamps: [] },
   "lab/forecast-run.json": { verdicts: [{ alerta: false, fecha: "x", fecha_objetivo: "y", probabilidad: 0 }] },
   "lab/feedback-list.json": { rows: [{ fecha: "x", fecha_objetivo: "y", estado_validacion: "pendiente" }] },
@@ -95,6 +96,19 @@ test("histórico productor: sirve la fixture o 404 batch_not_prepared", () => {
   assert.equal(missing.body.error.code, "batch_not_prepared");
   assert.equal(call(h, "GET", `${base}/2023-06-13/readings?days=10`).status, 200);
   assert.equal(call(h, "GET", `${base}/2023-06-19/readings?days=10`).status, 404);
+});
+
+test("procedencia productor: sirve la fixture grabada por batch_id o 404 batch_not_found", () => {
+  const h = make();
+  const base = "/api/v2/sensors/pergamino-ensemble-demo/batches";
+  const found = call(h, "GET", `${base}/batch_abc/provenance`);
+  assert.equal(found.status, 200);
+  assert.equal(found.body.batch_id, "batch_abc");
+  const missing = call(h, "GET", `${base}/batch_otro/provenance`);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.error.code, "batch_not_found");
+  assert.equal(call(h, "POST", `${base}/batch_abc/provenance`).status, 404);
+  assert.deepEqual(h.unmatched, ["POST /api/v2/sensors/pergamino-ensemble-demo/batches/batch_abc/provenance"]);
 });
 
 test("laboratorio: la calidad se deriva de las lecturas ingeridas", () => {

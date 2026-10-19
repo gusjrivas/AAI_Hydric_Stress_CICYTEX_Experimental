@@ -401,3 +401,42 @@ class ForecastBatchResponse(StrictModel):
     data_age_days: int | None
     provenance: Literal["real", "synthetic", "external_reanalysis", "mixed", "unknown"]
     slots: list[AvailableForecastSlot | UnavailableForecastSlot] = Field(min_length=3, max_length=3)
+
+
+class CodeIdentity(StrictModel):
+    """Identidad de código registrada al entrenar el bundle. `commit`/`dirty`
+    son `None` cuando git no estaba disponible (`available=False`)."""
+
+    available: bool
+    commit: str | None
+    dirty: bool | None
+
+
+class ProvenanceComponent(StrictModel):
+    family: EnsembleFamily
+    # None = el bundle no registró `code_identity` ("no registrado").
+    code_identity: CodeIdentity | None
+
+
+class HorizonProvenance(StrictModel):
+    horizon_days: Literal[1, 2, 3]
+    status: Literal["available", "unavailable"]
+    reason_code: str | None
+    mode: Literal["single", "ensemble"] | None
+    model_reference: ModelReference | None
+    ensemble_identity_sha256: str | None
+    code_identity: CodeIdentity | None
+    components: list[ProvenanceComponent]
+
+
+class BatchProvenanceResponse(StrictModel):
+    """Lista blanca de identidad de una emisión; nunca `input_snapshot`."""
+
+    batch_id: str
+    sensor_id: str
+    as_of_date: date
+    contract_version: str
+    snapshot_id: str
+    horizons: list[HorizonProvenance] = Field(min_length=3, max_length=3)
+    # Datos que el backend no persiste con la emisión (declarados, no inferidos).
+    not_persisted: list[Literal["full_config", "mlflow_run", "seed"]]

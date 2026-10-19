@@ -82,6 +82,17 @@ def record_producer(base: str, out: Path) -> None:
                 write(out, f"{sensor}/forecasts__{emission}__{revealed}.json", payload)
             else:
                 print("omitido (sin emisión preparada)", sensor, emission, revealed, status)
+        # Procedencia de cada emisión (GET de solo lectura), nombrada por su batch_id.
+        for emission in emissions:
+            status, batch = call(base, "GET", f"{root}/{emission}/forecasts")
+            if status != 200:
+                continue
+            batch_id = batch["batch_id"]
+            status, payload = call(base, "GET", f"/api/v2/sensors/{sensor}/batches/{batch_id}/provenance")
+            if status == 200:
+                write(out, f"{sensor}/provenance__{batch_id}.json", payload)
+            else:
+                print("omitido (sin procedencia)", sensor, emission, status)
         for revealed in sorted({r for _, r in reveals}):
             status, payload = call(base, "GET", f"{root}/{revealed}/readings?days=10")
             if status == 200:

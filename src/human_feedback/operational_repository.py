@@ -101,6 +101,23 @@ def _parse_iso_z(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def _public_code_identity(raw: Any) -> dict[str, Any] | None:
+    """Lista blanca de `code_identity` (available/commit/dirty). `None` si no
+    fue registrado o no tiene la forma esperada; `reason` (texto libre que
+    puede contener rutas) nunca se expone."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("available"), bool):
+        return None
+    if not raw["available"]:
+        return {"available": False, "commit": None, "dirty": None}
+    commit = raw.get("commit")
+    dirty = raw.get("dirty")
+    return {
+        "available": True,
+        "commit": commit if isinstance(commit, str) else None,
+        "dirty": dirty if isinstance(dirty, bool) else None,
+    }
+
+
 @dataclass(frozen=True)
 class SlotSeed:
     """Resultado de un horizonte, producido por inferencia o por fixtures aislados.
@@ -565,6 +582,68 @@ class OperationalRepository:
         if batch_id not in document["batches"]:
             return None
         return self._render_batch(document, batch_id, now)
+
+    def get_batch_provenance(self, batch_id: str) -> dict[str, Any] | None:
+        """Procedencia de solo lectura de una emisión, como lista blanca de
+        campos de identidad. Nunca devuelve `input_snapshot` (parquet) ni
+        otros campos del bundle. `code_identity` ausente (bundles/lotes
+        anteriores a su registro) queda en `None` ("no registrado"): jamás se
+        infiere del checkout actual. Devuelve `None` si el lote no existe."""
+        document = self._read()
+        batch = document["batches"].get(batch_id)
+        if batch is None or batch.get("sensor_id") != self.sensor_id:
+            return None
+        snapshot = batch.get("input_snapshot")
+        bundles = snapshot.get("bundles") if isinstance(snapshot, dict) else None
+        bundles = bundles if isinstance(bundles, dict) else {}
+        horizons = []
+        for horizon in SUPPORTED_HORIZONS:
+            slot = batch["slots"][str(horizon)]
+            bundle = bundles.get(str(horizon))
+            bundle = bundle if isinstance(bundle, dict) else {}
+            entry: dict[str, Any] = {
+                "horizon_days": horizon,
+                "status": slot["status"],
+                "reason_code": slot.get("reason_code"),
+                "mode": None,
+                "model_reference": None,
+                "ensemble_identity_sha256": None,
+                "code_identity": None,
+                "components": [],
+            }
+            if slot["status"] == "available":
+                forecast = document["forecasts"][slot["forecast_id"]]
+                entry["model_reference"] = forecast["model_reference"]
+                if bundle.get("mode") == "ensemble":
+                    entry["mode"] = "ensemble"
+                    ensemble = forecast.get("ensemble") or {}
+                    entry["ensemble_identity_sha256"] = ensemble.get("ensemble_identity_sha256")
+                    components = bundle.get("components")
+                    components = components if isinstance(components, dict) else {}
+                    entry["components"] = [
+                        {
+                            "family": family,
+                            "code_identity": _public_code_identity(
+                                (meta or {}).get("code_identity")
+                                if isinstance(meta, dict)
+                                else None
+                            ),
+                        }
+                        for family, meta in sorted(components.items())
+                    ]
+                elif bundle:
+                    entry["mode"] = "single"
+                    entry["code_identity"] = _public_code_identity(bundle.get("code_identity"))
+            horizons.append(entry)
+        return {
+            "batch_id": batch["batch_id"],
+            "sensor_id": batch["sensor_id"],
+            "as_of_date": batch["as_of_date"],
+            "contract_version": batch["contract_version"],
+            "snapshot_id": batch["snapshot_id"],
+            "horizons": horizons,
+            "not_persisted": ["full_config", "mlflow_run", "seed"],
+        }
 
     def list_forecasts(
         self,

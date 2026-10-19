@@ -210,6 +210,26 @@ export interface paths {
         patch: operations["update_sensor_api_v2_sensors__sensor_id__patch"];
         trace?: never;
     };
+    "/api/v2/sensors/{sensor_id}/batches/{batch_id}/provenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Batch Provenance
+         * @description Procedencia de solo lectura (lista blanca de identidad) de una emisión.
+         */
+        get: operations["get_batch_provenance_api_v2_sensors__sensor_id__batches__batch_id__provenance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/sensors/{sensor_id}/forecasts": {
         parameters: {
             query?: never;
@@ -716,6 +736,29 @@ export interface components {
              */
             target_date: string;
         };
+        /**
+         * BatchProvenanceResponse
+         * @description Lista blanca de identidad de una emisión; nunca `input_snapshot`.
+         */
+        BatchProvenanceResponse: {
+            /**
+             * As Of Date
+             * Format: date
+             */
+            as_of_date: string;
+            /** Batch Id */
+            batch_id: string;
+            /** Contract Version */
+            contract_version: string;
+            /** Horizons */
+            horizons: components["schemas"]["HorizonProvenance"][];
+            /** Not Persisted */
+            not_persisted: ("full_config" | "mlflow_run" | "seed")[];
+            /** Sensor Id */
+            sensor_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+        };
         /** CicytexCatalogResponse */
         CicytexCatalogResponse: {
             /** Emission Dates */
@@ -934,6 +977,19 @@ export interface components {
              * Format: date
              */
             validation_end: string;
+        };
+        /**
+         * CodeIdentity
+         * @description Identidad de código registrada al entrenar el bundle. `commit`/`dirty`
+         *     son `None` cuando git no estaba disponible (`available=False`).
+         */
+        CodeIdentity: {
+            /** Available */
+            available: boolean;
+            /** Commit */
+            commit: string | null;
+            /** Dirty */
+            dirty: boolean | null;
         };
         /** EmissionRequest */
         EmissionRequest: Record<string, never>;
@@ -1242,6 +1298,29 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HorizonProvenance */
+        HorizonProvenance: {
+            code_identity: components["schemas"]["CodeIdentity"] | null;
+            /** Components */
+            components: components["schemas"]["ProvenanceComponent"][];
+            /** Ensemble Identity Sha256 */
+            ensemble_identity_sha256: string | null;
+            /**
+             * Horizon Days
+             * @enum {integer}
+             */
+            horizon_days: 1 | 2 | 3;
+            /** Mode */
+            mode: ("single" | "ensemble") | null;
+            model_reference: components["schemas"]["ModelReference"] | null;
+            /** Reason Code */
+            reason_code: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "unavailable";
+        };
         /** InputRole */
         InputRole: {
             /**
@@ -1346,6 +1425,15 @@ export interface components {
             model_version: string | null;
             /** Trained Through */
             trained_through: string | null;
+        };
+        /** ProvenanceComponent */
+        ProvenanceComponent: {
+            code_identity: components["schemas"]["CodeIdentity"] | null;
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "logistic_regression" | "random_forest" | "hist_gradient_boosting_classifier";
         };
         /**
          * QualityReportResponse
@@ -2539,6 +2627,65 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SensorResponse"];
+                };
+            };
+            /** @description Recurso desconocido */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflicto de estado o revisión */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Solicitud inválida */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Almacenamiento no disponible */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_batch_provenance_api_v2_sensors__sensor_id__batches__batch_id__provenance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sensor_id: string;
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchProvenanceResponse"];
                 };
             };
             /** @description Recurso desconocido */

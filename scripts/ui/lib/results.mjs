@@ -1,8 +1,8 @@
 // Registro de resultados por sitio. Solo PASS/FAIL/INFO y texto: nada con hora, duración ni puertos (corridas comparables).
 // Mínimo de chequeos (PASS+FAIL+INFO) por sitio: un sitio que aborta pronto no puede verse igual que uno completo.
 export const EXPECTED_MIN_CHECKS = {
-  "melchor-romero": 17,
-  pergamino: 17,
+  "melchor-romero": 18,
+  pergamino: 18,
   cicytex: 26,
   laboratorio: 12,
   "arquitectura-laya": 7, // 6 chequeos + 1 INFO (A9)
