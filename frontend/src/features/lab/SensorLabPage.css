@@ -93,3 +93,17 @@
 .sl-open-tools button { min-height: 44px; border: 1px solid var(--color-action); border-radius: 6px; background: #fff; color: var(--color-action); font: inherit; font-weight: 650; padding: 8px 16px; cursor: pointer; }
 .sl-open-tools button:hover { background: var(--color-action-bg); }
 .sl-disclaimer--top { max-width: none; margin: 0; padding: var(--space-3) var(--space-4); background: var(--color-surface-2); border: 1px solid var(--color-border); border-left: 4px solid var(--color-sim); border-radius: 10px; color: var(--color-ink); }
+
+/* Jerarquía de acciones: primaria = paso de la fase actual; secundaria = el resto. */
+.sl-controls button.sl-btn-secondary:not(:disabled) { background: #fff; border-color: var(--color-action); color: var(--color-action); }
+.sl-controls button.sl-btn-secondary:not(:disabled):hover { background: var(--color-action-bg); }
+.sl-controls button.sl-btn-primary { background: var(--color-action); color: #fff; }
+.sl-disabled-note { margin: 0; font-size: .875rem; line-height: 1.5; color: var(--color-muted); }
+
+/* Trazabilidad de la sesión de prueba */
+.sl-trace { background: var(--color-surface); border: 1px solid var(--color-border); border-top: 3px solid var(--color-sim); border-radius: 12px; padding: var(--space-4); display: grid; gap: var(--space-3); }
+.sl-trace h2 { margin: 0; font-size: 1rem; color: var(--color-navy); }
+.sl-trace dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--space-3) var(--space-4); margin: 0; }
+.sl-trace dt { font-size: .75rem; color: var(--color-cyan-text); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.sl-trace dd { margin: 4px 0 0; font-weight: 650; overflow-wrap: anywhere; }
+.sl-trace p { margin: 0; font-size: .875rem; line-height: 1.55; color: var(--color-muted); }
