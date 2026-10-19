@@ -69,7 +69,7 @@ Tres dominios separados: CICYTEX (paquete causal archivado), productor (Pergamin
 Romero) y laboratorio (sintético). La flecha a Laya está punteada: integrada pero apagada
 (ADR-0014). El diagrama es una síntesis: el detalle por nodo vive en el catálogo de `#arquitectura`.
 
-## 3. Mapa antes/después (PRs #45-#62)
+## 3. Mapa antes/después (PRs #45-#67)
 
 | PR | Estado | Qué cambió en la UI |
 | --- | --- | --- |
@@ -91,14 +91,18 @@ Romero) y laboratorio (sintético). La flecha a Laya está punteada: integrada p
 | #60 | merged (`e575a30`) | F5: «Confirmar» y «Rechazar» con el mismo peso visual (clase `forecast-card-choice`), sin preselección y con envío único. |
 | #61 | merged (`c7e13b8`) | F5: laboratorio: nota «Cómo revisar» corregida, una sola línea de «no disponible» y recorrido visual a 360 px de A a D. |
 | #62 | merged (`9cea43f`) | F7: recorridos de navegador de cuatro sitios y la ficha de Laya con fixtures deterministas, y job `browser-journeys` en CI. |
+| #63 | merged (`f43c3b4`) | Docs: sincroniza ADR 0015, F7/F8 y seguimiento con #59-#62. |
+| #64 | merged (`584bd94`) | HU6, `predictive-modeling`: `bundle.json` de las ejecuciones nuevas registra `code_identity` (commit/dirty). |
+| #65 | merged (`c5dc55e`) | F8: guion de demo de 3-5 min y ensayo técnico cronometrado (`docs/design/demo-guion-defensa.md`, `scripts/ui/rehearse-demo.mjs`; 22 PASS en tres corridas). |
+| #66 | merged (`6106b78`) | F5: laboratorio con objetivos táctiles de 44 px por regla CSS a ≤600 px (no medido en navegador), mensaje de red en español y test con backend apagado; regresión de la redacción de Laya. |
+| #67 | merged (`5e22733`) | F6: endpoint de solo lectura de procedencia de la emisión y panel «Procedencia de la emisión» (emisiones previas a #64: «no registrado»; configuración, MLflow y semilla: «no disponible»). |
 
 Antes: vistas sin separación explícita de modo, sin mapa de arquitectura, recorrido CICYTEX
 frágil ante fallos y sin rediseño ni trazabilidad en los demás sitios. Después: modo visible,
 catálogo navegable por teclado y, en los cuatro sitios, recorrido rediseñado con trazabilidad
 declarada, con la salvedad de los datos disponibles en cada uno: CICYTEX (identidad del
 paquete: hash y commit; versión de modelo y linaje de recalibración no disponibles),
-Pergamino y Melchor Romero (payload de `producer_v2`; sin SHA-256 de dataset, commit,
-semilla, corridas MLflow ni particiones) y laboratorio (procedencia sintética: semilla y
+Pergamino y Melchor Romero (payload de `producer_v2`; desde #67, panel de procedencia con SHA-256 del dataset, `model_version`, calibración, `trained_through` y `code_identity` cuando el bundle la registró; «no registrado» en emisiones previas a #64 y «no disponible» para configuración, MLflow y semilla) y laboratorio (procedencia sintética: semilla y
 reloj ficticio; no es evidencia científica). Los títulos y los merge commits provienen de
 `gh pr view`; el detalle por PR no se releyó aquí.
 
@@ -106,7 +110,7 @@ reloj ficticio; no es evidencia científica). Los títulos y los merge commits p
 
 Evidencia: `App.resilience.test.tsx` (AR), `CicytexDefensePage.test.tsx` (CP),
 `backend/tests/test_cicytex_replay_provenance.py` (BP), `scripts/ui/verify-journeys.mjs`
-(NAV). Resultado de #62 contra fixtures deterministas: 78 PASS, 0 FAIL y 1 INFO (A9: rutas sin fixture
+(NAV). Resultado contra fixtures deterministas: 78 PASS en #62 y 80 PASS, 0 FAIL y 1 INFO con #67 (A9: rutas sin fixture
 `GET /api/v2/sectors` y `/api/v2/sensors`), en cuatro sitios y la ficha de Laya; el detalle por sitio está en
 `docs/design/f7-verificacion-navegador.md`. Los resultados históricos de la primera versión (CICYTEX, 12 `ok: true` y
 J6 informativo) siguen en `docs/design/capturas/f7-verificacion-navegador.json`. Se suman las pruebas de componente de
@@ -160,8 +164,7 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
    referencia mínima en `sessionStorage`, por pestaña; el borrador de feedback y las notas no se
    transfieren. No hay rehidratación autónoma por servidor (cookie o identidad de usuario).
 2. **Trazabilidad con alcance distinto por sitio.** CICYTEX: identidad del paquete (hash y commit).
-   Pergamino y Melchor Romero: payload de `producer_v2`; SHA-256 de dataset, commit, semilla,
-   corridas MLflow y particiones figuran «no disponible» (el backend no los expone). Laboratorio:
+   Pergamino y Melchor Romero: payload de `producer_v2` más, desde #67, el panel de procedencia con SHA-256 del dataset, `model_version`, calibración, `trained_through` y `code_identity` (#64) cuando el bundle la registró; las emisiones previas a #64 figuran «no registrado» y la configuración completa, las corridas MLflow y la semilla figuran «no disponible» (no se persisten por emisión). Laboratorio:
    procedencia sintética declarada (semilla, reloj ficticio), sin valor de evidencia.
 3. **Linaje de recalibración y versión de modelo: no disponibles** en el recorrido; la UI lo declara.
 4. **Recorridos de navegador en CI con fixtures, sin auditoría axe ni Playwright.** Desde #62 CI
@@ -177,15 +180,11 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
 6. **Sin telemetría simulada**: nada en la UI se presenta como monitoreo en vivo.
 7. **Niveles de prueba no equivalentes**: componente (jsdom) ≠ navegador real (script CDP) ≠
    validación visual puntual. Ninguno es auditoría de accesibilidad ni evidencia científica.
-8. **Sin SHA/commit/MLflow para `producer_v2` ni para el laboratorio**: agregarlos exigiría cambios
-   de backend, fuera del alcance de la UI.
-9. El script de navegador (`verify-journeys.mjs`, 78 PASS, 0 FAIL, 1 INFO) cubre cuatro sitios y la
+8. **Procedencia parcial en `producer_v2` y ninguna en el laboratorio**: #67 expone SHA-256 del dataset y `code_identity` sólo cuando el bundle la registró (ejecuciones posteriores a #64); MLflow, semilla y configuración no se persisten por emisión, y el laboratorio es sintético. La identidad del paquete en las sesiones SQLite de CICYTEX (incremento 3 de linaje) no está implementada.
+9. El script de navegador (`verify-journeys.mjs`, 78 PASS en #62 y 80 PASS, 0 FAIL, 1 INFO con #67) cubre cuatro sitios y la
    ficha de Laya contra fixtures grabadas; no prueba el backend real y un cambio de contrato exige
    regrabarlas. No cubre las revisiones POST de Pergamino y Melchor Romero ni los pasos C y D del laboratorio.
-10. **Laboratorio, pendientes declarados en #61**: tamaños táctiles por debajo de lo deseable
-    (selectores 36 px, `summary` 21 px, enlace 20 px), mensaje crudo en inglés «Failed to fetch» y
-    laboratorio con backend apagado sin probar. Los defectos de «Cómo revisar» y de la repetición de
-    «no disponible» se corrigieron en #61.
+10. **Laboratorio**: #61 declaró tamaños táctiles bajos, mensaje crudo en inglés «Failed to fetch» y laboratorio con backend apagado sin probar. #66 los atiende: objetivos de 44 px por regla CSS a ≤600 px (el test lee el CSS; no se midió en navegador), mensaje en español y test del laboratorio con backend apagado (jsdom). Siguen pendientes, fuera del laboratorio, los inputs de fecha `.fp-filters` (36 px) y el enlace de `NoReadingsHint` (~20 px) en `ResumenView`. Los defectos de «Cómo revisar» y de la repetición de «no disponible» se corrigieron en #61.
 11. «Confirmar» y «Rechazar» tienen el mismo peso visual desde #60; se prueba sólo con test de componente.
 12. Las capturas de la verificación visual de #55-#57 están en el scratchpad y no se versionan;
     no son reproducibles desde el repositorio.
@@ -194,11 +193,11 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
 
 1. **¿La UI usa información futura?** La vista revela solo hasta el reloj de la sesión y hay una prueba de componente que ignora lecturas posteriores aunque lleguen. No verificado a nivel de la API completa en esta redacción.
 2. **¿Esto demuestra que el modelo funciona?** No. Es un recorrido de reproducción de un paquete archivado; no reabre la campaña ni usa el holdout final para elegir nada.
-3. **¿De dónde sale cada predicción?** En CICYTEX, el panel muestra fuente, emisión, objetivo, modelos congelados e identidad del paquete (hash y commit); versión de modelo y linaje de recalibración se declaran no disponibles. En Pergamino y Melchor Romero se muestra lo que expone `producer_v2`; SHA-256 de dataset, commit, semilla y MLflow figuran no disponibles. El laboratorio declara procedencia sintética.
+3. **¿De dónde sale cada predicción?** En CICYTEX, el panel muestra fuente, emisión, objetivo, modelos congelados e identidad del paquete (hash y commit); versión de modelo y linaje de recalibración se declaran no disponibles. En Pergamino y Melchor Romero se muestra lo que expone `producer_v2` y, desde #67, el panel de procedencia (SHA-256 del dataset, `model_version`, calibración, `trained_through`; `code_identity` sólo si el bundle la registró, «no registrado» en emisiones previas); configuración, MLflow y semilla figuran no disponibles. El laboratorio declara procedencia sintética.
 4. **¿Qué pasa si falta el paquete?** La API responde 503 y la UI mantiene el recorrido y lo informa. Verificado con tests; en navegador real, no verificado.
 5. **¿Qué pasa al recargar?** Se conserva la ruta y CICYTEX recupera la sesión (referencia mínima en `sessionStorage` y `GET /sessions/{id}`). Si falla la recuperación (por ejemplo 404, registro mal formado o sesión que no coincide) se muestra el aviso y se borra la referencia. Es por pestaña; el borrador de feedback no se transfiere.
 6. **¿Laya participa en las decisiones?** No: está desactivada por defecto y su evaluación no está habilitada por falta de corpus humano (ADR-0014).
 7. **¿Hay datos en vivo o IoT real?** No hay telemetría en vivo. Los sensores son fuente de datos; el laboratorio es sintético y no es evidencia científica.
-8. **¿Está probado de punta a punta en CI?** Parcialmente. CI corre tests de componente y, desde #62, recorridos en Chrome real de cuatro sitios y la ficha de Laya contra fixtures deterministas (78 PASS, 0 FAIL, 1 INFO), no contra el backend real. Quedan fuera las revisiones POST de Pergamino y Melchor Romero y los pasos C y D del laboratorio. No hay auditoría axe.
+8. **¿Está probado de punta a punta en CI?** Parcialmente. CI corre tests de componente y, desde #62, recorridos en Chrome real de cuatro sitios y la ficha de Laya contra fixtures deterministas (80 PASS, 0 FAIL, 1 INFO con #67), no contra el backend real. Quedan fuera las revisiones POST de Pergamino y Melchor Romero y los pasos C y D del laboratorio. No hay auditoría axe.
 9. **¿Qué hace el feedback humano?** Se registra por sesión solo con la realidad revelada y el borrador no se filtra entre sesiones. Su efecto sobre modelos no es parte de este paquete.
 10. **¿El sistema decide el riego?** No. Es apoyo a la decisión.

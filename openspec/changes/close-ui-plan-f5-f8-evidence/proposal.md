@@ -1,0 +1,6 @@
+# Proposal: cierre documental de la evidencia F5-F8 hasta el PR #67
+
+- HU: HU6 (UI); HU5 sólo por el borrador de revisión. Capacidad: `alerting-ui`. Fase CRISP-DM: despliegue/evaluación. Impacto científico: ninguno; sólo documentación. Sin cambios de código, modelos, umbrales, protocolo, hipótesis ni HU7/HU8; Laya sigue desactivada (ADR-0014).
+- Cambio: `docs/seguimiento-tareas.md` (filas F5-F8), ADR 0015 (mapa de PR y cifras hasta #67), `docs/design/f8-paquete-defensa.md` y el checkpoint `docs/superpowers/plans/2026-10-17-arquitectura-ui-checkpoint-f0-f1.md` quedan alineados con #59-#67 (merge commits verificados con `gh pr view`). Base: `main` en `5e22733`.
+- Corrige la frase que atribuía a F6 «sin SHA-256 de dataset, commit ni MLflow» como estado actual: es el estado en #55, superado por #64 (`code_identity`) y #67 (panel de procedencia).
+- El ADR 0015 sigue **Propuesto**; no se atribuye aprobación al dueño. Ninguna fase pasa a ✅: F5-F8 siguen 🟡 con pendientes humanos (ensayo con Gustavo, aceptación del ADR, decisión sobre Playwright/axe) separados de los técnicos (incremento 3 de linaje, tamaños táctiles en `ResumenView`, revisión visual con `code_identity`, sin auditoría de accesibilidad automatizada, journeys sin lab C/D ni POST de revisión, posible fragilidad de Chrome en CI, tests flaky bajo carga).

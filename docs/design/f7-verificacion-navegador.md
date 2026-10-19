@@ -12,10 +12,12 @@ frontend y un servidor de fixtures determinista (`scripts/ui/fixture-server.mjs`
 
 | Sitio (ruta) | Chequeos (PASS/FAIL) |
 |--------------|----------------------|
-| Melchor Romero (`#defensa-melchor-romero`) y Pergamino (`#defensa-pergamino`), 17 c/u | veredicto y acuerdo visibles; realidad futura oculta; trazabilidad con «no disponible»; acción primaria/secundaria; «Día siguiente» mueve el reloj y no revela filas ni objetivos posteriores; retroceder re-oculta; backend desconectado (error `role=alert`, sin decisión vigente) y recuperación con «Reintentar»; evidencia declarada del sitio; Tab sin trampa con foco visible |
+| Melchor Romero (`#defensa-melchor-romero`) y Pergamino (`#defensa-pergamino`), 17 c/u en #62; 18 c/u con #67 (se añaden M4b/P4b) | veredicto y acuerdo visibles; realidad futura oculta; trazabilidad con «no disponible»; acción primaria/secundaria; «Día siguiente» mueve el reloj y no revela filas ni objetivos posteriores; retroceder re-oculta; backend desconectado (error `role=alert`, sin decisión vigente) y recuperación con «Reintentar»; evidencia declarada del sitio; Tab sin trampa con foco visible |
 | CICYTEX (`#defensa-cicytex`), 26 | lo anterior de J0–J7 y además: trazabilidad (SHA-256 y «no disponible»), observado oculto, gráfico sin futuro, feedback sin preselección, J6 pasa de INFO a chequeo: recarga con sesión restaurada y recarga con el servidor en 404 (explicación, sin sesión fantasma, foco en «Abrir emisión») |
 | Laboratorio (`#laboratorio-sensores`), 12 | simulación declarada; orden A→B→C→D; backend desconectado en A (error, sin avance) y recuperación con sesión nueva; A (120 lecturas) y B (anomalía de medición, no alerta); Tab |
 | Arquitectura (`#arquitectura`), 6 + 1 INFO | Laya «Desactivado por defecto», sin acciones; Tab. El INFO lista rutas de API sin fixture (hoy `GET /api/v2/sectors` y `/api/v2/sensors`, 404 inocuos) |
+
+Total: 78 PASS, 0 FAIL y 1 INFO en #62 (17+17+26+12+6); con #67 son 80 PASS, 0 FAIL y 1 INFO (18+18+26+12+6) por M4b/P4b y la fixture de procedencia.
 
 Salidas en `OUT_DIR` (por defecto un directorio temporal): `<sitio>.json` y `summary.json` (sólo PASS/FAIL/INFO y texto: dos corridas dan
 archivos idénticos), `*-orden-de-foco.json` y capturas `*.png` (las capturas no se comparan). Portabilidad: `CHROME_PATH` o detección

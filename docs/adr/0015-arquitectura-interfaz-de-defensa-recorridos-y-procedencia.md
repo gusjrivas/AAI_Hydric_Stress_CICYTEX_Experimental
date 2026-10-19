@@ -5,7 +5,7 @@ Estado: **Propuesto el 2026-10-18** (pasa a Aceptado cuando el dueño del proyec
 Trazabilidad: HU6 (`architecture-integration`) y UI (`alerting-ui`); HU5
 (`human-feedback`) sólo por el borrador de revisión del recorrido CICYTEX. Fase
 CRISP-DM: despliegue e integración experimental. Cambios entregados en los PR #45 a
-#62. No cambia modelos, umbrales, protocolos, hipótesis ni HU7/HU8. Laya sigue
+#67. No cambia modelos, umbrales, protocolos, hipótesis ni HU7/HU8. Laya sigue
 desactivada (ADR-0014).
 
 ## Contexto
@@ -13,7 +13,7 @@ desactivada (ADR-0014).
 La interfaz de defensa debe mostrar cuatro contextos que el ADR-0014 declara no
 intercambiables (Pergamino, Melchor Romero, CICYTEX y laboratorio sintético) sin
 presentar datos simulados como evidencia ni inventar metadatos que el backend no
-expone. Los PR #45 a #62 rediseñaron la navegación, los recorridos y la verificación.
+expone. Los PR #45 a #67 rediseñaron la navegación, los recorridos y la verificación.
 Este ADR registra las decisiones efectivamente presentes en `main`.
 
 ## Decisión
@@ -77,6 +77,11 @@ se unificó `CicytexDefensePage` sobre `HistoricalWalkthrough`.
 - Los esquemas de respuesta son cerrados (`extra="forbid"` en
   `backend/app/schemas_cicytex_replay.py`, `CicytexProvenanceResponse`). Si el paquete
   no cumple el contrato, el endpoint responde 503, no 500 (PR #53, `8c78b68`).
+- Procedencia por emisión del productor (PR #64 y #67): `bundle.json` de las ejecuciones
+  nuevas registra `code_identity` (commit/dirty) y `GET /api/v2/sensors/{sensor_id}/batches/{batch_id}/provenance`,
+  de solo lectura, alimenta el panel «Procedencia de la emisión». Las emisiones previas a #64
+  figuran «no registrado»; configuración completa, corridas MLflow y semilla figuran «no disponible»
+  porque no se persisten por emisión. El estado de este ADR no cambia.
 - Regla: lo que no existe se declara «no disponible», nunca se simula.
   `CicytexTraceability.tsx` declara no disponibles la versión del modelo y el linaje
   de recalibración (los modelos están congelados por corrida). `HistoricalWalkthrough`
@@ -156,6 +161,11 @@ commit `5098fd9`).
 | #60 | `e575a30` | acciones de revisión equivalentes, foco estable y envío único (F5, HU5/HU6) |
 | #61 | `c7e13b8` | laboratorio: lectura, declaración única de no disponibles y recorrido a 360 px (F5) |
 | #62 | `9cea43f` | recorridos de navegador de los cuatro sitios con fixtures deterministas y job de CI (F7) |
+| #63 | `f43c3b4` | docs: sincroniza ADR 0015, F7/F8 y seguimiento con #59-#62 (F5-F8) |
+| #64 | `584bd94` | `code_identity` en `bundle.json` de ejecuciones nuevas (HU6, `predictive-modeling`) |
+| #65 | `c5dc55e` | docs: guion de demo 3-5 min y ensayo técnico cronometrado (F8) |
+| #66 | `6106b78` | objetivos táctiles del laboratorio, error de red en español y regresión de Laya (F5) |
+| #67 | `5e22733` | panel de procedencia de la emisión y endpoint de solo lectura (F6) |
 
 Los commits `8c78b68`, `606eec7` y `5098fd9` citados arriba son commits internos del
 PR #53, no merge commits.
@@ -169,7 +179,7 @@ Hechos verificados:
   (`CicytexDefensePage.restore.test.tsx`, `ForecastCard.reviewActions.test.tsx`) son de
   componente, sin navegador real.
 - Navegador real por script (`scripts/ui/verify-journeys.mjs`, PR #62), contra fixtures
-  deterministas y en CI: 78 PASS, 0 FAIL y 1 INFO (A9, lista las rutas sin fixture
+  deterministas y en CI: 78 PASS en #62 y 80 PASS con #67, 0 FAIL y 1 INFO (A9, lista las rutas sin fixture
   `GET /api/v2/sectors` y `/api/v2/sensors`). Cubre recarga con sesión restaurada y con
   404 y feedback sin preselección en CICYTEX; no cubre la igualdad de peso visual de
   «Confirmar» y «Rechazar» (esa propiedad la prueba sólo el test de componente de #60).
@@ -177,9 +187,8 @@ Hechos verificados:
 
 Límites y pendientes (no verificados o no resueltos):
 
-- Laboratorio: tamaños táctiles por debajo de lo deseable declarados en #61 (selectores
-  36 px, `summary` 21 px, enlace 20 px); el mensaje crudo en inglés «Failed to fetch»
-  sigue visible; el laboratorio con backend apagado no se probó.
+- Laboratorio: #61 declaró tamaños táctiles bajos, mensaje crudo «Failed to fetch» y laboratorio con backend apagado sin probar; #66 aplica objetivos de 44 px por regla CSS a ≤600 px (no medidos en navegador), mensaje en español y un test con backend apagado. Siguen pendientes los inputs de fecha `.fp-filters` (36 px) y el enlace de `NoReadingsHint` (~20 px) en `ResumenView`.
+- Procedencia (#64, #67): `code_identity` sólo existe en bundles de ejecuciones nuevas; las emisiones previas figuran «no registrado»; configuración completa, MLflow y semilla figuran «no disponible». Falta la revisión visual con un bundle que tenga `code_identity` y el incremento 3 de linaje (identidad del paquete en sesiones SQLite de CICYTEX).
 - Las revisiones POST de Pergamino y Melchor Romero y los pasos C y D del laboratorio no
   están en el script de navegador.
 - Sin linaje de recalibración operativo.
