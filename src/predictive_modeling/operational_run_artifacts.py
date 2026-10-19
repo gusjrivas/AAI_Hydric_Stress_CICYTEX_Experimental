@@ -319,6 +319,9 @@ def persist_operational_run(
                 "rolling_windows": list(DEFAULT_ROLLING_WINDOWS),
                 "decision_threshold": 0.5,
                 "environment": environment,
+                # Captured once at training time; informative lineage only, not
+                # part of any artifact/ensemble identity hash.
+                "code_identity": code_identity,
                 "files": {
                     name: hashlib.sha256((horizon_dir / name).read_bytes()).hexdigest()
                     for name in ("model.joblib", "calibrator.joblib", "contract.json")
