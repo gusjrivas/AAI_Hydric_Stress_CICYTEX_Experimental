@@ -1,0 +1,1836 @@
+{
+  "key": {
+    "emission_date": "2023-07-06",
+    "horizon_days": 1,
+    "sensor_id": "CP1_S1"
+  },
+  "steps": [
+    {
+      "can_advance": true,
+      "emission_date": "2023-07-06",
+      "feedback": null,
+      "horizon_days": 1,
+      "metrics": {},
+      "predictions": [
+        {
+          "alert": false,
+          "method": "logistic_regression",
+          "observed_label": null,
+          "observed_soil_moisture": null,
+          "outcome": null,
+          "score": 0.008201445584039,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "random_forest",
+          "observed_label": null,
+          "observed_soil_moisture": null,
+          "outcome": null,
+          "score": 0.0040014835192671,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "hist_gradient_boosting_classifier",
+          "observed_label": null,
+          "observed_soil_moisture": null,
+          "outcome": null,
+          "score": 0.0040066580740958,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "ensemble",
+          "observed_label": null,
+          "observed_soil_moisture": null,
+          "outcome": null,
+          "score": 0.0054031957258007,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "persistence",
+          "observed_label": null,
+          "observed_soil_moisture": null,
+          "outcome": null,
+          "score": 0.0,
+          "target_date": "2023-07-07"
+        }
+      ],
+      "proxy_notice": "P20 estimado solo con entrenamiento; no es estres fisiologico observado.",
+      "readings": [
+        {
+          "date": "2023-04-12",
+          "soil_moisture": 0.1740487805
+        },
+        {
+          "date": "2023-04-13",
+          "soil_moisture": 0.1710104167
+        },
+        {
+          "date": "2023-04-14",
+          "soil_moisture": 0.1687395833
+        },
+        {
+          "date": "2023-04-15",
+          "soil_moisture": 0.1666666667
+        },
+        {
+          "date": "2023-04-16",
+          "soil_moisture": 0.1653541667
+        },
+        {
+          "date": "2023-04-17",
+          "soil_moisture": 0.1651354167
+        },
+        {
+          "date": "2023-04-18",
+          "soil_moisture": 0.16528125
+        },
+        {
+          "date": "2023-04-19",
+          "soil_moisture": 0.2100520833
+        },
+        {
+          "date": "2023-04-20",
+          "soil_moisture": 0.2573229167
+        },
+        {
+          "date": "2023-04-21",
+          "soil_moisture": 0.2490833333
+        },
+        {
+          "date": "2023-04-22",
+          "soil_moisture": 0.2483958333
+        },
+        {
+          "date": "2023-04-23",
+          "soil_moisture": 0.24446875
+        },
+        {
+          "date": "2023-04-24",
+          "soil_moisture": 0.23553125
+        },
+        {
+          "date": "2023-04-25",
+          "soil_moisture": 0.24703125
+        },
+        {
+          "date": "2023-04-26",
+          "soil_moisture": 0.2465208333
+        },
+        {
+          "date": "2023-04-27",
+          "soil_moisture": 0.2378333333
+        },
+        {
+          "date": "2023-04-28",
+          "soil_moisture": 0.24621875
+        },
+        {
+          "date": "2023-04-29",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-04-30",
+          "soil_moisture": 0.2501354167
+        },
+        {
+          "date": "2023-05-01",
+          "soil_moisture": 0.2518020833
+        },
+        {
+          "date": "2023-05-02",
+          "soil_moisture": 0.2593229167
+        },
+        {
+          "date": "2023-05-03",
+          "soil_moisture": 0.25296875
+        },
+        {
+          "date": "2023-05-04",
+          "soil_moisture": 0.2560520833
+        },
+        {
+          "date": "2023-05-05",
+          "soil_moisture": 0.25021875
+        },
+        {
+          "date": "2023-05-06",
+          "soil_moisture": 0.2546875
+        },
+        {
+          "date": "2023-05-07",
+          "soil_moisture": 0.2492291667
+        },
+        {
+          "date": "2023-05-08",
+          "soil_moisture": 0.2386145833
+        },
+        {
+          "date": "2023-05-09",
+          "soil_moisture": 0.238875
+        },
+        {
+          "date": "2023-05-10",
+          "soil_moisture": 0.2488125
+        },
+        {
+          "date": "2023-05-11",
+          "soil_moisture": 0.2538541667
+        },
+        {
+          "date": "2023-05-12",
+          "soil_moisture": 0.2564270833
+        },
+        {
+          "date": "2023-05-13",
+          "soil_moisture": 0.2627604167
+        },
+        {
+          "date": "2023-05-14",
+          "soil_moisture": 0.2655
+        },
+        {
+          "date": "2023-05-15",
+          "soil_moisture": 0.25596875
+        },
+        {
+          "date": "2023-05-16",
+          "soil_moisture": 0.2616041667
+        },
+        {
+          "date": "2023-05-17",
+          "soil_moisture": 0.2698105263
+        },
+        {
+          "date": "2023-05-18",
+          "soil_moisture": 0.2687525773
+        },
+        {
+          "date": "2023-05-19",
+          "soil_moisture": 0.2659896907
+        },
+        {
+          "date": "2023-05-20",
+          "soil_moisture": 0.2697604167
+        },
+        {
+          "date": "2023-05-21",
+          "soil_moisture": 0.2613125
+        },
+        {
+          "date": "2023-05-22",
+          "soil_moisture": 0.2583020833
+        },
+        {
+          "date": "2023-05-23",
+          "soil_moisture": 0.2654942529
+        },
+        {
+          "date": "2023-05-24",
+          "soil_moisture": 0.2659375
+        },
+        {
+          "date": "2023-05-25",
+          "soil_moisture": 0.2696041667
+        },
+        {
+          "date": "2023-05-26",
+          "soil_moisture": 0.2698958333
+        },
+        {
+          "date": "2023-05-27",
+          "soil_moisture": 0.2686770833
+        },
+        {
+          "date": "2023-05-28",
+          "soil_moisture": 0.2638541667
+        },
+        {
+          "date": "2023-05-29",
+          "soil_moisture": 0.26159375
+        },
+        {
+          "date": "2023-05-30",
+          "soil_moisture": 0.2660744681
+        },
+        {
+          "date": "2023-05-31",
+          "soil_moisture": 0.2629166667
+        },
+        {
+          "date": "2023-06-01",
+          "soil_moisture": 0.2585729167
+        },
+        {
+          "date": "2023-06-02",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-06-03",
+          "soil_moisture": 0.2573333333
+        },
+        {
+          "date": "2023-06-04",
+          "soil_moisture": 0.2585625
+        },
+        {
+          "date": "2023-06-05",
+          "soil_moisture": 0.2597083333
+        },
+        {
+          "date": "2023-06-06",
+          "soil_moisture": 0.2511666667
+        },
+        {
+          "date": "2023-06-07",
+          "soil_moisture": 0.2627916667
+        },
+        {
+          "date": "2023-06-08",
+          "soil_moisture": 0.2595416667
+        },
+        {
+          "date": "2023-06-09",
+          "soil_moisture": 0.25696875
+        },
+        {
+          "date": "2023-06-10",
+          "soil_moisture": 0.25784375
+        },
+        {
+          "date": "2023-06-11",
+          "soil_moisture": 0.2576666667
+        },
+        {
+          "date": "2023-06-12",
+          "soil_moisture": 0.2623125
+        },
+        {
+          "date": "2023-06-13",
+          "soil_moisture": 0.25615625
+        },
+        {
+          "date": "2023-06-14",
+          "soil_moisture": 0.2526145833
+        },
+        {
+          "date": "2023-06-15",
+          "soil_moisture": 0.2547604167
+        },
+        {
+          "date": "2023-06-16",
+          "soil_moisture": 0.2551041667
+        },
+        {
+          "date": "2023-06-17",
+          "soil_moisture": 0.2628541667
+        },
+        {
+          "date": "2023-06-18",
+          "soil_moisture": 0.2728020833
+        },
+        {
+          "date": "2023-06-19",
+          "soil_moisture": 0.265625
+        },
+        {
+          "date": "2023-06-20",
+          "soil_moisture": 0.2689895833
+        },
+        {
+          "date": "2023-06-21",
+          "soil_moisture": 0.2642083333
+        },
+        {
+          "date": "2023-06-22",
+          "soil_moisture": 0.2643157895
+        },
+        {
+          "date": "2023-06-23",
+          "soil_moisture": 0.258875
+        },
+        {
+          "date": "2023-06-24",
+          "soil_moisture": 0.2466458333
+        },
+        {
+          "date": "2023-06-25",
+          "soil_moisture": 0.24578125
+        },
+        {
+          "date": "2023-06-26",
+          "soil_moisture": 0.2336666667
+        },
+        {
+          "date": "2023-06-27",
+          "soil_moisture": 0.24484375
+        },
+        {
+          "date": "2023-06-28",
+          "soil_moisture": 0.2433645833
+        },
+        {
+          "date": "2023-06-29",
+          "soil_moisture": 0.24821875
+        },
+        {
+          "date": "2023-06-30",
+          "soil_moisture": 0.2611666667
+        },
+        {
+          "date": "2023-07-01",
+          "soil_moisture": 0.2639375
+        },
+        {
+          "date": "2023-07-02",
+          "soil_moisture": 0.2564166667
+        },
+        {
+          "date": "2023-07-03",
+          "soil_moisture": 0.2564375
+        },
+        {
+          "date": "2023-07-04",
+          "soil_moisture": 0.2569375
+        },
+        {
+          "date": "2023-07-05",
+          "soil_moisture": 0.2553020833
+        },
+        {
+          "date": "2023-07-06",
+          "soil_moisture": 0.2500833333
+        }
+      ],
+      "revealed_through": "2023-07-06",
+      "sensor_id": "CP1_S1",
+      "session_id": "recorded",
+      "threshold": 0.21035505318
+    },
+    {
+      "can_advance": true,
+      "emission_date": "2023-07-06",
+      "feedback": null,
+      "horizon_days": 1,
+      "metrics": {
+        "ensemble": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 1,
+          "precision": null,
+          "recall": null,
+          "tn": 1,
+          "tp": 0
+        },
+        "hist_gradient_boosting_classifier": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 1,
+          "precision": null,
+          "recall": null,
+          "tn": 1,
+          "tp": 0
+        },
+        "logistic_regression": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 1,
+          "precision": null,
+          "recall": null,
+          "tn": 1,
+          "tp": 0
+        },
+        "persistence": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 1,
+          "precision": null,
+          "recall": null,
+          "tn": 1,
+          "tp": 0
+        },
+        "random_forest": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 1,
+          "precision": null,
+          "recall": null,
+          "tn": 1,
+          "tp": 0
+        }
+      },
+      "predictions": [
+        {
+          "alert": false,
+          "method": "logistic_regression",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.008201445584039,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "random_forest",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0040014835192671,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "hist_gradient_boosting_classifier",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0040066580740958,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "ensemble",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0054031957258007,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "persistence",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0,
+          "target_date": "2023-07-07"
+        }
+      ],
+      "proxy_notice": "P20 estimado solo con entrenamiento; no es estres fisiologico observado.",
+      "readings": [
+        {
+          "date": "2023-04-12",
+          "soil_moisture": 0.1740487805
+        },
+        {
+          "date": "2023-04-13",
+          "soil_moisture": 0.1710104167
+        },
+        {
+          "date": "2023-04-14",
+          "soil_moisture": 0.1687395833
+        },
+        {
+          "date": "2023-04-15",
+          "soil_moisture": 0.1666666667
+        },
+        {
+          "date": "2023-04-16",
+          "soil_moisture": 0.1653541667
+        },
+        {
+          "date": "2023-04-17",
+          "soil_moisture": 0.1651354167
+        },
+        {
+          "date": "2023-04-18",
+          "soil_moisture": 0.16528125
+        },
+        {
+          "date": "2023-04-19",
+          "soil_moisture": 0.2100520833
+        },
+        {
+          "date": "2023-04-20",
+          "soil_moisture": 0.2573229167
+        },
+        {
+          "date": "2023-04-21",
+          "soil_moisture": 0.2490833333
+        },
+        {
+          "date": "2023-04-22",
+          "soil_moisture": 0.2483958333
+        },
+        {
+          "date": "2023-04-23",
+          "soil_moisture": 0.24446875
+        },
+        {
+          "date": "2023-04-24",
+          "soil_moisture": 0.23553125
+        },
+        {
+          "date": "2023-04-25",
+          "soil_moisture": 0.24703125
+        },
+        {
+          "date": "2023-04-26",
+          "soil_moisture": 0.2465208333
+        },
+        {
+          "date": "2023-04-27",
+          "soil_moisture": 0.2378333333
+        },
+        {
+          "date": "2023-04-28",
+          "soil_moisture": 0.24621875
+        },
+        {
+          "date": "2023-04-29",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-04-30",
+          "soil_moisture": 0.2501354167
+        },
+        {
+          "date": "2023-05-01",
+          "soil_moisture": 0.2518020833
+        },
+        {
+          "date": "2023-05-02",
+          "soil_moisture": 0.2593229167
+        },
+        {
+          "date": "2023-05-03",
+          "soil_moisture": 0.25296875
+        },
+        {
+          "date": "2023-05-04",
+          "soil_moisture": 0.2560520833
+        },
+        {
+          "date": "2023-05-05",
+          "soil_moisture": 0.25021875
+        },
+        {
+          "date": "2023-05-06",
+          "soil_moisture": 0.2546875
+        },
+        {
+          "date": "2023-05-07",
+          "soil_moisture": 0.2492291667
+        },
+        {
+          "date": "2023-05-08",
+          "soil_moisture": 0.2386145833
+        },
+        {
+          "date": "2023-05-09",
+          "soil_moisture": 0.238875
+        },
+        {
+          "date": "2023-05-10",
+          "soil_moisture": 0.2488125
+        },
+        {
+          "date": "2023-05-11",
+          "soil_moisture": 0.2538541667
+        },
+        {
+          "date": "2023-05-12",
+          "soil_moisture": 0.2564270833
+        },
+        {
+          "date": "2023-05-13",
+          "soil_moisture": 0.2627604167
+        },
+        {
+          "date": "2023-05-14",
+          "soil_moisture": 0.2655
+        },
+        {
+          "date": "2023-05-15",
+          "soil_moisture": 0.25596875
+        },
+        {
+          "date": "2023-05-16",
+          "soil_moisture": 0.2616041667
+        },
+        {
+          "date": "2023-05-17",
+          "soil_moisture": 0.2698105263
+        },
+        {
+          "date": "2023-05-18",
+          "soil_moisture": 0.2687525773
+        },
+        {
+          "date": "2023-05-19",
+          "soil_moisture": 0.2659896907
+        },
+        {
+          "date": "2023-05-20",
+          "soil_moisture": 0.2697604167
+        },
+        {
+          "date": "2023-05-21",
+          "soil_moisture": 0.2613125
+        },
+        {
+          "date": "2023-05-22",
+          "soil_moisture": 0.2583020833
+        },
+        {
+          "date": "2023-05-23",
+          "soil_moisture": 0.2654942529
+        },
+        {
+          "date": "2023-05-24",
+          "soil_moisture": 0.2659375
+        },
+        {
+          "date": "2023-05-25",
+          "soil_moisture": 0.2696041667
+        },
+        {
+          "date": "2023-05-26",
+          "soil_moisture": 0.2698958333
+        },
+        {
+          "date": "2023-05-27",
+          "soil_moisture": 0.2686770833
+        },
+        {
+          "date": "2023-05-28",
+          "soil_moisture": 0.2638541667
+        },
+        {
+          "date": "2023-05-29",
+          "soil_moisture": 0.26159375
+        },
+        {
+          "date": "2023-05-30",
+          "soil_moisture": 0.2660744681
+        },
+        {
+          "date": "2023-05-31",
+          "soil_moisture": 0.2629166667
+        },
+        {
+          "date": "2023-06-01",
+          "soil_moisture": 0.2585729167
+        },
+        {
+          "date": "2023-06-02",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-06-03",
+          "soil_moisture": 0.2573333333
+        },
+        {
+          "date": "2023-06-04",
+          "soil_moisture": 0.2585625
+        },
+        {
+          "date": "2023-06-05",
+          "soil_moisture": 0.2597083333
+        },
+        {
+          "date": "2023-06-06",
+          "soil_moisture": 0.2511666667
+        },
+        {
+          "date": "2023-06-07",
+          "soil_moisture": 0.2627916667
+        },
+        {
+          "date": "2023-06-08",
+          "soil_moisture": 0.2595416667
+        },
+        {
+          "date": "2023-06-09",
+          "soil_moisture": 0.25696875
+        },
+        {
+          "date": "2023-06-10",
+          "soil_moisture": 0.25784375
+        },
+        {
+          "date": "2023-06-11",
+          "soil_moisture": 0.2576666667
+        },
+        {
+          "date": "2023-06-12",
+          "soil_moisture": 0.2623125
+        },
+        {
+          "date": "2023-06-13",
+          "soil_moisture": 0.25615625
+        },
+        {
+          "date": "2023-06-14",
+          "soil_moisture": 0.2526145833
+        },
+        {
+          "date": "2023-06-15",
+          "soil_moisture": 0.2547604167
+        },
+        {
+          "date": "2023-06-16",
+          "soil_moisture": 0.2551041667
+        },
+        {
+          "date": "2023-06-17",
+          "soil_moisture": 0.2628541667
+        },
+        {
+          "date": "2023-06-18",
+          "soil_moisture": 0.2728020833
+        },
+        {
+          "date": "2023-06-19",
+          "soil_moisture": 0.265625
+        },
+        {
+          "date": "2023-06-20",
+          "soil_moisture": 0.2689895833
+        },
+        {
+          "date": "2023-06-21",
+          "soil_moisture": 0.2642083333
+        },
+        {
+          "date": "2023-06-22",
+          "soil_moisture": 0.2643157895
+        },
+        {
+          "date": "2023-06-23",
+          "soil_moisture": 0.258875
+        },
+        {
+          "date": "2023-06-24",
+          "soil_moisture": 0.2466458333
+        },
+        {
+          "date": "2023-06-25",
+          "soil_moisture": 0.24578125
+        },
+        {
+          "date": "2023-06-26",
+          "soil_moisture": 0.2336666667
+        },
+        {
+          "date": "2023-06-27",
+          "soil_moisture": 0.24484375
+        },
+        {
+          "date": "2023-06-28",
+          "soil_moisture": 0.2433645833
+        },
+        {
+          "date": "2023-06-29",
+          "soil_moisture": 0.24821875
+        },
+        {
+          "date": "2023-06-30",
+          "soil_moisture": 0.2611666667
+        },
+        {
+          "date": "2023-07-01",
+          "soil_moisture": 0.2639375
+        },
+        {
+          "date": "2023-07-02",
+          "soil_moisture": 0.2564166667
+        },
+        {
+          "date": "2023-07-03",
+          "soil_moisture": 0.2564375
+        },
+        {
+          "date": "2023-07-04",
+          "soil_moisture": 0.2569375
+        },
+        {
+          "date": "2023-07-05",
+          "soil_moisture": 0.2553020833
+        },
+        {
+          "date": "2023-07-06",
+          "soil_moisture": 0.2500833333
+        },
+        {
+          "date": "2023-07-07",
+          "soil_moisture": 0.2321770833
+        }
+      ],
+      "revealed_through": "2023-07-07",
+      "sensor_id": "CP1_S1",
+      "session_id": "recorded",
+      "threshold": 0.21035505318
+    },
+    {
+      "can_advance": true,
+      "emission_date": "2023-07-06",
+      "feedback": null,
+      "horizon_days": 1,
+      "metrics": {
+        "ensemble": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 2,
+          "precision": null,
+          "recall": null,
+          "tn": 2,
+          "tp": 0
+        },
+        "hist_gradient_boosting_classifier": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 2,
+          "precision": null,
+          "recall": null,
+          "tn": 2,
+          "tp": 0
+        },
+        "logistic_regression": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 2,
+          "precision": null,
+          "recall": null,
+          "tn": 2,
+          "tp": 0
+        },
+        "persistence": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 2,
+          "precision": null,
+          "recall": null,
+          "tn": 2,
+          "tp": 0
+        },
+        "random_forest": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 2,
+          "precision": null,
+          "recall": null,
+          "tn": 2,
+          "tp": 0
+        }
+      },
+      "predictions": [
+        {
+          "alert": false,
+          "method": "logistic_regression",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.008201445584039,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "random_forest",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0040014835192671,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "hist_gradient_boosting_classifier",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0040066580740958,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "ensemble",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0054031957258007,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "persistence",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0,
+          "target_date": "2023-07-07"
+        }
+      ],
+      "proxy_notice": "P20 estimado solo con entrenamiento; no es estres fisiologico observado.",
+      "readings": [
+        {
+          "date": "2023-04-12",
+          "soil_moisture": 0.1740487805
+        },
+        {
+          "date": "2023-04-13",
+          "soil_moisture": 0.1710104167
+        },
+        {
+          "date": "2023-04-14",
+          "soil_moisture": 0.1687395833
+        },
+        {
+          "date": "2023-04-15",
+          "soil_moisture": 0.1666666667
+        },
+        {
+          "date": "2023-04-16",
+          "soil_moisture": 0.1653541667
+        },
+        {
+          "date": "2023-04-17",
+          "soil_moisture": 0.1651354167
+        },
+        {
+          "date": "2023-04-18",
+          "soil_moisture": 0.16528125
+        },
+        {
+          "date": "2023-04-19",
+          "soil_moisture": 0.2100520833
+        },
+        {
+          "date": "2023-04-20",
+          "soil_moisture": 0.2573229167
+        },
+        {
+          "date": "2023-04-21",
+          "soil_moisture": 0.2490833333
+        },
+        {
+          "date": "2023-04-22",
+          "soil_moisture": 0.2483958333
+        },
+        {
+          "date": "2023-04-23",
+          "soil_moisture": 0.24446875
+        },
+        {
+          "date": "2023-04-24",
+          "soil_moisture": 0.23553125
+        },
+        {
+          "date": "2023-04-25",
+          "soil_moisture": 0.24703125
+        },
+        {
+          "date": "2023-04-26",
+          "soil_moisture": 0.2465208333
+        },
+        {
+          "date": "2023-04-27",
+          "soil_moisture": 0.2378333333
+        },
+        {
+          "date": "2023-04-28",
+          "soil_moisture": 0.24621875
+        },
+        {
+          "date": "2023-04-29",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-04-30",
+          "soil_moisture": 0.2501354167
+        },
+        {
+          "date": "2023-05-01",
+          "soil_moisture": 0.2518020833
+        },
+        {
+          "date": "2023-05-02",
+          "soil_moisture": 0.2593229167
+        },
+        {
+          "date": "2023-05-03",
+          "soil_moisture": 0.25296875
+        },
+        {
+          "date": "2023-05-04",
+          "soil_moisture": 0.2560520833
+        },
+        {
+          "date": "2023-05-05",
+          "soil_moisture": 0.25021875
+        },
+        {
+          "date": "2023-05-06",
+          "soil_moisture": 0.2546875
+        },
+        {
+          "date": "2023-05-07",
+          "soil_moisture": 0.2492291667
+        },
+        {
+          "date": "2023-05-08",
+          "soil_moisture": 0.2386145833
+        },
+        {
+          "date": "2023-05-09",
+          "soil_moisture": 0.238875
+        },
+        {
+          "date": "2023-05-10",
+          "soil_moisture": 0.2488125
+        },
+        {
+          "date": "2023-05-11",
+          "soil_moisture": 0.2538541667
+        },
+        {
+          "date": "2023-05-12",
+          "soil_moisture": 0.2564270833
+        },
+        {
+          "date": "2023-05-13",
+          "soil_moisture": 0.2627604167
+        },
+        {
+          "date": "2023-05-14",
+          "soil_moisture": 0.2655
+        },
+        {
+          "date": "2023-05-15",
+          "soil_moisture": 0.25596875
+        },
+        {
+          "date": "2023-05-16",
+          "soil_moisture": 0.2616041667
+        },
+        {
+          "date": "2023-05-17",
+          "soil_moisture": 0.2698105263
+        },
+        {
+          "date": "2023-05-18",
+          "soil_moisture": 0.2687525773
+        },
+        {
+          "date": "2023-05-19",
+          "soil_moisture": 0.2659896907
+        },
+        {
+          "date": "2023-05-20",
+          "soil_moisture": 0.2697604167
+        },
+        {
+          "date": "2023-05-21",
+          "soil_moisture": 0.2613125
+        },
+        {
+          "date": "2023-05-22",
+          "soil_moisture": 0.2583020833
+        },
+        {
+          "date": "2023-05-23",
+          "soil_moisture": 0.2654942529
+        },
+        {
+          "date": "2023-05-24",
+          "soil_moisture": 0.2659375
+        },
+        {
+          "date": "2023-05-25",
+          "soil_moisture": 0.2696041667
+        },
+        {
+          "date": "2023-05-26",
+          "soil_moisture": 0.2698958333
+        },
+        {
+          "date": "2023-05-27",
+          "soil_moisture": 0.2686770833
+        },
+        {
+          "date": "2023-05-28",
+          "soil_moisture": 0.2638541667
+        },
+        {
+          "date": "2023-05-29",
+          "soil_moisture": 0.26159375
+        },
+        {
+          "date": "2023-05-30",
+          "soil_moisture": 0.2660744681
+        },
+        {
+          "date": "2023-05-31",
+          "soil_moisture": 0.2629166667
+        },
+        {
+          "date": "2023-06-01",
+          "soil_moisture": 0.2585729167
+        },
+        {
+          "date": "2023-06-02",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-06-03",
+          "soil_moisture": 0.2573333333
+        },
+        {
+          "date": "2023-06-04",
+          "soil_moisture": 0.2585625
+        },
+        {
+          "date": "2023-06-05",
+          "soil_moisture": 0.2597083333
+        },
+        {
+          "date": "2023-06-06",
+          "soil_moisture": 0.2511666667
+        },
+        {
+          "date": "2023-06-07",
+          "soil_moisture": 0.2627916667
+        },
+        {
+          "date": "2023-06-08",
+          "soil_moisture": 0.2595416667
+        },
+        {
+          "date": "2023-06-09",
+          "soil_moisture": 0.25696875
+        },
+        {
+          "date": "2023-06-10",
+          "soil_moisture": 0.25784375
+        },
+        {
+          "date": "2023-06-11",
+          "soil_moisture": 0.2576666667
+        },
+        {
+          "date": "2023-06-12",
+          "soil_moisture": 0.2623125
+        },
+        {
+          "date": "2023-06-13",
+          "soil_moisture": 0.25615625
+        },
+        {
+          "date": "2023-06-14",
+          "soil_moisture": 0.2526145833
+        },
+        {
+          "date": "2023-06-15",
+          "soil_moisture": 0.2547604167
+        },
+        {
+          "date": "2023-06-16",
+          "soil_moisture": 0.2551041667
+        },
+        {
+          "date": "2023-06-17",
+          "soil_moisture": 0.2628541667
+        },
+        {
+          "date": "2023-06-18",
+          "soil_moisture": 0.2728020833
+        },
+        {
+          "date": "2023-06-19",
+          "soil_moisture": 0.265625
+        },
+        {
+          "date": "2023-06-20",
+          "soil_moisture": 0.2689895833
+        },
+        {
+          "date": "2023-06-21",
+          "soil_moisture": 0.2642083333
+        },
+        {
+          "date": "2023-06-22",
+          "soil_moisture": 0.2643157895
+        },
+        {
+          "date": "2023-06-23",
+          "soil_moisture": 0.258875
+        },
+        {
+          "date": "2023-06-24",
+          "soil_moisture": 0.2466458333
+        },
+        {
+          "date": "2023-06-25",
+          "soil_moisture": 0.24578125
+        },
+        {
+          "date": "2023-06-26",
+          "soil_moisture": 0.2336666667
+        },
+        {
+          "date": "2023-06-27",
+          "soil_moisture": 0.24484375
+        },
+        {
+          "date": "2023-06-28",
+          "soil_moisture": 0.2433645833
+        },
+        {
+          "date": "2023-06-29",
+          "soil_moisture": 0.24821875
+        },
+        {
+          "date": "2023-06-30",
+          "soil_moisture": 0.2611666667
+        },
+        {
+          "date": "2023-07-01",
+          "soil_moisture": 0.2639375
+        },
+        {
+          "date": "2023-07-02",
+          "soil_moisture": 0.2564166667
+        },
+        {
+          "date": "2023-07-03",
+          "soil_moisture": 0.2564375
+        },
+        {
+          "date": "2023-07-04",
+          "soil_moisture": 0.2569375
+        },
+        {
+          "date": "2023-07-05",
+          "soil_moisture": 0.2553020833
+        },
+        {
+          "date": "2023-07-06",
+          "soil_moisture": 0.2500833333
+        },
+        {
+          "date": "2023-07-07",
+          "soil_moisture": 0.2321770833
+        },
+        {
+          "date": "2023-07-08",
+          "soil_moisture": 0.23484375
+        }
+      ],
+      "revealed_through": "2023-07-08",
+      "sensor_id": "CP1_S1",
+      "session_id": "recorded",
+      "threshold": 0.21035505318
+    },
+    {
+      "can_advance": true,
+      "emission_date": "2023-07-06",
+      "feedback": null,
+      "horizon_days": 1,
+      "metrics": {
+        "ensemble": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 3,
+          "precision": null,
+          "recall": null,
+          "tn": 3,
+          "tp": 0
+        },
+        "hist_gradient_boosting_classifier": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 3,
+          "precision": null,
+          "recall": null,
+          "tn": 3,
+          "tp": 0
+        },
+        "logistic_regression": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 3,
+          "precision": null,
+          "recall": null,
+          "tn": 3,
+          "tp": 0
+        },
+        "persistence": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 3,
+          "precision": null,
+          "recall": null,
+          "tn": 3,
+          "tp": 0
+        },
+        "random_forest": {
+          "coverage": 1.0,
+          "f1": null,
+          "fn": 0,
+          "fp": 0,
+          "mcc": null,
+          "n": 3,
+          "precision": null,
+          "recall": null,
+          "tn": 3,
+          "tp": 0
+        }
+      },
+      "predictions": [
+        {
+          "alert": false,
+          "method": "logistic_regression",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.008201445584039,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "random_forest",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0040014835192671,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "hist_gradient_boosting_classifier",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0040066580740958,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "ensemble",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0054031957258007,
+          "target_date": "2023-07-07"
+        },
+        {
+          "alert": false,
+          "method": "persistence",
+          "observed_label": 0,
+          "observed_soil_moisture": 0.2321770833,
+          "outcome": "VN",
+          "score": 0.0,
+          "target_date": "2023-07-07"
+        }
+      ],
+      "proxy_notice": "P20 estimado solo con entrenamiento; no es estres fisiologico observado.",
+      "readings": [
+        {
+          "date": "2023-04-12",
+          "soil_moisture": 0.1740487805
+        },
+        {
+          "date": "2023-04-13",
+          "soil_moisture": 0.1710104167
+        },
+        {
+          "date": "2023-04-14",
+          "soil_moisture": 0.1687395833
+        },
+        {
+          "date": "2023-04-15",
+          "soil_moisture": 0.1666666667
+        },
+        {
+          "date": "2023-04-16",
+          "soil_moisture": 0.1653541667
+        },
+        {
+          "date": "2023-04-17",
+          "soil_moisture": 0.1651354167
+        },
+        {
+          "date": "2023-04-18",
+          "soil_moisture": 0.16528125
+        },
+        {
+          "date": "2023-04-19",
+          "soil_moisture": 0.2100520833
+        },
+        {
+          "date": "2023-04-20",
+          "soil_moisture": 0.2573229167
+        },
+        {
+          "date": "2023-04-21",
+          "soil_moisture": 0.2490833333
+        },
+        {
+          "date": "2023-04-22",
+          "soil_moisture": 0.2483958333
+        },
+        {
+          "date": "2023-04-23",
+          "soil_moisture": 0.24446875
+        },
+        {
+          "date": "2023-04-24",
+          "soil_moisture": 0.23553125
+        },
+        {
+          "date": "2023-04-25",
+          "soil_moisture": 0.24703125
+        },
+        {
+          "date": "2023-04-26",
+          "soil_moisture": 0.2465208333
+        },
+        {
+          "date": "2023-04-27",
+          "soil_moisture": 0.2378333333
+        },
+        {
+          "date": "2023-04-28",
+          "soil_moisture": 0.24621875
+        },
+        {
+          "date": "2023-04-29",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-04-30",
+          "soil_moisture": 0.2501354167
+        },
+        {
+          "date": "2023-05-01",
+          "soil_moisture": 0.2518020833
+        },
+        {
+          "date": "2023-05-02",
+          "soil_moisture": 0.2593229167
+        },
+        {
+          "date": "2023-05-03",
+          "soil_moisture": 0.25296875
+        },
+        {
+          "date": "2023-05-04",
+          "soil_moisture": 0.2560520833
+        },
+        {
+          "date": "2023-05-05",
+          "soil_moisture": 0.25021875
+        },
+        {
+          "date": "2023-05-06",
+          "soil_moisture": 0.2546875
+        },
+        {
+          "date": "2023-05-07",
+          "soil_moisture": 0.2492291667
+        },
+        {
+          "date": "2023-05-08",
+          "soil_moisture": 0.2386145833
+        },
+        {
+          "date": "2023-05-09",
+          "soil_moisture": 0.238875
+        },
+        {
+          "date": "2023-05-10",
+          "soil_moisture": 0.2488125
+        },
+        {
+          "date": "2023-05-11",
+          "soil_moisture": 0.2538541667
+        },
+        {
+          "date": "2023-05-12",
+          "soil_moisture": 0.2564270833
+        },
+        {
+          "date": "2023-05-13",
+          "soil_moisture": 0.2627604167
+        },
+        {
+          "date": "2023-05-14",
+          "soil_moisture": 0.2655
+        },
+        {
+          "date": "2023-05-15",
+          "soil_moisture": 0.25596875
+        },
+        {
+          "date": "2023-05-16",
+          "soil_moisture": 0.2616041667
+        },
+        {
+          "date": "2023-05-17",
+          "soil_moisture": 0.2698105263
+        },
+        {
+          "date": "2023-05-18",
+          "soil_moisture": 0.2687525773
+        },
+        {
+          "date": "2023-05-19",
+          "soil_moisture": 0.2659896907
+        },
+        {
+          "date": "2023-05-20",
+          "soil_moisture": 0.2697604167
+        },
+        {
+          "date": "2023-05-21",
+          "soil_moisture": 0.2613125
+        },
+        {
+          "date": "2023-05-22",
+          "soil_moisture": 0.2583020833
+        },
+        {
+          "date": "2023-05-23",
+          "soil_moisture": 0.2654942529
+        },
+        {
+          "date": "2023-05-24",
+          "soil_moisture": 0.2659375
+        },
+        {
+          "date": "2023-05-25",
+          "soil_moisture": 0.2696041667
+        },
+        {
+          "date": "2023-05-26",
+          "soil_moisture": 0.2698958333
+        },
+        {
+          "date": "2023-05-27",
+          "soil_moisture": 0.2686770833
+        },
+        {
+          "date": "2023-05-28",
+          "soil_moisture": 0.2638541667
+        },
+        {
+          "date": "2023-05-29",
+          "soil_moisture": 0.26159375
+        },
+        {
+          "date": "2023-05-30",
+          "soil_moisture": 0.2660744681
+        },
+        {
+          "date": "2023-05-31",
+          "soil_moisture": 0.2629166667
+        },
+        {
+          "date": "2023-06-01",
+          "soil_moisture": 0.2585729167
+        },
+        {
+          "date": "2023-06-02",
+          "soil_moisture": 0.2551875
+        },
+        {
+          "date": "2023-06-03",
+          "soil_moisture": 0.2573333333
+        },
+        {
+          "date": "2023-06-04",
+          "soil_moisture": 0.2585625
+        },
+        {
+          "date": "2023-06-05",
+          "soil_moisture": 0.2597083333
+        },
+        {
+          "date": "2023-06-06",
+          "soil_moisture": 0.2511666667
+        },
+        {
+          "date": "2023-06-07",
+          "soil_moisture": 0.2627916667
+        },
+        {
+          "date": "2023-06-08",
+          "soil_moisture": 0.2595416667
+        },
+        {
+          "date": "2023-06-09",
+          "soil_moisture": 0.25696875
+        },
+        {
+          "date": "2023-06-10",
+          "soil_moisture": 0.25784375
+        },
+        {
+          "date": "2023-06-11",
+          "soil_moisture": 0.2576666667
+        },
+        {
+          "date": "2023-06-12",
+          "soil_moisture": 0.2623125
+        },
+        {
+          "date": "2023-06-13",
+          "soil_moisture": 0.25615625
+        },
+        {
+          "date": "2023-06-14",
+          "soil_moisture": 0.2526145833
+        },
+        {
+          "date": "2023-06-15",
+          "soil_moisture": 0.2547604167
+        },
+        {
+          "date": "2023-06-16",
+          "soil_moisture": 0.2551041667
+        },
+        {
+          "date": "2023-06-17",
+          "soil_moisture": 0.2628541667
+        },
+        {
+          "date": "2023-06-18",
+          "soil_moisture": 0.2728020833
+        },
+        {
+          "date": "2023-06-19",
+          "soil_moisture": 0.265625
+        },
+        {
+          "date": "2023-06-20",
+          "soil_moisture": 0.2689895833
+        },
+        {
+          "date": "2023-06-21",
+          "soil_moisture": 0.2642083333
+        },
+        {
+          "date": "2023-06-22",
+          "soil_moisture": 0.2643157895
+        },
+        {
+          "date": "2023-06-23",
+          "soil_moisture": 0.258875
+        },
+        {
+          "date": "2023-06-24",
+          "soil_moisture": 0.2466458333
+        },
+        {
+          "date": "2023-06-25",
+          "soil_moisture": 0.24578125
+        },
+        {
+          "date": "2023-06-26",
+          "soil_moisture": 0.2336666667
+        },
+        {
+          "date": "2023-06-27",
+          "soil_moisture": 0.24484375
+        },
+        {
+          "date": "2023-06-28",
+          "soil_moisture": 0.2433645833
+        },
+        {
+          "date": "2023-06-29",
+          "soil_moisture": 0.24821875
+        },
+        {
+          "date": "2023-06-30",
+          "soil_moisture": 0.2611666667
+        },
+        {
+          "date": "2023-07-01",
+          "soil_moisture": 0.2639375
+        },
+        {
+          "date": "2023-07-02",
+          "soil_moisture": 0.2564166667
+        },
+        {
+          "date": "2023-07-03",
+          "soil_moisture": 0.2564375
+        },
+        {
+          "date": "2023-07-04",
+          "soil_moisture": 0.2569375
+        },
+        {
+          "date": "2023-07-05",
+          "soil_moisture": 0.2553020833
+        },
+        {
+          "date": "2023-07-06",
+          "soil_moisture": 0.2500833333
+        },
+        {
+          "date": "2023-07-07",
+          "soil_moisture": 0.2321770833
+        },
+        {
+          "date": "2023-07-08",
+          "soil_moisture": 0.23484375
+        },
+        {
+          "date": "2023-07-09",
+          "soil_moisture": 0.2365208333
+        }
+      ],
+      "revealed_through": "2023-07-09",
+      "sensor_id": "CP1_S1",
+      "session_id": "recorded",
+      "threshold": 0.21035505318
+    }
+  ]
+}

@@ -1,0 +1,342 @@
+{
+  "as_of_date": "2023-06-14",
+  "batch_id": "batch_cad4c7b25928edbb3ceaaf3afd81a35d4c7a333331b9d7acea7dbafaa6006521",
+  "calendar_timezone": "UTC",
+  "contract_version": "producer_daily_h123_v1",
+  "data_age_days": 1200,
+  "issued_at": "2026-09-26T04:03:09.455164Z",
+  "provenance": "external_reanalysis",
+  "revision": 1,
+  "sensor_id": "pergamino-ensemble-demo",
+  "server_today": "2023-06-14",
+  "slots": [
+    {
+      "alert": false,
+      "as_of_date": "2023-06-14",
+      "batch_id": "batch_cad4c7b25928edbb3ceaaf3afd81a35d4c7a333331b9d7acea7dbafaa6006521",
+      "contract_version": "producer_daily_h123_v1",
+      "decision_threshold": 0.5,
+      "display_probability": null,
+      "ensemble": {
+        "agreement_category": "sin_alerta_por_unanimidad",
+        "calibrated_through": "2022-12-31",
+        "combined_alert": false,
+        "combined_probability": 0.017362375875826692,
+        "components": [
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "hist_gradient_boosting_classifier",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "9ef458ec9fd3f295a0dff73bc284031ecca1e501c630acbc2300c67ecd59d7eb",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 1,
+              "model_version": "161ed26f57f541987001987fe968bea441640491be4879cb92ac61af227f0b4c",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.02024572096683603
+          },
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "logistic_regression",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "62a5d10d307a64970041d920190dbe29f099818f4cc0d5739ddd503fb87c5b13",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 1,
+              "model_version": "fa405ca5778bc33b6c177ac5b8bbf28e88f11cafb7457573e5ed9671bbf34fe0",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.010992243959253635
+          },
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "random_forest",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "1a5e7b810b9fbb393284aef193b6536dd3eb3bf9efcd307c8695b741b0eaa117",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 1,
+              "model_version": "a06f6841aa66a596378a30e57ca5f664976a24c2d053130b8ce650b018548ea7",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.020849162701390415
+          }
+        ],
+        "ensemble_identity_sha256": "39d34b120ee1c7f2e0240e87b624e5b1210559f586c6567edfb981cdc14217f4",
+        "policy_version": "ensemble_agreement_v1",
+        "positive_votes": 0,
+        "weights": {
+          "hist_gradient_boosting_classifier": 0.3333333333333333,
+          "logistic_regression": 0.3333333333333333,
+          "random_forest": 0.3333333333333333
+        }
+      },
+      "event_threshold": {
+        "comparison": "lt",
+        "unit": "m3/m3",
+        "value": 0.3130583333333333,
+        "variable": "soil_moisture"
+      },
+      "forecast_id": "fc_342e35276cf6261caf797adaeac63e5d4c5fa9ce411ec4da7ec9117e0d56a1d0",
+      "horizon_days": 1,
+      "issued_at": "2026-09-26T04:03:09.455164Z",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 1,
+        "model_version": "39d34b120ee1c7f2e0240e87b624e5b1210559f586c6567edfb981cdc14217f4",
+        "trained_through": "2021-12-31"
+      },
+      "probability_reason_code": "incompatible_assessment",
+      "probability_status": "not_qualified",
+      "reason_code": null,
+      "review": {
+        "applied_review_references": [],
+        "blocked_reason": "review_not_open",
+        "latest_review": null,
+        "review_open_at": "2023-06-15T00:00:00Z",
+        "reviewable": false,
+        "revision": 0,
+        "status": "pending",
+        "training_eligibility": "no_review"
+      },
+      "score": 0.017362375875826692,
+      "score_kind": "ensemble_mean_of_calibrated_components",
+      "sensor_id": "pergamino-ensemble-demo",
+      "snapshot_id": "f6cd880097d57005ebd496c2ba4283dcb9e11f6ba866c4002e8138e7f3ecc535",
+      "status": "available",
+      "target_date": "2023-06-15"
+    },
+    {
+      "alert": false,
+      "as_of_date": "2023-06-14",
+      "batch_id": "batch_cad4c7b25928edbb3ceaaf3afd81a35d4c7a333331b9d7acea7dbafaa6006521",
+      "contract_version": "producer_daily_h123_v1",
+      "decision_threshold": 0.5,
+      "display_probability": null,
+      "ensemble": {
+        "agreement_category": "sin_alerta_por_unanimidad",
+        "calibrated_through": "2022-12-31",
+        "combined_alert": false,
+        "combined_probability": 0.03344984164010959,
+        "components": [
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "hist_gradient_boosting_classifier",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "7fc5e3abc970182e0a7184e4e049d05bae092a5edf92225fff8509694ce3fad8",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 2,
+              "model_version": "c21f51664eb053d5d2ee8eb9a8fb66aedc8656a4ae36334edbf896bdacaa102e",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.04006159059360227
+          },
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "logistic_regression",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "66f710a81728700b78828c88fd1b17dda954cdb94a846d3df592aa7c8841142f",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 2,
+              "model_version": "b15ad8741615af7c833fd5368e81c21247ebae5846a3e2c7a5f5a1239fbf43d3",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.029808669511519816
+          },
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "random_forest",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "d378e54f503610cfe5388bddaa66c82a60f615478df3d98a0900c64f1cb80d18",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 2,
+              "model_version": "60e34c9a9d1dd94a1aeabb77d6aa7b08a08cfc5f82b865bc66243a238046478b",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.030479264815206696
+          }
+        ],
+        "ensemble_identity_sha256": "5eac8f49d2bb49cb158e225181041cbca2ebc95f54cd4a228d17fc5136e5523a",
+        "policy_version": "ensemble_agreement_v1",
+        "positive_votes": 0,
+        "weights": {
+          "hist_gradient_boosting_classifier": 0.3333333333333333,
+          "logistic_regression": 0.3333333333333333,
+          "random_forest": 0.3333333333333333
+        }
+      },
+      "event_threshold": {
+        "comparison": "lt",
+        "unit": "m3/m3",
+        "value": 0.3130583333333333,
+        "variable": "soil_moisture"
+      },
+      "forecast_id": "fc_6baaedbabffa7afb19c97b5785f19d40e61f2c85ddad14f69defbf6c3115ddf9",
+      "horizon_days": 2,
+      "issued_at": "2026-09-26T04:03:09.455164Z",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 2,
+        "model_version": "5eac8f49d2bb49cb158e225181041cbca2ebc95f54cd4a228d17fc5136e5523a",
+        "trained_through": "2021-12-31"
+      },
+      "probability_reason_code": "incompatible_assessment",
+      "probability_status": "not_qualified",
+      "reason_code": null,
+      "review": {
+        "applied_review_references": [],
+        "blocked_reason": "review_not_open",
+        "latest_review": null,
+        "review_open_at": "2023-06-16T00:00:00Z",
+        "reviewable": false,
+        "revision": 0,
+        "status": "pending",
+        "training_eligibility": "no_review"
+      },
+      "score": 0.03344984164010959,
+      "score_kind": "ensemble_mean_of_calibrated_components",
+      "sensor_id": "pergamino-ensemble-demo",
+      "snapshot_id": "f6cd880097d57005ebd496c2ba4283dcb9e11f6ba866c4002e8138e7f3ecc535",
+      "status": "available",
+      "target_date": "2023-06-16"
+    },
+    {
+      "alert": false,
+      "as_of_date": "2023-06-14",
+      "batch_id": "batch_cad4c7b25928edbb3ceaaf3afd81a35d4c7a333331b9d7acea7dbafaa6006521",
+      "contract_version": "producer_daily_h123_v1",
+      "decision_threshold": 0.5,
+      "display_probability": null,
+      "ensemble": {
+        "agreement_category": "sin_alerta_por_unanimidad",
+        "calibrated_through": "2022-12-31",
+        "combined_alert": false,
+        "combined_probability": 0.06929243997192687,
+        "components": [
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "hist_gradient_boosting_classifier",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "480e167666b1915fbba647ec4134a009091f20c54f1b26183561908d63b182db",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 3,
+              "model_version": "e191ee2c18c6bbb60c2e0ee81398a8e5cf5ba9b5eb1f75b98f62b3884baf1468",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.08226290404257817
+          },
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "logistic_regression",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "81c3ab0014b0ec8f5f6755b09b6fc2e6a39ad253f8fb17d9cfb1464f256e8fb1",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 3,
+              "model_version": "b41b604063da408a5214efece49de930787c11842ba06b136b8e0307b26e1ff2",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.06002134712224257
+          },
+          {
+            "alert": false,
+            "calibrated_through": "2022-12-31",
+            "decision_threshold": 0.5,
+            "family": "random_forest",
+            "model_reference": {
+              "assessment_reference": null,
+              "calibrated_through": null,
+              "calibration_version": "3a15ac2cdff13306f1100f97adc75387aa265f8b70c0dfd9fb2d24a97689fc78",
+              "contract_version": "producer_daily_h123_v1",
+              "horizon_days": 3,
+              "model_version": "c1aa9ecfbcf620e83c632fad15a39255b3538fa9f12cc8b638ac88c113dfb251",
+              "trained_through": "2021-12-31"
+            },
+            "score": 0.06559306875095985
+          }
+        ],
+        "ensemble_identity_sha256": "dbbd1605bf74308e1522a5c0f9ce83ee0cccc6a77ca58bc03a9adc3e77c46097",
+        "policy_version": "ensemble_agreement_v1",
+        "positive_votes": 0,
+        "weights": {
+          "hist_gradient_boosting_classifier": 0.3333333333333333,
+          "logistic_regression": 0.3333333333333333,
+          "random_forest": 0.3333333333333333
+        }
+      },
+      "event_threshold": {
+        "comparison": "lt",
+        "unit": "m3/m3",
+        "value": 0.3130583333333333,
+        "variable": "soil_moisture"
+      },
+      "forecast_id": "fc_ba1f4a53f7e00c277329bc87012ce9950531966fb42a2cbc79a7f103288d2c8d",
+      "horizon_days": 3,
+      "issued_at": "2026-09-26T04:03:09.455164Z",
+      "model_reference": {
+        "assessment_reference": null,
+        "calibrated_through": null,
+        "calibration_version": null,
+        "contract_version": "producer_daily_h123_v1",
+        "horizon_days": 3,
+        "model_version": "dbbd1605bf74308e1522a5c0f9ce83ee0cccc6a77ca58bc03a9adc3e77c46097",
+        "trained_through": "2021-12-31"
+      },
+      "probability_reason_code": "incompatible_assessment",
+      "probability_status": "not_qualified",
+      "reason_code": null,
+      "review": {
+        "applied_review_references": [],
+        "blocked_reason": "review_not_open",
+        "latest_review": null,
+        "review_open_at": "2023-06-17T00:00:00Z",
+        "reviewable": false,
+        "revision": 0,
+        "status": "pending",
+        "training_eligibility": "no_review"
+      },
+      "score": 0.06929243997192687,
+      "score_kind": "ensemble_mean_of_calibrated_components",
+      "sensor_id": "pergamino-ensemble-demo",
+      "snapshot_id": "f6cd880097d57005ebd496c2ba4283dcb9e11f6ba866c4002e8138e7f3ecc535",
+      "status": "available",
+      "target_date": "2023-06-17"
+    }
+  ],
+  "snapshot_id": "f6cd880097d57005ebd496c2ba4283dcb9e11f6ba866c4002e8138e7f3ecc535"
+}

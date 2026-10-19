@@ -1,0 +1,30 @@
+{
+  "body": {
+    "applied_feedback_count": 0,
+    "applied_feedback_dates": [],
+    "calibration_end": "2026-09-19",
+    "contract_version": 1,
+    "feature_columns": [
+      "soil_moisture",
+      "solar_radiation",
+      "relative_humidity"
+    ],
+    "horizon_days": 3,
+    "lags": [
+      1,
+      2,
+      3
+    ],
+    "model_id": "81470f7ef61d4e558581eb135e84fa12",
+    "origin": "base_configurado",
+    "pipeline_version": "controlled_daily_v3",
+    "rolling_windows": [
+      3,
+      7
+    ],
+    "sensor_id": "lab-fixture",
+    "trained_through": "2026-09-19 00:00:00",
+    "version": "1"
+  },
+  "status": 200
+}

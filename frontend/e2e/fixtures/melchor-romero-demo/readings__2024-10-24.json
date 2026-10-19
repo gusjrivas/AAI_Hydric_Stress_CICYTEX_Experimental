@@ -1,0 +1,262 @@
+{
+  "calendar_timezone": "UTC",
+  "data_age_days": 0,
+  "input_roles": [
+    {
+      "basis": "configured",
+      "model_reference": null,
+      "role": "unknown",
+      "variable": "soil_moisture"
+    },
+    {
+      "basis": "configured",
+      "model_reference": null,
+      "role": "unknown",
+      "variable": "relative_humidity"
+    },
+    {
+      "basis": "configured",
+      "model_reference": null,
+      "role": "unknown",
+      "variable": "solar_radiation"
+    },
+    {
+      "basis": "configured",
+      "model_reference": null,
+      "role": "unknown",
+      "variable": "temperature"
+    },
+    {
+      "basis": "configured",
+      "model_reference": null,
+      "role": "unknown",
+      "variable": "precipitation"
+    },
+    {
+      "basis": "configured",
+      "model_reference": null,
+      "role": "unknown",
+      "variable": "wind_speed"
+    },
+    {
+      "basis": "configured",
+      "model_reference": null,
+      "role": "unknown",
+      "variable": "et0"
+    }
+  ],
+  "last_reading_date": "2024-10-24",
+  "missing_dates": [],
+  "provenance": "real",
+  "rows": [
+    {
+      "date": "2024-10-15",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 78.67,
+      "soil_moisture": 0.3160158693790436,
+      "solar_radiation": 23.99,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-16",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 70.09,
+      "soil_moisture": 0.32451245188713074,
+      "solar_radiation": 26.68,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-17",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 79.3,
+      "soil_moisture": 0.3174578547477722,
+      "solar_radiation": 15.49,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-18",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 63.48,
+      "soil_moisture": 0.33839038014411926,
+      "solar_radiation": 26.88,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-19",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 59.01,
+      "soil_moisture": 0.31367072463035583,
+      "solar_radiation": 27.07,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-20",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 66.57,
+      "soil_moisture": 0.2963821589946747,
+      "solar_radiation": 26.16,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-21",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 66.15,
+      "soil_moisture": 0.29492852091789246,
+      "solar_radiation": 24.13,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-22",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 57.94,
+      "soil_moisture": 0.2785114645957947,
+      "solar_radiation": 22.69,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-23",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 79.56,
+      "soil_moisture": 0.2946317493915558,
+      "solar_radiation": 4.11,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    },
+    {
+      "date": "2024-10-24",
+      "et0": null,
+      "imputed_variables": [],
+      "origin": "real",
+      "precipitation": null,
+      "quality_flags": [],
+      "relative_humidity": 85.14,
+      "soil_moisture": 0.34950095415115356,
+      "solar_radiation": 4.37,
+      "temperature": null,
+      "unverified_variables": [],
+      "wind_speed": null
+    }
+  ],
+  "sensor_id": "melchor-romero-demo",
+  "server_today": "2024-10-24",
+  "snapshot_id": "391cdb31433d3f8bb2ecc1cc0ea52e6ac218a2c2fe60353ce55d32ee0d2e7342",
+  "status": "ready",
+  "units": {
+    "et0": "mm/day",
+    "precipitation": "mm/day",
+    "relative_humidity": "%",
+    "soil_moisture": "m3/m3",
+    "solar_radiation": "MJ/m2/day",
+    "temperature": "degC",
+    "wind_speed": "m/s"
+  },
+  "variable_coverage": [
+    {
+      "imputed_days": 0,
+      "missing_days": 0,
+      "observed_days": 10,
+      "unverified_days": 0,
+      "variable": "soil_moisture"
+    },
+    {
+      "imputed_days": 0,
+      "missing_days": 0,
+      "observed_days": 10,
+      "unverified_days": 0,
+      "variable": "relative_humidity"
+    },
+    {
+      "imputed_days": 0,
+      "missing_days": 0,
+      "observed_days": 10,
+      "unverified_days": 0,
+      "variable": "solar_radiation"
+    },
+    {
+      "imputed_days": 0,
+      "missing_days": 10,
+      "observed_days": 0,
+      "unverified_days": 0,
+      "variable": "temperature"
+    },
+    {
+      "imputed_days": 0,
+      "missing_days": 10,
+      "observed_days": 0,
+      "unverified_days": 0,
+      "variable": "precipitation"
+    },
+    {
+      "imputed_days": 0,
+      "missing_days": 10,
+      "observed_days": 0,
+      "unverified_days": 0,
+      "variable": "wind_speed"
+    },
+    {
+      "imputed_days": 0,
+      "missing_days": 10,
+      "observed_days": 0,
+      "unverified_days": 0,
+      "variable": "et0"
+    }
+  ],
+  "window": {
+    "end_date": "2024-10-24",
+    "expected_days": 10,
+    "start_date": "2024-10-15"
+  }
+}
