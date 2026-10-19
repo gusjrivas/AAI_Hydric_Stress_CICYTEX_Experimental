@@ -376,8 +376,8 @@ export function CicytexDefensePage() {
         </p>
       )}
       {restoreNotice && (
-        <p role="status" className="cy-restore-notice">
-          {restoreNotice}{" "}
+        <div className="cy-restore-notice">
+          <p role="alert">{restoreNotice}</p>
           <button
             type="button"
             onClick={() => {
@@ -387,7 +387,7 @@ export function CicytexDefensePage() {
           >
             Iniciar otra emisión
           </button>
-        </p>
+        </div>
       )}
       {session && (
         <>

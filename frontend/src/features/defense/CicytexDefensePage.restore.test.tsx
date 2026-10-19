@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -168,6 +168,9 @@ describe("CicytexDefensePage session restore", () => {
     render(<CicytexDefensePage />);
 
     expect(await screen.findByText(/No se pudo recuperar la sesión anterior:/)).toBeVisible();
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/No se pudo recuperar la sesión anterior:/);
+    expect(within(alert).queryByRole("button")).toBeNull();
     expect(window.sessionStorage.getItem(KEY)).toBeNull();
     expect(screen.queryByText(/Decisión de la arquitectura/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir emisión congelada" })).toBeEnabled();
