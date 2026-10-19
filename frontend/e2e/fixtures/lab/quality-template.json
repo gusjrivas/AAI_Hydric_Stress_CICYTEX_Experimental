@@ -1,0 +1,35 @@
+{
+  "anomalies_detected": 4,
+  "anomaly_columns": [
+    "soil_moisture",
+    "solar_radiation",
+    "relative_humidity"
+  ],
+  "anomaly_contamination": 0.05,
+  "anomaly_method": "isolation_forest",
+  "duplicate_timestamps": [],
+  "is_diagnostic_only": true,
+  "missing_pct": {
+    "et0": 100.0,
+    "precipitation": 0.0,
+    "relative_humidity": 0.0,
+    "soil_moisture": 0.0,
+    "solar_radiation": 0.0,
+    "temperature": 0.0,
+    "wind_speed": 0.0
+  },
+  "note": "Diagnóstico exploratorio de calidad y anomalías, calculado bajo demanda para esta consulta. Separado del predictor operativo vigente (que corre con include_anomaly_detection=False). No modifica el dataset ni entrena el modelo de pronóstico.",
+  "out_of_range": {
+    "et0": [],
+    "precipitation": [],
+    "relative_humidity": [],
+    "soil_moisture": [],
+    "solar_radiation": [],
+    "temperature": [],
+    "wind_speed": []
+  },
+  "period_end": "2026-10-13",
+  "period_start": "2026-06-16",
+  "sensor_id": "lab-fixture",
+  "total_rows": 120
+}

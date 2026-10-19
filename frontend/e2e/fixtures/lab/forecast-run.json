@@ -1,0 +1,13 @@
+{
+  "selection_warning": null,
+  "test_rows": 21,
+  "train_rows": 87,
+  "verdicts": [
+    {
+      "alerta": false,
+      "fecha": "2026-10-13",
+      "fecha_objetivo": "2026-10-16",
+      "probabilidad": 0.0
+    }
+  ]
+}

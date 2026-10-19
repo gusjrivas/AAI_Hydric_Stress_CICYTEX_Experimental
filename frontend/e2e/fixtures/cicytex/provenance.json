@@ -1,0 +1,74 @@
+{
+  "dataset_sha256": "06d662bce07d51c880a781a32b5779345ed3062d1bb559abc031b5f84f296482",
+  "ensemble_policy": "equal-weight arithmetic mean; threshold 0.5",
+  "git_commit": "e74d8b2c61894d33606ef8c051a7d5af0c50e481",
+  "horizons": {
+    "1": {
+      "component_mlflow_runs": {
+        "hist_gradient_boosting_classifier": "3c3d8e7adf1640d18fc18c3fa85d8a7c",
+        "logistic_regression": "901d0fa1f9664dad80b37aa3f733c26a",
+        "random_forest": "2f6b3b056eac44f897c5addb336522ad"
+      },
+      "first_legitimate_emission": "2023-07-06",
+      "partition_rows": {
+        "calibration": 294,
+        "evaluation": 399,
+        "train": 1029,
+        "validation": 315
+      },
+      "split": {
+        "calibration_end": "2023-06-20",
+        "evaluation_end": "2023-07-25",
+        "train_end": "2023-06-06",
+        "validation_end": "2023-07-05"
+      },
+      "threshold_train_p20": 0.21035505318
+    },
+    "2": {
+      "component_mlflow_runs": {
+        "hist_gradient_boosting_classifier": "e70b7ab95b69403a88a02f20b3b625c4",
+        "logistic_regression": "44b4fe7aa5904b2a8d04ea8a54c4ed72",
+        "random_forest": "55bef9953ec84a19877281487448ca8b"
+      },
+      "first_legitimate_emission": "2023-07-06",
+      "partition_rows": {
+        "calibration": 315,
+        "evaluation": 378,
+        "train": 1008,
+        "validation": 294
+      },
+      "split": {
+        "calibration_end": "2023-06-21",
+        "evaluation_end": "2023-07-25",
+        "train_end": "2023-06-06",
+        "validation_end": "2023-07-05"
+      },
+      "threshold_train_p20": 0.21047708332
+    },
+    "3": {
+      "component_mlflow_runs": {
+        "hist_gradient_boosting_classifier": "ba618e5ddf0d487597b27a9c82eebde8",
+        "logistic_regression": "030f853edec249029b0b3d9f6a9bc890",
+        "random_forest": "d76f6e3f4f61452dbaa2075e4f7cf899"
+      },
+      "first_legitimate_emission": "2023-07-06",
+      "partition_rows": {
+        "calibration": 294,
+        "evaluation": 357,
+        "train": 1008,
+        "validation": 294
+      },
+      "split": {
+        "calibration_end": "2023-06-21",
+        "evaluation_end": "2023-07-25",
+        "train_end": "2023-06-07",
+        "validation_end": "2023-07-05"
+      },
+      "threshold_train_p20": 0.2094729167
+    }
+  },
+  "mlflow_parent_run_id": "4a6b15cbf8834ffc9fd750c7a1167cea",
+  "prediction_sha256": "89f7a993f91b44599872af4134399f7b8a5c5911812a7b0034a4ae35d9f61032",
+  "proxy": "soil_moisture below training-only P20; not physiological stress",
+  "seed": 42
+}

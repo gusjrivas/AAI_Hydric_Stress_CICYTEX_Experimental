@@ -1,0 +1,13 @@
+{
+  "rows": [
+    {
+      "alerta_generada": 0,
+      "estado_validacion": "pendiente",
+      "etiqueta_corregida": null,
+      "fecha": "2026-10-13",
+      "fecha_objetivo": "2026-10-16",
+      "observacion": null,
+      "y_proba": 0.0
+    }
+  ]
+}
