@@ -23,6 +23,7 @@ import { PergaminoDefensePage } from "./features/defense/PergaminoDefensePage";
 import { MelchorRomeroDefensePage } from "./features/defense/MelchorRomeroDefensePage";
 import { CicytexDefensePage } from "./features/defense/CicytexDefensePage";
 import { SensorLabPage } from "./features/lab/SensorLabPage";
+import { GuidedDemoPage } from "./features/guided-demo/GuidedDemoPage";
 import { EvidenceResultsPage } from "./features/evidence/EvidenceResultsPage";
 import { ModeBadge } from "./features/navigation/ModeBadge";
 import { modeForView } from "./features/navigation/viewMode";
@@ -36,6 +37,20 @@ const LAB_ROUTE = "laboratorio-sensores";
 
 const DEMO_HASH = "#demo";
 const HISTORICAL_REPLAY_HASH = "#reproduccion-historica";
+// Recorrido guiado de cuatro sitios: ruta propia, distinta de `#demo` (demostración acelerada).
+const GUIDED_DEMO_HASH = "#demo-guiada";
+
+function useIsGuidedDemoRoute(): boolean {
+  const [isGuided, setIsGuided] = useState(() => window.location.hash === GUIDED_DEMO_HASH);
+  useEffect(() => {
+    function onHashChange() {
+      setIsGuided(window.location.hash === GUIDED_DEMO_HASH);
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+  return isGuided;
+}
 
 function useIsDemoRoute(): boolean {
   const [isDemo, setIsDemo] = useState(() => window.location.hash === DEMO_HASH);
@@ -100,6 +115,7 @@ function App() {
   const route = useHashRoute();
   const isDemoRoute = useIsDemoRoute();
   const isHistoricalReplayRoute = useIsHistoricalReplayRoute();
+  const isGuidedDemoRoute = useIsGuidedDemoRoute();
   const isFirstRouteRender = useRef(true);
 
   const activeGroup: NavGroup = isDemoRoute || isHistoricalReplayRoute ? "herramientas" : ROUTE_GROUP[route];
@@ -114,14 +130,14 @@ function App() {
       : route;
 
   useEffect(() => {
-    const label = viewKey === "demo" ? "Demostración" : viewKey === "reproduccion-historica" ? "Reproducción histórica" : DESTINATION_LABELS[viewKey];
+    const label = isGuidedDemoRoute ? "Recorrido guiado" : viewKey === "demo" ? "Demostración" : viewKey === "reproduccion-historica" ? "Reproducción histórica" : DESTINATION_LABELS[viewKey];
     document.title = `${APP_TITLE} — ${label}`;
     if (isFirstRouteRender.current) {
       isFirstRouteRender.current = false;
       return;
     }
-    document.getElementById(`${viewKey}-heading`)?.focus();
-  }, [viewKey]);
+    document.getElementById(isGuidedDemoRoute ? "demo-guiada-heading" : `${viewKey}-heading`)?.focus();
+  }, [viewKey, isGuidedDemoRoute]);
 
   function selectSensor(sensorId: string) {
     setDraftSensorId(sensorId);
@@ -141,6 +157,25 @@ function App() {
     }
     setSensorError(null);
     setActiveSensorId(candidate);
+  }
+
+  if (isGuidedDemoRoute) {
+    return (
+      <div className="app-page app-guided">
+        <a href="#main-content" className="skip-link" onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}>
+          Saltar al contenido
+        </a>
+        <AppHeader activeGroup="herramientas" />
+        <div className="app-body">
+          <main id="main-content" className="app-sections" tabIndex={-1}>
+            <GuidedDemoPage />
+          </main>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -217,6 +252,11 @@ function App() {
                     </a>
                   </li>
                 )}
+                <li>
+                  <a href={GUIDED_DEMO_HASH} className="dn-link">
+                    Recorrido guiado
+                  </a>
+                </li>
                 <li>
                   <a
                     href={HISTORICAL_REPLAY_HASH}
