@@ -70,6 +70,7 @@ export function CicytexStep() {
   }
   if (!session || !ensemble) return <p role="status" className="gd-loading">Cargando este sitio…</p>;
 
+  const conclusive = ensemble.observed_label !== null;
   const lowMoisture = ensemble.observed_label === 1;
   const matched = ensemble.alert === lowMoisture;
   const provData = provenance.status === "ready" ? provenance.data : null;
@@ -77,9 +78,13 @@ export function CicytexStep() {
   return (
     <>
       <div className="gd-decision" aria-live="polite">
-        <Traffic alert={ensemble.alert} />
-        <Agreement matching={members.filter((m) => m.alert === ensemble.alert).length} total={members.length} />
-        <p className="gd-target">Pronóstico para el {ensemble.target_date}, emitido el {session.emission_date}.</p>
+        {!advanceFailed && (
+          <>
+            <Traffic alert={ensemble.alert} />
+            <Agreement matching={members.filter((m) => m.alert === ensemble.alert).length} total={members.length} />
+            <p className="gd-target">Pronóstico para el {ensemble.target_date}, emitido el {session.emission_date}.</p>
+          </>
+        )}
       </div>
       <SourceLine>
         datos externos de CICYTEX (tomate de industria, Talavera la Real), sonda {session.sensor_id}; emisión congelada del{" "}
@@ -104,10 +109,15 @@ export function CicytexStep() {
             <strong>{ensemble.observed_soil_moisture === null ? "no disponible" : `${fmt(ensemble.observed_soil_moisture)} m³/m³`}</strong>
             {" "}(umbral de humedad baja: {fmt(session.threshold)}).
           </p>
-          <p className="gd-outcome">
-            <strong>{lowMoisture ? "Sí hubo humedad baja." : "No hubo humedad baja."}</strong>{" "}
-            {matched ? "El pronóstico coincidió con lo observado." : "El pronóstico no coincidió con lo observado."}
-          </p>
+          {conclusive ? (
+            <p className="gd-outcome">
+              <strong>{lowMoisture ? "Sí hubo humedad baja." : "No hubo humedad baja."}</strong>{" "}
+              {matched ? "El pronóstico coincidió con lo observado." : "El pronóstico no coincidió con lo observado."}
+            </p>
+          ) : (
+            <p className="gd-outcome">No hay una observación concluyente para ese día: no se puede decir si hubo humedad baja.</p>
+          )}
+          <p className="gd-note">{session.proxy_notice}</p>
           <p className="gd-note">Es un solo día: sirve para ilustrar el recorrido, no para evaluar la herramienta.</p>
         </ResultRegion>
       )}

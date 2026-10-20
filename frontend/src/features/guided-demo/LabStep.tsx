@@ -14,9 +14,13 @@ export function LabStep() {
   const resultRef = useRef<HTMLElement>(null);
 
   const latest = workspace.rows[0] ?? null;
+  // El semáforo pertenece al escenario A: se congela su fila al quedar en fase «normal» y el pronóstico posterior (B) no lo reemplaza.
+  const [rowA, setRowA] = useState<typeof latest>(null);
+  if (lab.phase === "normal" && latest && rowA?.fecha !== latest.fecha) setRowA(latest);
+  if (lab.phase === "idle" && rowA) setRowA(null);
   const hasScenarioA = ["normal", "injecting-anomaly", "anomaly"].includes(lab.phase);
   const revealedB = lab.phase === "anomaly";
-  const failed = lab.phase === "error" || (hasScenarioA && !latest && workspace.runError !== null);
+  const failed = lab.phase === "error" || (hasScenarioA && !rowA && workspace.runError !== null);
 
   useEffect(() => {
     if (revealedB) resultRef.current?.focus();
@@ -33,11 +37,11 @@ export function LabStep() {
       ) : (
         <>
           <div className="gd-decision" aria-live="polite">
-            {hasScenarioA && latest ? (
+            {hasScenarioA && rowA ? (
               <>
-                <Traffic alert={latest.alerta_generada === 1} />
+                <Traffic alert={rowA.alerta_generada === 1} />
                 <p className="gd-agree">La comparación entre modelos no está disponible en el laboratorio.</p>
-                <p className="gd-target">Escenario A (lecturas normales). Pronóstico con datos hasta el {displayForecastDate(latest.fecha)}.</p>
+                <p className="gd-target">Escenario A (lecturas normales). Pronóstico con datos hasta el {displayForecastDate(rowA.fecha)}.</p>
               </>
             ) : (
               <p className="gd-note">

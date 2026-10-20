@@ -10,7 +10,7 @@ function minHeightOf(selector: string): number {
 }
 
 describe("GuidedDemoPage · objetivos táctiles", () => {
-  it.each([".gd-btn", ".gd-details summary"])("%s mide al menos 44px", (selector) => {
+  it.each([".gd-btn", ".gd-details summary", ".gd-details-body button"])("%s mide al menos 44px", (selector) => {
     expect(minHeightOf(selector)).toBeGreaterThanOrEqual(44);
   });
 });

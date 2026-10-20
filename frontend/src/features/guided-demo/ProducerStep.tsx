@@ -90,11 +90,15 @@ export function ProducerStep({ site }: { site: ProducerSite }) {
   return (
     <>
       <div className="gd-decision" aria-live="polite">
-        <Traffic alert={alert} />
-        {components.length > 0
-          ? <Agreement matching={components.filter((c) => c.alert === alert).length} total={components.length} />
-          : <p className="gd-agree">La comparación entre modelos no está disponible para esta emisión.</p>}
-        <p className="gd-target">Pronóstico para el {displayForecastDate(slot.target_date)}, emitido el {displayForecastDate(site.emission)}.</p>
+        {obs.status !== "error" && (
+          <>
+            <Traffic alert={alert} />
+            {components.length > 0
+              ? <Agreement matching={components.filter((c) => c.alert === alert).length} total={components.length} />
+              : <p className="gd-agree">La comparación entre modelos no está disponible para esta emisión.</p>}
+            <p className="gd-target">Pronóstico para el {displayForecastDate(slot.target_date)}, emitido el {displayForecastDate(site.emission)}.</p>
+          </>
+        )}
       </div>
       <SourceLine>{site.source} Emisión guardada del {displayForecastDate(site.emission)}.</SourceLine>
       <div className="gd-actions">

@@ -38,3 +38,5 @@
 @media(max-width:560px){.gd-nav .gd-btn,.gd-actions .gd-btn{width:100%}.gd-traffic{padding:16px}}
 .gd-details summary::before{content:"▸";margin-right:8px}
 .gd-details[open] summary::before{content:"▾"}
+
+.gd-details-body button{min-height:44px;min-width:44px;padding:8px 16px}

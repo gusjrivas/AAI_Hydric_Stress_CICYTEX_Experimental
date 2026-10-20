@@ -20,7 +20,7 @@ function pred(method: string, alert: boolean, extra: Record<string, unknown> = {
 function cySession(over: Record<string, unknown> = {}, ensembleAlert = false, members: boolean[] = [false, false, false], extra: Record<string, unknown> = {}) {
   return {
     session_id: "s1", sensor_id: "CP1_S1", emission_date: "2023-07-06", horizon_days: 1,
-    revealed_through: "2023-07-06", threshold: 0.21, proxy_notice: "p",
+    revealed_through: "2023-07-06", threshold: 0.21, proxy_notice: "P20 estimado solo con entrenamiento; no es estres fisiologico observado.",
     predictions: [
       pred("logistic_regression", members[0], extra), pred("random_forest", members[1], extra),
       pred("hist_gradient_boosting_classifier", members[2], extra),
@@ -185,6 +185,39 @@ describe("CICYTEX", () => {
     expect(result).not.toHaveTextContent(/no hubo humedad baja/i);
   });
 
+  it("shows the backend proxy notice next to the observed moisture", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(cicytexApi, "advanceCicytexSession").mockResolvedValue(
+      cySession({ can_advance: false }, false, [false, false, false], { observed_soil_moisture: 0.254, observed_label: 0, outcome: "VN" }) as never);
+    render(<GuidedDemoPage />);
+    await screen.findByText("Sin alerta");
+    await user.click(advance());
+    const result = await screen.findByRole("region", { name: /qué ocurrió después/i });
+    expect(result).toHaveTextContent(/no es estres fisiologico observado/i);
+  });
+
+  it("does not claim «No hubo humedad baja» when the revealed label is missing", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(cicytexApi, "advanceCicytexSession").mockResolvedValue(
+      cySession({ can_advance: false }, false, [false, false, false], { observed_soil_moisture: null, observed_label: null, outcome: "VN" }) as never);
+    render(<GuidedDemoPage />);
+    await screen.findByText("Sin alerta");
+    await user.click(advance());
+    const result = await screen.findByRole("region", { name: /qué ocurrió después/i });
+    expect(result).not.toHaveTextContent(/no hubo humedad baja|sí hubo humedad baja|el pronóstico (no )?coincidió/i);
+    expect(result).toHaveTextContent(/no hay una observación concluyente/i);
+  });
+
+  it("leaves no current traffic light next to the alert when advancing fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(cicytexApi, "advanceCicytexSession").mockRejectedValueOnce(new Error("x"));
+    render(<GuidedDemoPage />);
+    await screen.findByText("Sin alerta");
+    await user.click(advance());
+    await screen.findByRole("alert");
+    expect(screen.queryByText(/^(sin alerta|alerta prevista)$/i)).not.toBeInTheDocument();
+  });
+
   it("collapses technical detail and shows dataset hash and commit only when they exist", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
@@ -283,6 +316,17 @@ describe("Pergamino y Melchor Romero", () => {
     expect(result).not.toHaveTextContent(/no hubo humedad baja|sí hubo humedad baja|el pronóstico coincidió/i);
   });
 
+  it("leaves no current traffic light next to the alert when the readings request fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(historicalApi, "getHistoricalReadings").mockRejectedValueOnce(new Error("x"));
+    render(<GuidedDemoPage />);
+    await toStep(user, 2);
+    await screen.findByText("Alerta prevista");
+    await user.click(advance());
+    await screen.findByRole("alert");
+    expect(screen.queryByText(/^(sin alerta|alerta prevista)$/i)).not.toBeInTheDocument();
+  });
+
   it("says there is no observation when the source has none for the target day", async () => {
     const user = userEvent.setup();
     vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue(readings("2023-06-14", null));
@@ -350,6 +394,7 @@ describe("Sensores simulados (laboratorio)", () => {
     await user.click(screen.getByRole("button", { name: /generar datos simulados/i }));
     expect(await screen.findByText("Sin alerta")).toBeInTheDocument();
     expect(panel).toHaveTextContent(/escenario A/i);
+    expect(screen.queryByRole("region", { name: /qué ocurrió después/i })).not.toBeInTheDocument();
   });
 
   it("does not claim a model comparison or a probability in the laboratory", async () => {
@@ -377,6 +422,29 @@ describe("Sensores simulados (laboratorio)", () => {
     expect(result).toHaveTextContent(/anomalía de medición/i);
     expect(result).toHaveTextContent(/no es humedad baja/i);
     expect(screen.getByRole("button", { name: /^avanzar un día/i })).toBeDisabled();
+  });
+
+  it("keeps scenario A's traffic light after scenario B emits a different, later forecast", async () => {
+    const user = userEvent.setup();
+    const rowA = { fecha: "2026-04-30", alerta_generada: 0, estado_validacion: "pendiente", etiqueta_corregida: null, observacion: null, y_proba: 0.12, fecha_objetivo: "2026-05-03" };
+    const rowB = { ...rowA, fecha: "2026-05-01", alerta_generada: 1, fecha_objetivo: "2026-05-04" };
+    vi.mocked(forecastApi.runForecast)
+      .mockResolvedValueOnce({ verdicts: [{ fecha: "2026-04-30", alerta: false, probabilidad: 0.12, fecha_objetivo: "2026-05-03" }], train_rows: 1, test_rows: 1 } as never)
+      .mockResolvedValueOnce({ verdicts: [{ fecha: "2026-05-01", alerta: true, probabilidad: 0.9, fecha_objetivo: "2026-05-04" }], train_rows: 1, test_rows: 1 } as never);
+    vi.mocked(forecastApi.listFeedback)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [rowA] } as never)
+      .mockResolvedValue({ rows: [rowB, rowA] } as never);
+    render(<GuidedDemoPage />);
+    await toStep(user, 4);
+    await user.click(screen.getByRole("button", { name: /generar datos simulados/i }));
+    await screen.findByText("Sin alerta");
+    await waitFor(() => expect(advance()).toBeEnabled());
+    await user.click(advance());
+    await screen.findByRole("region", { name: /qué ocurrió después/i });
+    expect(screen.getByText("Sin alerta")).toBeInTheDocument();
+    expect(screen.queryByText("Alerta prevista")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /sensores simulados/i })).toHaveTextContent(/30 de abr/);
   });
 
   it("declares technical identity as not available for synthetic data", async () => {
