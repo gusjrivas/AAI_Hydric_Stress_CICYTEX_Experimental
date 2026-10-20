@@ -1,6 +1,6 @@
 // Uso: BASE_URL=http://127.0.0.1:4173 OUT_DIR=ui-journeys-out node scripts/ui/verify-journeys.mjs
-// Verificación en NAVEGADOR REAL (Chrome headless por CDP, Node >= 22, sin dependencias) de cinco recorridos:
-// Melchor Romero, Pergamino, CICYTEX, Laboratorio de sensores y la ficha de Laya en #arquitectura.
+// Verificación en NAVEGADOR REAL (Chrome headless por CDP, Node >= 22, sin dependencias) de seis recorridos:
+// Melchor Romero, Pergamino, CICYTEX, Laboratorio de sensores, el recorrido guiado (#demo-guiada) y la ficha de Laya en #arquitectura.
 // Requiere el servidor de fixtures (scripts/ui/fixture-server.mjs) sirviendo el build del frontend; ver
 // docs/design/f7-verificacion-navegador.md. No es una auditoría de accesibilidad automatizada ni una prueba de componentes:
 // comprueba lo que declara cada chequeo y nada más. Variables: BASE_URL, OUT_DIR (o argv[2]), CHROME_PATH, CI.
@@ -295,6 +295,88 @@ async function labSite() {
   return rec;
 }
 
+// ---------- Recorrido guiado (#demo-guiada) ----------
+async function guidedSite() {
+  const rec = createRecorder("demo-guiada");
+  const TRAFFIC = `!!document.querySelector('.gd-traffic-label')`;
+  const trafficLabel = () => evaluate(`document.querySelector('.gd-traffic-label')?.textContent.trim()`);
+  const progress = () => evaluate(`document.querySelector('.gd-progress-label')?.textContent.trim()`);
+  const resultText = () => evaluate(`document.querySelector('.gd-result')?.innerText ?? ''`);
+  const detailsText = () => evaluate(`document.querySelector('.gd-details')?.innerText ?? ''`);
+  const stepHeading = () => evaluate(`document.querySelector('.gd-step h2')?.textContent.trim()`);
+  const activeIsStepHeading = () => evaluate(`document.activeElement === document.querySelector('.gd-step h2')`);
+  const smallTargets = () =>
+    evaluate(`[...document.querySelectorAll('.guided-demo button, .guided-demo summary')].filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.height<44;}).map(e=>e.textContent.trim().slice(0,40))`);
+  const lowMoistureStated = /(Sí hubo|No hubo) humedad baja\.|no es una observación independiente|No se puede decir/;
+  const goNext = async () => {
+    await clickText("Siguiente sitio");
+    return waitFor(`document.querySelector('.gd-step h2') && document.activeElement === document.querySelector('.gd-step h2')`);
+  };
+
+  await openFresh("demo-guiada");
+  rec.check("G0", "carga el recorrido: título, «Paso 1 de 4» y semáforo del primer sitio (CICYTEX)", (await waitFor(TRAFFIC)) && (await evaluate(`document.querySelector('h1')?.textContent.includes('Recorrido guiado')`)) && (await progress()) === "Paso 1 de 4" && /CICYTEX/.test((await stepHeading()) ?? ""));
+  rec.check("G1", "semáforo «Sin alerta»/«Alerta prevista» y cuántos de 3 modelos coinciden", ["Sin alerta", "Alerta prevista"].includes(await trafficLabel()) && (await evaluate(`/\\d de 3 modelos coinciden con este resultado/.test(document.body.innerText)`)));
+  rec.check("G2", "mensajes honestos: recorrido y no evaluación; apoyo a la decisión, no riega", (await evaluate(hasText("Esto es un recorrido, no una evaluación"))) && (await evaluate(hasText("no riega ni decide cuánto regar"))));
+  rec.check("G3", "antes de avanzar lo ocurrido permanece oculto y el botón está habilitado", !(await evaluate(`!!document.querySelector('.gd-result')`)) && !(await evaluate(hasText("Humedad observada"))) && (await buttonState("Avanzar un día")) === "enabled");
+  await clickText("Ver detalle técnico");
+  const cyDetail = await detailsText();
+  rec.check("G4", "detalle técnico (CICYTEX): SHA-256 del dataset real y commit, o «no disponible»", /Dataset \(SHA-256\)\s*[0-9a-f]{64}/.test(cyDetail) && /Commit de ejecución\s*([0-9a-f]{7,40}|no disponible)/.test(cyDetail), cyDetail.slice(0, 80).replace(/\s+/g, " "));
+  await shot(outDir, "demo-guiada-cicytex");
+  await clickText("Avanzar un día");
+  const revealed = await waitFor(`!!document.querySelector('.gd-result')`);
+  const cyResult = await resultText();
+  rec.check("G5", "«Avanzar un día» revela el valor observado y si hubo humedad baja; el foco pasa al resultado", revealed && /(Sí hubo|No hubo) humedad baja\./.test(cyResult) && /Humedad observada/.test(cyResult) && (await evaluate(`document.activeElement === document.querySelector('.gd-result')`)) && (await buttonState("Avanzar un día")) === "disabled");
+
+  rec.check("G6", "Siguiente sitio: «Paso 2 de 4», Pergamino, foco en el título del paso", (await goNext()) && (await progress()) === "Paso 2 de 4" && (await stepHeading()) === "Pergamino" && (await activeIsStepHeading()));
+  rec.check("G7", "Pergamino: semáforo propio y fuente propia (ERA5-Land, sin atribuir ESA CCI)", (await waitFor(TRAFFIC)) && (await evaluate(`/ERA5-Land/.test(document.querySelector('.gd-source')?.textContent||'') && !/ESA CCI/.test(document.querySelector('.gd-source')?.textContent||'')`)));
+  await clickText("Ver detalle técnico");
+  await waitFor(`!!document.querySelector('.gd-details .emission-provenance')`, 8000);
+  const pgDetail = await detailsText();
+  rec.check("G8", "Pergamino, detalle técnico: SHA-256 del dataset y commit «no registrado»", /SHA-256 del dataset: [0-9a-f]{64}/.test(pgDetail) && /Commit: no registrado/.test(pgDetail));
+  await clickText("Avanzar un día");
+  await waitFor(`!!document.querySelector('.gd-result')`);
+  const pgResult = await resultText();
+  rec.check("G9", "Pergamino: se revela lo observado sin afirmar más de lo que hay", /Humedad observada|Valor registrado|Sin observación/.test(pgResult) && lowMoistureStated.test(pgResult));
+
+  rec.check("G10", "Melchor Romero: «Paso 3 de 4», fuente propia (ESA CCI, sin ERA5)", (await goNext()) && (await progress()) === "Paso 3 de 4" && (await waitFor(TRAFFIC)) && (await evaluate(`/ESA CCI/.test(document.querySelector('.gd-source')?.textContent||'') && !/ERA5/.test(document.querySelector('.gd-source')?.textContent||'')`)));
+  await clickText("Avanzar un día");
+  rec.check("G11", "Melchor Romero: «Avanzar un día» revela lo observado", (await waitFor(`!!document.querySelector('.gd-result')`)) && lowMoistureStated.test(await resultText()));
+
+  rec.check("G12", "Sensores simulados: «Paso 4 de 4», rotulado SIMULACIÓN, sin sensor físico, sin semáforo todavía", (await goNext()) && (await progress()) === "Paso 4 de 4" && (await evaluate(`document.querySelector('.gd-sim-badge')?.textContent.includes('SIMULACIÓN')`)) && (await evaluate(hasText("sin sensor físico"))) && !(await evaluate(TRAFFIC)) && (await buttonState("Avanzar un día")) === "disabled");
+  await clickText("Generar datos simulados");
+  const labReady = await waitFor(TRAFFIC, 30000);
+  rec.check("G13", "escenario A: aparece el semáforo y se declara que no hay comparación entre modelos", labReady && (await evaluate(hasText("La comparación entre modelos no está disponible en el laboratorio"))) && !(await evaluate(`/\\d de 3 modelos/.test(document.body.innerText)`)));
+  await waitFor(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim().startsWith('Avanzar un día')); return b && !b.disabled; })()`, 20000);
+  await clickText("Avanzar un día");
+  const labB = await waitFor(`!!document.querySelector('.gd-result')`, 20000);
+  const labResult = await resultText();
+  rec.check("G14", "escenario B: anomalía de medición, no humedad baja", labB && /anomalía de medición/.test(labResult) && /no es humedad baja/.test(labResult));
+  rec.check("G15", "último paso: sin «Siguiente sitio» y se indica el fin del recorrido", (await buttonState("Siguiente sitio")) === "absent" && (await evaluate(hasText("Fin del recorrido"))));
+  rec.check("G16", "Laya no aparece en el recorrido", !(await evaluate(`/laya/i.test(document.querySelector('.guided-demo').innerText)`)));
+  await shot(outDir, "demo-guiada-laboratorio");
+  const small = await smallTargets();
+  rec.check("G17", "objetivos táctiles de al menos 44 px en el último paso", small.length === 0, small.join(" | "));
+
+  // Atrás reinicia el paso: el sitio anterior reaparece con sus propios datos y sin resultado previo.
+  await clickText("Sitio anterior");
+  rec.check("G18", "«Sitio anterior» vuelve a Melchor Romero reiniciado (sin resultado previo)", (await waitFor(TRAFFIC)) && (await progress()) === "Paso 3 de 4" && !(await evaluate(`!!document.querySelector('.gd-result')`)));
+
+  // Backend desconectado y recuperación.
+  await fixture("reset", {});
+  await setMode("disconnected");
+  await browser.open(`${base}/`);
+  await browser.open(`${base}/#demo-guiada`);
+  const errored = await waitFor(`!!document.querySelector('[role=alert]') && [...document.querySelectorAll('[role=alert] button')].some(b=>b.textContent.trim()==='Reintentar')`, 10000);
+  const errTexts = await alerts();
+  rec.check("G19", "sin backend: error en español (role=alert) con «Reintentar» y sin semáforo vigente", errored && errTexts.some((t) => t.startsWith("No se pudo cargar")) && !(await evaluate(TRAFFIC)), errTexts[0] ?? "");
+  await shot(outDir, "demo-guiada-sin-conexion");
+  await setMode("normal");
+  await clickText("Reintentar");
+  rec.check("G20", "al volver el backend y reintentar, aparece el semáforo y el error desaparece", await waitFor(`${TRAFFIC} && document.querySelectorAll('[role=alert]').length === 0`, 10000));
+  await tabAudit(rec, "G21", "teclado", { minStops: 6, outFile: "demo-guiada-orden-de-foco.json" });
+  return rec;
+}
+
 // ---------- Laya en #arquitectura ----------
 async function layaSite() {
   const rec = createRecorder("arquitectura-laya");
@@ -313,7 +395,7 @@ async function layaSite() {
 const recorders = [];
 let crashed = null;
 try {
-  for (const run of [() => producerSite(PRODUCER_SITES[0]), () => producerSite(PRODUCER_SITES[1]), cicytexSite, labSite, layaSite]) {
+  for (const run of [() => producerSite(PRODUCER_SITES[0]), () => producerSite(PRODUCER_SITES[1]), cicytexSite, labSite, guidedSite, layaSite]) {
     recorders.push(await run());
   }
   const state = await fixture("state");
@@ -333,4 +415,4 @@ const summary = summarize(recorders);
 writeFileSync(join(outDir, "summary.json"), JSON.stringify({ ...summary, crashed: crashed ? String(crashed.message ?? crashed) : null }, null, 2));
 console.log(`\n${summary.pass} PASS, ${summary.fail} FAIL, ${summary.info} INFO — ${summary.sites.map((s) => `${s.site}:${s.pass}/${s.fail}/${s.info}`).join(" ")}`);
 await sleep(50);
-process.exit(summary.ok && recorders.length === 5 && !crashed ? 0 : 1);
+process.exit(summary.ok && recorders.length === 6 && !crashed ? 0 : 1);

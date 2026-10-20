@@ -5,6 +5,7 @@ export const EXPECTED_MIN_CHECKS = {
   pergamino: 18,
   cicytex: 26,
   laboratorio: 12,
+  "demo-guiada": 23,
   "arquitectura-laya": 7, // 6 chequeos + 1 INFO (A9)
 };
 
