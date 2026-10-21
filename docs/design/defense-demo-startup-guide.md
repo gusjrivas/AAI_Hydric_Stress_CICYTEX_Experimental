@@ -1,7 +1,10 @@
-# Guía de arranque de la demo de defensa (Pergamino, Melchor Romero, Laboratorio)
+# Guía de arranque de la demo de defensa (CICYTEX, Pergamino, Melchor Romero, Laboratorio)
 
-Guion breve para iniciar y recorrer, desde un entorno limpio, los tres modos
-usados en la defensa. Complementa (no reemplaza) la documentación técnica
+Guion breve para iniciar y recorrer los sitios usados en la defensa. Las
+secciones 1 a 7 documentan el arranque con `start_defense_demo.ps1`, que
+cubre Pergamino, Melchor Romero y el Laboratorio. CICYTEX y el recorrido
+guiado `#demo-guiada` se describen en la sección 0.1 y no tienen un modo
+propio en ese script. Complementa (no reemplaza) la documentación técnica
 existente:
 
 - `docs/design/producer-ui-local-preview-2026-09-26.md` (arranque detallado
@@ -22,9 +25,150 @@ de artefactos ni su lógica.
 
 | Modo | Qué demuestra | Qué NO permite concluir |
 | --- | --- | --- |
+| **CICYTEX** | Reproducción causal del paquete archivado de 21 sondas de humedad (un sitio, campaña 2023): decisión del ensamble con lo observado hasta la emisión y revelado posterior. El objetivo es un proxy: humedad futura bajo el P20 de entrenamiento. | No hay etiquetas fisiológicas independientes. La evaluación inicial (420 casos por horizonte) y el replay causal (399, 378 y 357) son análisis distintos y no se mezclan. El replay es retrospectivo y exploratorio sobre un período ya inspeccionado. No es validación multisitio, ni evidencia de ahorro de agua ni de generalización geográfica. |
 | **Pergamino** | Recorrido histórico real sobre un demo-runner de ensamble (`pergamino-ensemble-demo`) con emisiones ya preparadas y persistidas, con procedencia externa (ERA5-Land/NASA POWER) explícita. | No es la campaña científica cerrada `controlled_daily_v4_external_pergamino` (ADR-0011, `FAIL` de gobernanza, GD-38/GD-40) ni la reabre; no evalúa el holdout 2024-2025; no es evidencia de superioridad de ningún modelo. |
 | **Melchor Romero** | El mismo recorrido, pero completamente reproducible desde el propio repositorio (dataset real ya versionado `data/melchor_romero_2024_consolidado.parquet`), incluida la distinción real/imputado/sin-observación corregida en PR #228. | No tiene evaluación agregada retrospectiva propia (a diferencia del panel 2023 de Pergamino, que a su vez es exploratorio, no confirmatorio). No reejecuta ni reinterpreta `controlled_daily_v3`. |
 | **Laboratorio de sensores** | Escenarios sintéticos controlados (ruido, anomalías, sensor de prueba) contra el pipeline operativo real (ingesta, calidad, pronóstico, feedback), identificados inequívocamente como sintéticos. | Los scores del laboratorio no son evidencia científica ni probabilidades calibradas sobre datos reales; solo ilustran el comportamiento del pipeline. |
+
+## 0.1. CICYTEX y recorrido guiado `#demo-guiada`
+
+Esta sección se verificó por lectura de código y de configuración. No se
+ejecutó ningún stack al redactarla.
+
+### Rutas vigentes
+
+Las rutas son hashes sin barra: `#resumen`, `#defensa-pergamino`,
+`#defensa-melchor-romero`, `#defensa-cicytex`, `#laboratorio-sensores`,
+`#evidencia-resultados`, `#productor` (destino por defecto), `#prediccion`,
+`#calidad`, `#linaje`, `#evidencia` y `#arquitectura`. Además existen
+`#demo-guiada` (ruta propia), `#demo` (vista de Herramientas técnicas, solo
+con demo acelerada configurada) y `#reproduccion-historica`. Una ruta con
+barra (por ejemplo `#/defensa-pergamino`) no es reconocida y la aplicación
+abre el destino por defecto, `#productor`.
+
+### Dos formas de recorrer los sitios
+
+| | `#demo-guiada` | Vistas detalladas (`#defensa-cicytex`, `#defensa-pergamino`, `#defensa-melchor-romero`, `#laboratorio-sensores`) |
+| --- | --- | --- |
+| Alcance | Cuatro pasos en orden fijo: CICYTEX, Pergamino, Melchor Romero, Laboratorio. Un caso fijo por sitio | Selección de sonda, horizonte y emisión (CICYTEX), emisiones archivadas con +1/+2/+3 (productor), escenarios del laboratorio |
+| Interacción | Semáforo, "N de M modelos coinciden", botón "Avanzar un día", línea "De dónde sale" y detalle técnico plegable. Cada paso se monta y se descarta, por lo que volver a un paso lo reinicia | Reloj editable, tablas de observaciones reveladas, trazabilidad completa |
+| Feedback y revisión | No incluye | Incluye (sección de feedback más abajo) |
+| Laya | No aparece | Solo como ficha desactivada en `#arquitectura` |
+| Endpoints nuevos | Ninguno: reutiliza los clientes existentes | - |
+
+Casos fijos del recorrido guiado:
+
+- CICYTEX: sonda `CP1_S1`, emisión 2023-07-06, horizonte +1. Crea una sesión
+  (`POST /api/v2/cicytex/replay/sessions`), avanza con `POST .../sessions/{id}/advance`
+  y consulta `GET /api/v2/cicytex/replay/provenance`.
+- Pergamino: sensor `pergamino-ensemble-demo`, emisión 2023-06-13, horizonte +1.
+- Melchor Romero: sensor `melchor-romero-demo`, emisión 2024-10-20, horizonte +1.
+  Ambos usan `GET /api/v2/sensors/{id}/historical/{fecha}/forecasts`,
+  `.../historical/{fecha}/readings` y `GET /api/v2/sensors/{id}/batches/{batch_id}/provenance`.
+- Laboratorio: datos sintéticos generados en el navegador (escenario A normal y
+  escenario B con temperatura imposible), rotulados "SIMULACIÓN". Usa
+  `POST /sensors/{id}/readings`, `POST /forecast/{id}/run` y `GET /quality/{id}`.
+  No compara modelos.
+
+### Datos y artefactos necesarios por recorrido
+
+| Recorrido | Backend que debe responder | Artefactos |
+| --- | --- | --- |
+| CICYTEX (guiado o detallado) | Backend con el router `cicytex_replay`; no requiere `PRODUCER_V2_ENABLED` | `results/cicytex/causal_replay/{summary.json,predictions.csv,observations.csv}`, versionados en el repositorio. Los joblib de `models/` no se necesitan para recorrer y están ignorados por Git |
+| Pergamino | `producer_v2` habilitado (`PRODUCER_V2_ENABLED=true`, que fija `run_producer_preview_backend.py`) | Lecturas, emisión y 9 bundles externos al repositorio (sección 2) |
+| Melchor Romero | `producer_v2` habilitado | Se prepara con `prepare_melchor_romero_historical_demo.py` (sección 2) |
+| Laboratorio | Backend plano | Ninguno |
+
+Consecuencias:
+
+- `compose.cicytex.yml` (frontend `http://127.0.0.1:55180`, backend
+  `http://127.0.0.1:55800`, proyecto `aai-cicytex-experiment`) copia el paquete
+  causal a la imagen y sirve CICYTEX. No define `PRODUCER_V2_ENABLED` ni
+  `PRODUCER_DATA_DIR`: por lectura de código, los pasos de Pergamino y Melchor
+  Romero del recorrido guiado y las vistas `#defensa-pergamino` y
+  `#defensa-melchor-romero` no funcionan solo con ese stack. El funcionamiento
+  del paso de Laboratorio en ese stack no está verificado.
+- MLflow, PostgreSQL y MinIO de `compose.cicytex.yml` (puertos 5500, 55432,
+  59000 y 59001) solo se necesitan para reejecutar el experimento (ver
+  `docs/research/cicytex-reproduction.md`). La interfaz solo lee el paquete archivado.
+- `start_defense_demo.ps1` no menciona CICYTEX. En `-Mode all` el frontend
+  recibe `VITE_API_BASE_URL` apuntando al backend del laboratorio. Como el
+  cliente de CICYTEX usa esa variable, las solicitudes de CICYTEX llegan al
+  backend plano, que lee `results/cicytex/causal_replay` del checkout y guarda
+  sesiones en `data/cicytex_replay_sessions.sqlite3`. Que esto funcione de
+  extremo a extremo con el script no está verificado.
+- El `docker compose up` del stack principal no copia el paquete causal a la
+  imagen del backend. Se espera 503 en `/api/v2/cicytex/replay/*` (lectura de
+  código, no ejecutado).
+
+### Feedback humano: qué registra cada circuito y qué no hace
+
+Ninguno de los circuitos de las vistas de ensamble recalibra ni reentrena.
+Tampoco existe aprendizaje continuo.
+
+- **CICYTEX** (`POST /api/v2/cicytex/replay/sessions/{id}/feedback`): registra
+  `estado_validacion` (confirmada o rechazada), una `etiqueta_corregida` 0/1
+  opcional y una observación de hasta 1000 caracteres, con marcas de tiempo real
+  y simulada. Solo se acepta cuando el reloj de la sesión alcanzó el objetivo
+  (si no, 409). Un duplicado de sensor, emisión y horizonte devuelve 409. Se
+  guarda en SQLite (`CICYTEX_REPLAY_SESSION_DB`; en `compose.cicytex.yml`, el
+  volumen `cicytex-feedback`). El alcance declarado es demostración.
+- **Pergamino y Melchor Romero, revisión operativa**
+  (`POST /api/v2/sensors/{sensor_id}/forecasts/{forecast_id}/reviews`): registra
+  confirmar o rechazar, comentario e idempotencia, solo desde la madurez del
+  objetivo. No cambia los bundles. La recalibración futura sería la única que
+  podría marcar la revisión como aplicada.
+- **Pergamino y Melchor Romero, recorrido histórico**
+  (`POST .../historical/{fecha}/forecasts/{forecast_id}/reviews`): revisión de
+  prueba técnica bajo reloj simulado, en `historical_feedback/<sensor_id>.json`,
+  aislada del repositorio operativo. No es una opinión real.
+- **Laboratorio y circuito heredado de HU5** (`POST /feedback/{sensor_id}/{fecha}/confirm|reject`
+  y `POST /recalibrate/{sensor_id}`): la recalibración manual refitea un
+  predictor individual con correcciones maduras y registra el sucesor con
+  linaje. No recalibra el ensamble de tres familias.
+- **Recorrido guiado**: no ofrece feedback ni revisión.
+
+### Procedencia disponible por sitio
+
+- **CICYTEX**: el endpoint de procedencia expone SHA-256 del dataset, commit de
+  ejecución, semilla, proxy, política del ensamble, corrida padre de MLflow,
+  SHA-256 de las predicciones y, por horizonte, umbral, particiones y corridas
+  de los componentes. El recorrido guiado muestra solo el SHA-256 del dataset y el
+  commit, y declara "versión del modelo y linaje de recalibración: no disponibles".
+  Si el paquete no cumple el contrato, el endpoint responde 503.
+- **Pergamino y Melchor Romero**: panel "Procedencia de la emisión" con SHA-256
+  del dataset, referencia del modelo, identidad del ensamble y `code_identity` por
+  componente. Configuración completa, corrida de MLflow y semilla figuran "no
+  disponible" porque no se persisten por emisión. Cuando `code_identity` falta se
+  muestra "no registrado": solo los bundles de ejecuciones posteriores a #64 la
+  registran. Si los bundles actuales de Pergamino y Melchor Romero la registran
+  no está verificado.
+- **Laboratorio**: sin commit ni SHA ("no disponible"); muestra la semilla
+  sintética y el identificador del sensor.
+
+### Verificación: fixtures y backend real
+
+`scripts/ui/verify-journeys.mjs` recorre en Chrome real el build del frontend
+contra `scripts/ui/fixture-server.mjs`, con respuestas grabadas de backends
+reales. No prueba un backend en vivo. El script define el sitio `demo-guiada`
+(chequeos G0 a G21) y exige como mínimo 104 chequeos en total según
+`EXPECTED_MIN_CHECKS` (`scripts/ui/lib/results.mjs`), con 23 para `demo-guiada`.
+Ese mínimo no es un resultado de ejecución. La última corrida completa
+registrada antes de #69 fue de 80 PASS, 0 FAIL y 1 INFO; un total de 103 PASS más
+1 INFO tras #69 es lo que se deriva de los mínimos y no se ejecutó en esta
+redacción. CI ejecuta el script en el job `browser-journeys`.
+
+### Pendientes
+
+- Ensayo humano del recorrido guiado y de las vistas detalladas, con tiempo de
+  habla real, proyector y equipo de la defensa.
+- Ejecución en el equipo de defensa de `compose.cicytex.yml`, de
+  `start_defense_demo.ps1` con rutas de CICYTEX y de `#demo-guiada` contra un
+  backend real.
+- Estado efectivo del sidecar de Laya: no verificado. Está desactivada por
+  defecto y la interfaz no la invoca.
+- Verificación a 390 px y revisiones POST de Pergamino y Melchor Romero en
+  navegador (ver secciones 7 y 8).
 
 ## 1. Requisitos previos
 
@@ -66,7 +210,7 @@ versionado y prepara las 5 emisiones históricas reales
 (`2024-10-20`..`2024-10-24`). No requiere ningún insumo externo al
 repositorio ni credenciales.
 
-### Pergamino — **disponible localmente y verificado; no incluido en un clon limpio**
+### Pergamino — **disponible localmente y verificado (verificación del 2026-09-29, histórica); no incluido en un clon limpio**
 
 Es importante distinguir dos cosas distintas que un lector podría
 confundir: **disponibilidad local** (¿existen los artefactos, en esta
@@ -220,15 +364,21 @@ Corrección: `frontend/src/api/baseUrl.ts` ahora expone dos constantes:
 ## 4. URLs y recorrido sugerido
 
 - Frontend: `http://127.0.0.1:5199` (o el puerto elegido con `-FrontendPort`).
-- Pergamino: ruta `#/defensa-pergamino` — seleccionar una emisión archivada,
+- CICYTEX: ruta `#defensa-cicytex`. Requiere un backend que sirva
+  `results/cicytex/causal_replay` (sección 0.1). Seleccionar sonda, horizonte y
+  emisión, abrir la emisión congelada, avanzar el reloj y, con la realidad
+  revelada, registrar feedback de demostración.
+- Recorrido guiado: ruta `#demo-guiada`, con sus cuatro pasos y los requisitos
+  de la sección 0.1. Es una alternativa simplificada, no reemplaza las vistas detalladas.
+- Pergamino: ruta `#defensa-pergamino` — seleccionar una emisión archivada,
   revisar +1/+2/+3 y las explicaciones de indisponibilidad, avanzar el
   reloj, registrar feedback.
-- Melchor Romero: ruta `#/defensa-melchor-romero` — mismo recorrido;
+- Melchor Romero: ruta `#defensa-melchor-romero` — mismo recorrido;
   verificar puntualmente que la emisión del 23/10 +3 y la del 24/10 +2
   muestren el 26/10 como imputado (no como observación real) y que el 27/10
   conserve su observación original; confirmar que las observaciones
   posteriores a la fecha del reloj no aparecen hasta avanzarlo.
-- Laboratorio: ruta `#/laboratorio-sensores` — recorrer escenarios de ruido,
+- Laboratorio: ruta `#laboratorio-sensores` — recorrer escenarios de ruido,
   anomalías y sensor de prueba, confirmando el rótulo de datos sintéticos y
   que los scores no se presentan como probabilidades calibradas.
 
@@ -492,7 +642,7 @@ verificados antes y después de la copia (4 archivos de lecturas/emisión,
 sirviendo ambos `sensor_id` simultáneamente: `GET /api/v2/sensors` listó
 `pergamino-ensemble-demo` y `melchor-romero-demo`; cada uno resolvió sus
 propias emisiones históricas reales por API y por navegador
-(`#/defensa-pergamino` y `#/defensa-melchor-romero` en la misma sesión de
+(`#defensa-pergamino` y `#defensa-melchor-romero` en la misma sesión de
 frontend); pedir Pergamino en una fecha exclusiva de Melchor Romero
 devolvió `404 batch_not_prepared` (aislamiento estructural por
 `sensor_id`, no por coincidencia) — sin mezcla de datos entre sensores.
@@ -660,6 +810,12 @@ corregida (nota al inicio) para no describir ese ensayo anterior como de
   hash de punta a punta (sección 7.1); quien tenga acceso a ellos por el
   canal ya autorizado puede recorrer Pergamino igual que Melchor Romero y
   el Laboratorio.
+- CICYTEX y `#demo-guiada` no tienen modo propio en `start_defense_demo.ps1`.
+  Su arranque de extremo a extremo con ese script o con `compose.cicytex.yml`
+  no está verificado, y las secciones 7 a 7.3 (ensayos de 2026-09-29) no los
+  incluyen. Esos ensayos son verificaciones históricas parciales de Pergamino,
+  Melchor Romero y Laboratorio en un equipo y un momento concretos, y no
+  garantizan el estado actual del repositorio.
 - Esta guía no reemplaza `docs/research/protocolo-experimental-v3.md` (v3,
   congelado) ni el protocolo `controlled_daily_v4_external_pergamino`
   (ADR-0011); tampoco reinterpreta la retrospectiva exploratoria 2023

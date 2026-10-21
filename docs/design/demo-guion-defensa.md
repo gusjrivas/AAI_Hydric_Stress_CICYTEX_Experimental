@@ -6,6 +6,11 @@ riego. Este documento **detalla** la sección 1 de `docs/design/f8-paquete-defen
 sigue siendo el resumen; arranque general en `docs/design/defense-demo-startup-guide.md`, verificación de
 navegador en `docs/design/f7-verificacion-navegador.md`). No reabre holdouts ni usa datos privados.
 
+Hay dos formas de presentar la demo. El guion de la sección 3 recorre las vistas detalladas de cada sitio. La sección 3.1 describe
+`#demo-guiada`, un recorrido simplificado de cuatro pasos pensado para el video de 3-5 min. Ambas usan las mismas fixtures y ninguna
+sustituye a la otra. La demo de CICYTEX es un recorrido sobre un paquete archivado y exploratorio, con objetivo proxy (humedad futura
+bajo el P20 de entrenamiento) y sin etiquetas fisiológicas independientes. No es validación multisitio ni muestra ahorro de agua.
+
 Convención: **hecho** = comprobado en el ensayo técnico de la sección 6; «no verificado» = no comprobado.
 
 ## 1. Datos identificados (todos existen en `frontend/e2e/fixtures/`, grabados de backends reales)
@@ -71,6 +76,25 @@ y 7 de CICYTEX (sin Pergamino/Melchor Romero).
 
 Si hay que recortar a 3:00, omitir 2 (decirlo dentro de 3), 6 y 8. Preguntas probables: sección 7 de F8.
 
+### 3.1. Alternativa simplificada: `#demo-guiada` (video de 3-5 min)
+
+Ruta `#demo-guiada` (con fixtures: plan B de la sección 2. Con backend real, los requisitos de cada paso están en la sección 0.1 de
+`docs/design/defense-demo-startup-guide.md`). Cuatro pasos en orden fijo, sin selectores, sin feedback ni revisiones y sin Laya. Cada paso
+muestra un semáforo, «N de M modelos coinciden», el botón «Avanzar un día», la línea «De dónde sale» y un detalle técnico plegable
+(«Ver detalle técnico»). «Siguiente sitio» y «Sitio anterior» cambian de paso, y volver a un paso lo reinicia.
+
+| Paso | Caso fijo | Qué mostrar | Qué decir (orientativo) |
+| --- | --- | --- | --- |
+| 1 de 4, CICYTEX | Sonda `CP1_S1`, emisión 2023-07-06, +1 | Semáforo, acuerdo de modelos, «Ver detalle técnico» (SHA-256 del dataset y commit; versión del modelo y linaje no disponibles), luego «Avanzar un día» y la humedad observada frente al umbral | Es un recorrido sobre un paquete archivado. El evento es humedad bajo el P20 de entrenamiento, no estrés fisiológico. Un solo día ilustra el recorrido, no evalúa la herramienta |
+| 2 de 4, Pergamino | Emisión 2023-06-13, +1, fuente ERA5-Land | Semáforo, detalle con SHA-256 del dataset y commit «no registrado», «Avanzar un día» | Datos de reanálisis, sin sensor propio. La procedencia que falta se declara |
+| 3 de 4, Melchor Romero | Emisión 2024-10-20, +1, fuente ESA CCI | Semáforo y «Avanzar un día» | No se le atribuyen resultados de otros sitios |
+| 4 de 4, Sensores simulados | Escenario A normal y escenario B con temperatura imposible | «Generar datos simulados», rótulo «SIMULACIÓN», sin comparación entre modelos. «Avanzar un día» muestra la anomalía de medición, que no es humedad baja | Datos sintéticos sin valor de evidencia científica |
+
+Mensajes que la pantalla ya incluye y que conviene decir: es un recorrido y no una evaluación, y la herramienta es apoyo a la decisión y no
+decide cuánto regar. El recorrido guiado no muestra feedback humano: para mostrarlo y explicar que no recalibra ni reentrena, usar el paso 7
+de la sección 3. Los tiempos de habla de este recorrido no se midieron y `rehearse-demo.mjs` no lo cubre. Lo verifica el sitio `demo-guiada`
+de `verify-journeys.mjs` (sección 5). El ensayo humano sigue pendiente (sección 7).
+
 Lo que **no** debe afirmarse: que el sistema funciona (es un recorrido, no una campaña), probabilidades en %
 (no se muestran), alertas de CICYTEX en esta demo con fixtures, telemetría en vivo, versión de modelo o linaje
 de recalibración de CICYTEX, commit/MLflow/dataset de Pergamino, Melchor Romero o laboratorio.
@@ -95,7 +119,7 @@ $env:BASE_URL="http://127.0.0.1:4173"; $env:OUT_DIR="demo-rehearsal-out"; node s
 
 `scripts/ui/rehearse-demo.mjs` recorre en Chrome real (CDP) los tramos 1-8c contra el fixture-server, cronometra cada
 tramo con `performance.now()` y escribe `rehearsal.json` y capturas. **Mide tiempo de máquina**, no tiempo de
-habla; no reemplaza `verify-journeys.mjs` (78 PASS en su última corrida). Comprueba los textos concretos de
+habla; no reemplaza `verify-journeys.mjs`, que además cubre `#demo-guiada` (sitio `demo-guiada`, 23 chequeos mínimos exigidos por `EXPECTED_MIN_CHECKS`). Los 78 PASS de la sección 6 son anteriores a ese sitio y a #67. Comprueba los textos concretos de
 la sección 1 (reloj 2023-07-06 → 2023-07-07, SHA `06d662bc`, «no disponible», VN con n=1, feedback sin
 preselección, avance en Pergamino y Melchor Romero, laboratorio A).
 
@@ -105,7 +129,7 @@ preselección, avance en Pergamino y Melchor Romero, laboratorio A).
 | --- | --- |
 | `npm ci` (frontend) | 36,6 s (144 paquetes) |
 | Build `dist/e2e` | 8,0 s (Vite: 362 ms de bundling) |
-| `verify-journeys.mjs` completo | **78 PASS, 0 FAIL, 1 INFO**, 29,1 s (melchor-romero 17/0/0, pergamino 17/0/0, cicytex 26/0/0, laboratorio 12/0/0, arquitectura-laya 6/0/1) |
+| `verify-journeys.mjs` completo (corrida histórica sobre `584bd94`, anterior a #67 y #69, no es el estado actual) | **78 PASS, 0 FAIL, 1 INFO**, 29,1 s (melchor-romero 17/0/0, pergamino 17/0/0, cicytex 26/0/0, laboratorio 12/0/0, arquitectura-laya 6/0/1) |
 | `rehearse-demo.mjs` (3 corridas válidas consecutivas) | 22 PASS, 0 FAIL cada una; total 16,2 s, 25,7 s y 12,4 s (incluye arranque de Chrome) |
 
 Tiempos de máquina por tramo en ms (corridas 1 / 2 / 3). Son el costo de la UI, no del discurso:
@@ -131,14 +155,14 @@ movimientos del ratón, por lo que 5:00 deja ~1:50 de margen para clics y silenc
 
 Nota: el ensayo automatizado no comprueba la alerta de Melchor Romero (+3 días, 2 de 3 modelos); esa afirmación se verifica en `verify-journeys.mjs` y en los fixtures, no en `rehearse-demo.mjs`.
 
-**No ejecutado / no verificado:** plan A (backend real, `start_defense_demo.ps1`, otras sondas/horizontes/emisiones de
+**No ejecutado / no verificado:** el recorrido `#demo-guiada` en este ensayo cronometrado y contra el backend real; plan A (backend real, `start_defense_demo.ps1`, otras sondas/horizontes/emisiones de
 CICYTEX); el catálogo caído, el 503 por paquete ausente y el backend apagado del laboratorio en navegador;
 el tiempo de habla humano real; pasos C y D del laboratorio; revisiones POST de Pergamino y Melchor Romero; ejecución en
 otro equipo o proyector. Fixtures no prueban el backend real.
 
 ### Hallazgos de demo (no corregidos; no son cambios de código de producto)
 
-1. **La demo con fixtures nunca muestra una alerta de CICYTEX ni métricas discriminantes** (todo VN, MCC/F1 «—» con n<=3). El mensaje
+1. **La demo con fixtures nunca muestra una alerta de CICYTEX ni métricas discriminantes** (todo VN, MCC/F1 «—» con n=1 en el paso 6 y n<=3 tras tres avances). El mensaje
    de «comparación» es débil; mostrarlo como recorrido, no como resultado, o usar otro punto contra el backend real (no verificado).
 2. **Intermitencia del ensayo automatizado:** una primera tanda de tres ejecuciones consecutivas de `rehearse-demo.mjs` falló
    por `Timeout tras 30000 ms: Page.navigate` y una sonda aislada devolvió `undefined` al evaluar la página; la

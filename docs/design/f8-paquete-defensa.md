@@ -11,6 +11,11 @@ Guion detallado con datos identificados, plan B con fixtures y ensayo técnico c
 
 Previo (fuera de tiempo): backend CICYTEX y frontend arriba (sección 5), navegador en `#resumen`.
 
+**Alternativa simplificada para el video:** `#demo-guiada` (PR #69) recorre en cuatro pasos CICYTEX, Pergamino, Melchor Romero y el
+laboratorio, con un caso fijo por sitio, sin feedback ni Laya. No reemplaza la tabla siguiente, que usa las vistas detalladas. Detalle
+del recorrido en la sección 3.1 de `docs/design/demo-guion-defensa.md` y requisitos de datos por paso en la sección 0.1 de
+`docs/design/defense-demo-startup-guide.md`. Su ensayo humano y su ejecución contra el backend real están pendientes.
+
 | # | Tiempo | Ruta | Mostrar | Decir |
 | --- | --- | --- | --- | --- |
 | 1 | 0:00-0:30 | `#arquitectura` | Mapa por nodos, insignia de modo por vista, ficha de Laya («Desactivado por defecto»). | «Esta es la arquitectura final. Los datos IoT son una fuente, no la contribución; el núcleo es el modelado. Laya existe pero está desactivada y no hay telemetría en vivo.» |
@@ -34,6 +39,7 @@ flowchart TB
     CY["#defensa-cicytex"]
     PM["#defensa-pergamino / #defensa-melchor-romero (productor)"]
     LAB["#laboratorio-sensores (sintético)"]
+    GD["#demo-guiada (cuatro pasos, reutiliza los clientes)"]
   end
   CLI["Cliente OpenAPI (tipos generados, API_BASE_URL)"]
   subgraph API["Fachada FastAPI delgada (ADR-0003)"]
@@ -53,6 +59,7 @@ flowchart TB
   CY --> CLI
   PM --> CLI
   LAB --> CLI
+  GD --> CLI
   ARQ -.-> CLI
   CLI --> RCY
   CLI --> RPR
@@ -69,7 +76,7 @@ Tres dominios separados: CICYTEX (paquete causal archivado), productor (Pergamin
 Romero) y laboratorio (sintético). La flecha a Laya está punteada: integrada pero apagada
 (ADR-0014). El diagrama es una síntesis: el detalle por nodo vive en el catálogo de `#arquitectura`.
 
-## 3. Mapa antes/después (PRs #45-#67)
+## 3. Mapa antes/después (PRs #45-#67 y #69; #68 es el cierre documental `9f246fb`)
 
 | PR | Estado | Qué cambió en la UI |
 | --- | --- | --- |
@@ -96,6 +103,7 @@ Romero) y laboratorio (sintético). La flecha a Laya está punteada: integrada p
 | #65 | merged (`c5dc55e`) | F8: guion de demo de 3-5 min y ensayo técnico cronometrado (`docs/design/demo-guion-defensa.md`, `scripts/ui/rehearse-demo.mjs`; 22 PASS en tres corridas). |
 | #66 | merged (`6106b78`) | F5: laboratorio con objetivos táctiles de 44 px por regla CSS a ≤600 px (no medido en navegador), mensaje de red en español y test con backend apagado; regresión de la redacción de Laya. |
 | #67 | merged (`5e22733`) | F6: endpoint de solo lectura de procedencia de la emisión y panel «Procedencia de la emisión» (emisiones previas a #64: «no registrado»; configuración, MLflow y semilla: «no disponible»). |
+| #69 | merged (`d173215`) | HU6, `alerting-ui`: recorrido guiado `#demo-guiada` de cuatro sitios (commits `77e6ea8` y `b775db1`). Reutiliza endpoints existentes, no ofrece feedback ni muestra Laya y suma el sitio `demo-guiada` a `verify-journeys.mjs`. |
 
 Antes: vistas sin separación explícita de modo, sin mapa de arquitectura, recorrido CICYTEX
 frágil ante fallos y sin rediseño ni trazabilidad en los demás sitios. Después: modo visible,
@@ -110,8 +118,8 @@ reloj ficticio; no es evidencia científica). Los títulos y los merge commits p
 
 Evidencia: `App.resilience.test.tsx` (AR), `CicytexDefensePage.test.tsx` (CP),
 `backend/tests/test_cicytex_replay_provenance.py` (BP), `scripts/ui/verify-journeys.mjs`
-(NAV). Resultado contra fixtures deterministas: 78 PASS en #62 y 80 PASS, 0 FAIL y 1 INFO con #67 (A9: rutas sin fixture
-`GET /api/v2/sectors` y `/api/v2/sensors`), en cuatro sitios y la ficha de Laya; el detalle por sitio está en
+(NAV). Resultado contra fixtures deterministas: 78 PASS en #62 y 80 PASS, 0 FAIL y 1 INFO con #67 (corridas históricas, anteriores a #69; A9: rutas sin fixture
+`GET /api/v2/sectors` y `/api/v2/sensors`), en cuatro sitios y la ficha de Laya. Con #69 se suma el sitio `demo-guiada`: `EXPECTED_MIN_CHECKS` exige 23 chequeos para él y 104 en total (103 PASS más 1 INFO esperables), cifra derivada del script y no ejecutada en esta redacción. El detalle por sitio está en
 `docs/design/f7-verificacion-navegador.md`. Los resultados históricos de la primera versión (CICYTEX, 12 `ok: true` y
 J6 informativo) siguen en `docs/design/capturas/f7-verificacion-navegador.json`. Se suman las pruebas de componente de
 #55-#60 y la verificación visual de la sección 6.
@@ -145,7 +153,8 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
   `results/cicytex/causal_replay` del repositorio. Sin él, catálogo y provenance responden 503.
 - `CICYTEX_REPLAY_SESSION_DB`: SQLite de sesiones durables. Por defecto
   `cicytex_replay_sessions.sqlite3` bajo el directorio de datos del backend.
-- Frontend: la base de API sale de `VITE_API_BASE_URL` (por defecto `http://localhost:8000`).
+- Frontend: la base de API general sale de `VITE_API_BASE_URL` (por defecto `http://localhost:8000` en `api/baseUrl.ts`). El cliente de CICYTEX
+  (`features/defense/cicytexApi.ts`) usa el mismo origen cuando la variable no está definida, y la imagen de `compose.cicytex.yml` la fija vacía.
   El proxy de `/api` hacia `http://127.0.0.1:8010` existe solo en `frontend/vite.verify.config.mjs`
   (archivo versionado desde #54, puerto 5199), usado por `scripts/ui/verify-journeys.mjs`;
   `vite.config.ts` no define proxy.
@@ -181,8 +190,8 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
 7. **Niveles de prueba no equivalentes**: componente (jsdom) ≠ navegador real (script CDP) ≠
    validación visual puntual. Ninguno es auditoría de accesibilidad ni evidencia científica.
 8. **Procedencia parcial en `producer_v2` y ninguna en el laboratorio**: #67 expone SHA-256 del dataset y `code_identity` sólo cuando el bundle la registró (ejecuciones posteriores a #64); MLflow, semilla y configuración no se persisten por emisión, y el laboratorio es sintético. La identidad del paquete en las sesiones SQLite de CICYTEX (incremento 3 de linaje) no está implementada.
-9. El script de navegador (`verify-journeys.mjs`, 78 PASS en #62 y 80 PASS, 0 FAIL, 1 INFO con #67) cubre cuatro sitios y la
-   ficha de Laya contra fixtures grabadas; no prueba el backend real y un cambio de contrato exige
+9. El script de navegador (`verify-journeys.mjs`; 78 PASS en #62 y 80 PASS, 0 FAIL, 1 INFO con #67, ambas corridas históricas) cubre cuatro sitios, la
+   ficha de Laya y, desde #69, el sitio `demo-guiada` contra fixtures grabadas; no prueba el backend real y un cambio de contrato exige
    regrabarlas. No cubre las revisiones POST de Pergamino y Melchor Romero ni los pasos C y D del laboratorio.
 10. **Laboratorio**: #61 declaró tamaños táctiles bajos, mensaje crudo en inglés «Failed to fetch» y laboratorio con backend apagado sin probar. #66 los atiende: objetivos de 44 px por regla CSS a ≤600 px (el test lee el CSS; no se midió en navegador), mensaje en español y test del laboratorio con backend apagado (jsdom). Siguen pendientes, fuera del laboratorio, los inputs de fecha `.fp-filters` (36 px) y el enlace de `NoReadingsHint` (~20 px) en `ResumenView`. Los defectos de «Cómo revisar» y de la repetición de «no disponible» se corrigieron en #61.
 11. «Confirmar» y «Rechazar» tienen el mismo peso visual desde #60; se prueba sólo con test de componente.
@@ -198,6 +207,6 @@ Pasos generales (puertos, preparación de artefactos, `start_defense_demo.ps1`):
 5. **¿Qué pasa al recargar?** Se conserva la ruta y CICYTEX recupera la sesión (referencia mínima en `sessionStorage` y `GET /sessions/{id}`). Si falla la recuperación (por ejemplo 404, registro mal formado o sesión que no coincide) se muestra el aviso y se borra la referencia. Es por pestaña; el borrador de feedback no se transfiere.
 6. **¿Laya participa en las decisiones?** No: está desactivada por defecto y su evaluación no está habilitada por falta de corpus humano (ADR-0014).
 7. **¿Hay datos en vivo o IoT real?** No hay telemetría en vivo. Los sensores son fuente de datos; el laboratorio es sintético y no es evidencia científica.
-8. **¿Está probado de punta a punta en CI?** Parcialmente. CI corre tests de componente y, desde #62, recorridos en Chrome real de cuatro sitios y la ficha de Laya contra fixtures deterministas (80 PASS, 0 FAIL, 1 INFO con #67), no contra el backend real. Quedan fuera las revisiones POST de Pergamino y Melchor Romero y los pasos C y D del laboratorio. No hay auditoría axe.
-9. **¿Qué hace el feedback humano?** Se registra por sesión solo con la realidad revelada y el borrador no se filtra entre sesiones. Su efecto sobre modelos no es parte de este paquete.
+8. **¿Está probado de punta a punta en CI?** Parcialmente. CI corre tests de componente y, desde #62, recorridos en Chrome real de cuatro sitios y la ficha de Laya contra fixtures deterministas (80 PASS, 0 FAIL, 1 INFO en la última corrida registrada, de #67. Desde #69 también `#demo-guiada`), no contra el backend real. Quedan fuera las revisiones POST de Pergamino y Melchor Romero y los pasos C y D del laboratorio. No hay auditoría axe.
+9. **¿Qué hace el feedback humano?** En CICYTEX se registra por sesión solo con la realidad revelada, con alcance de demostración, y el borrador no se filtra entre sesiones. En ningún recorrido de ensamble recalibra ni reentrena el ensamble, y no hay aprendizaje continuo. El recorrido `#demo-guiada` no ofrece feedback.
 10. **¿El sistema decide el riego?** No. Es apoyo a la decisión.

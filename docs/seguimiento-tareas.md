@@ -1,5 +1,19 @@
 # Seguimiento de tareas — plan de proyecto vs. estado real del repo
 
+## 2026-10-20 — Actualización documental para memoria y defensa (rama `docs/actualizacion-memoria-defensa`)
+
+Solo documentación, sobre `main` `d173215` (incluye #69, change `add-guided-demo-page`: ruta `#demo-guiada`, merge `d173215`). Sin cambios de código, tests, modelos, datasets, resultados ni protocolos; sin entrenamientos ni suites; sin push ni merge de esta rama. HU6, capacidades `architecture-integration` y `alerting-ui`.
+
+| Archivo | Cambio |
+|---|---|
+| `README.md` | Relación con el repositorio original, contextos (Melchor Romero, Pergamino, CICYTEX, laboratorio), capacidades y límites, estado de Laya, diferencia entre entrenamiento, evaluación archivada y reproducción histórica, qué stack sirve cada recorrido |
+| `docs/research/thesis-defense-position.md` | Síntesis vigente con matriz de siete evidencias, evaluación inicial CICYTEX (420 casos) separada del replay posterior (399/378/357), contribuciones, preguntas del tribunal y estructura de presentación |
+| `docs/research/README.md` | Índice de documentos por uso (metodología, implementación, resultados, defensa) y notas de alcance de informes históricos |
+| `docs/design/defense-demo-startup-guide.md` | Rutas `#defensa-...` corregidas (las rutas con barra no las reconoce el router), CICYTEX y `#demo-guiada`, artefactos por recorrido, circuitos de feedback, procedencia por sitio |
+| `docs/design/demo-guion-defensa.md`, `docs/design/f8-paquete-defensa.md` | `#demo-guiada` como alternativa para el video, cifras de chequeos de navegador rotuladas como corridas históricas |
+
+Sin verificar en esta tarea (declarado así en los documentos): funcionamiento de punta a punta de `compose.cicytex.yml`, de `start_defense_demo.ps1` con CICYTEX y de `#demo-guiada` contra un backend real; registro del commit `80853b1` en MLflow; estado del árbol al ejecutar los análisis CICYTEX; existencia de los tags de memoria en el remoto. Pendientes humanos sin cambio: ensayo de la demo con Gustavo, aceptación del ADR 0015 y decisión sobre Playwright y axe. Las filas F4 a F8 del plan siguen en 🟡 y esta actualización no cierra el proyecto ni ninguna fase.
+
 ## 2026-10-18 — Arquitectura UI y defensa, plan maestro F0–F8 (UI, `alerting-ui`)
 
 Reconciliación con el plan maestro (`plan-maestro-arquitectura-ui-claude-code.md`, documento externo al repositorio) y el alcance real de #45–#48. Capacidad `alerting-ui`, HU6; sin impacto sobre hipótesis, modelos, datos, protocolo HU7/HU8 ni holdouts. Laya sigue desactivada por defecto. No hay issues de GitHub abiertos asociados: no se cierra ninguno. ✅ sólo donde hay entregable mergeado, prueba y revisión sin P0/P1/P2 con CI verde sobre el HEAD exacto (o, en F2, decisión documentada).
