@@ -200,7 +200,7 @@ describe("App — navegación por hash (Entrega 2)", () => {
   });
 
   it.each([
-    ["#defensa-cicytex", /replay histórico/i],
+    ["#defensa-pergamino", /replay histórico/i],
     ["#laboratorio-sensores", /laboratorio sintético/i],
     ["#productor", /^operación$/i],
   ])("labels the mode of %s so replay, lab and operation are never confused", async (hash, text) => {

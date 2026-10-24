@@ -21,14 +21,13 @@ import { demoGateForSensor } from "./features/demo/lock";
 import { HistoricalReplayPage } from "./features/historical-replay/HistoricalReplayPage";
 import { PergaminoDefensePage } from "./features/defense/PergaminoDefensePage";
 import { MelchorRomeroDefensePage } from "./features/defense/MelchorRomeroDefensePage";
-import { CicytexDefensePage } from "./features/defense/CicytexDefensePage";
 import { SensorLabPage } from "./features/lab/SensorLabPage";
 import { GuidedDemoPage } from "./features/guided-demo/GuidedDemoPage";
 import { EvidenceResultsPage } from "./features/evidence/EvidenceResultsPage";
 import { ModeBadge } from "./features/navigation/ModeBadge";
 import { modeForView } from "./features/navigation/viewMode";
 
-const DEFENSE_ROUTES = ["defensa-pergamino", "defensa-melchor-romero", "defensa-cicytex"] as const;
+const DEFENSE_ROUTES = ["defensa-pergamino", "defensa-melchor-romero"] as const;
 function isDefenseRoute(route: string): route is (typeof DEFENSE_ROUTES)[number] {
   return (DEFENSE_ROUTES as readonly string[]).includes(route);
 }
@@ -37,7 +36,7 @@ const LAB_ROUTE = "laboratorio-sensores";
 
 const DEMO_HASH = "#demo";
 const HISTORICAL_REPLAY_HASH = "#reproduccion-historica";
-// Recorrido guiado de cuatro sitios: ruta propia, distinta de `#demo` (demostración acelerada).
+// Recorrido guiado de dos sitios y laboratorio: ruta propia, distinta de `#demo` (demostración acelerada).
 const GUIDED_DEMO_HASH = "#demo-guiada";
 
 function useIsGuidedDemoRoute(): boolean {
@@ -284,7 +283,6 @@ function App() {
         )}
         {!isDemoRoute && route === "defensa-pergamino" && <PergaminoDefensePage />}
         {!isDemoRoute && route === "defensa-melchor-romero" && <MelchorRomeroDefensePage />}
-        {!isDemoRoute && route === "defensa-cicytex" && <CicytexDefensePage />}
         {!isDemoRoute && route === LAB_ROUTE && <SensorLabPage onSensorWithData={setLabSensorId} onOpenInTools={openLabSensorInTools} />}
         {!isDemoRoute && route === "evidencia-resultados" && <EvidenceResultsPage />}
         {isHistoricalReplayRoute && (

@@ -1,5 +1,13 @@
 # Spec: alerting-ui
 
+> **Alcance de presentación 2026-10-24:** por solicitud del autor, la UI expone
+> Pergamino y Melchor Romero, más laboratorio sintético. CICYTEX queda fuera
+> de rutas, navegación y recorrido guiado. La URL retirada usa la vista
+> predeterminada. Los requisitos históricos de su pantalla se conservan como
+> antecedente, no como obligación de exposición en esta presentación. Datos,
+> API y evidencia experimental permanecen intactos. Ver
+> [change](../../changes/focus-defense-ui-main-sites/proposal.md).
+
 > **Actualización de presentación 2026-09-17:** por solicitud del usuario, las etiquetas
 > vigentes son Resumen, Historial y observaciones, Datos disponibles, Ajustar próximos
 > pronósticos y Acerca de esta herramienta. Los nombres de las entregas anteriores

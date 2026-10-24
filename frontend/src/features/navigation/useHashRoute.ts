@@ -4,7 +4,6 @@ export const ROUTES = [
   "resumen",
   "defensa-pergamino",
   "defensa-melchor-romero",
-  "defensa-cicytex",
   "laboratorio-sensores",
   "evidencia-resultados",
   "productor",
@@ -23,7 +22,6 @@ export const DESTINATION_LABELS: Record<RouteId, string> = {
   resumen: "Resumen",
   "defensa-pergamino": "Recorrido histórico · Pergamino",
   "defensa-melchor-romero": "Recorrido histórico · Melchor Romero",
-  "defensa-cicytex": "Recorrido histórico · CICYTEX",
   "laboratorio-sensores": "Laboratorio · Sensores de prueba",
   "evidencia-resultados": "Evidencia · Resultados y metodología",
   productor: "Mi cultivo",
@@ -37,8 +35,8 @@ export const DESTINATION_LABELS: Record<RouteId, string> = {
 /**
  * Las seis secciones estables de la navegación principal (Seguimiento histórico, Mi cultivo, Laboratorio, Evidencia, Arquitectura y
  * Herramientas técnicas). Cada ruta
- * pertenece a exactamente una: el rediseño reorganiza la entrada, no elimina
- * ni renombra ninguna capacidad ni ningún ancla (`#resumen`, `#calidad`, etc.).
+ * pertenece a exactamente una. Las rutas desconocidas o retiradas abren
+ * la vista predeterminada.
  */
 export type NavGroup = "seguimiento" | "cultivo" | "laboratorio" | "evidencia" | "arquitectura" | "herramientas";
 
@@ -46,7 +44,6 @@ export const ROUTE_GROUP: Record<RouteId, NavGroup> = {
   resumen: "herramientas",
   "defensa-pergamino": "seguimiento",
   "defensa-melchor-romero": "seguimiento",
-  "defensa-cicytex": "seguimiento",
   "laboratorio-sensores": "laboratorio",
   "evidencia-resultados": "evidencia",
   productor: "cultivo",

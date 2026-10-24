@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CicytexStep } from "./CicytexStep";
 import { LabStep } from "./LabStep";
 import { ProducerStep, type ProducerSite } from "./ProducerStep";
 import "./GuidedDemoPage.css";
@@ -16,14 +15,13 @@ const MELCHOR: ProducerSite = {
 };
 
 const STEPS: { id: string; title: string; render: () => ReactNode }[] = [
-  { id: "cicytex", title: "CICYTEX · Talavera la Real", render: () => <CicytexStep /> },
   { id: "pergamino", title: "Pergamino", render: () => <ProducerStep site={PERGAMINO} /> },
   { id: "melchor", title: "Melchor Romero", render: () => <ProducerStep site={MELCHOR} /> },
   { id: "laboratorio", title: "Sensores simulados (laboratorio)", render: () => <LabStep /> },
 ];
 
 /**
- * Recorrido guiado de cuatro sitios para presentar la herramienta. Reutiliza los clientes y hooks existentes de cada
+ * Recorrido guiado de dos sitios y laboratorio para presentar la herramienta. Reutiliza los clientes y hooks existentes de cada
  * pantalla y no agrega ningún endpoint. Cada paso se monta al llegar y se descarta al salir: volver a un paso lo reinicia.
  */
 export function GuidedDemoPage() {
@@ -46,7 +44,7 @@ export function GuidedDemoPage() {
     <div className="guided-demo">
       <header className="gd-header">
         <p className="producer-eyebrow">Demostración · apoyo a la decisión</p>
-        <h1 id="demo-guiada-heading" tabIndex={-1}>Recorrido guiado: cuatro sitios</h1>
+        <h1 id="demo-guiada-heading" tabIndex={-1}>Recorrido guiado: dos sitios y laboratorio</h1>
         <p role="note" aria-label="Alcance del recorrido" className="gd-scope">
           Esto es un recorrido, no una evaluación de la herramienta. Es un apoyo a la decisión: no riega ni decide cuánto regar.
           Cada sitio usa sus propios datos y lo que se ve en uno no se aplica a otro.

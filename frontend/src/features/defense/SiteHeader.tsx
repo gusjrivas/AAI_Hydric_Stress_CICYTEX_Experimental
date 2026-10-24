@@ -47,7 +47,6 @@ export function SiteHeader({ site }: { site: DefenseSite }) {
         <nav className="site-switch" aria-label="Localidad">
           <a href="#defensa-pergamino" aria-current={site === "pergamino" ? "page" : undefined}>Pergamino</a>
           <a href="#defensa-melchor-romero" aria-current={site === "melchor" ? "page" : undefined}>Melchor Romero</a>
-          <a href="#defensa-cicytex" aria-current={site === "cicytex" ? "page" : undefined}>CICYTEX</a>
         </nav>
       </div>
       <p className="site-period">{info.period}</p>

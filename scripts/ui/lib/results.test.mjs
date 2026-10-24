@@ -36,14 +36,14 @@ const fill = (site, n) => {
 const full = (omit = {}) => Object.entries(EXPECTED_MIN_CHECKS).map(([site, n]) => fill(site, n - (omit[site] ?? 0)));
 
 test("EXPECTED_MIN_CHECKS fija los conteos actuales por sitio", () => {
-  assert.deepEqual(EXPECTED_MIN_CHECKS, { "melchor-romero": 18, pergamino: 18, cicytex: 26, laboratorio: 12, "demo-guiada": 23, "arquitectura-laya": 7 });
+  assert.deepEqual(EXPECTED_MIN_CHECKS, { "melchor-romero": 18, pergamino: 18, "ruta-retirada": 3, laboratorio: 12, "demo-guiada": 20, "arquitectura-laya": 7 });
 });
 
 test("summarize falla si un sitio registra menos chequeos que el mínimo y pasa si los tiene", () => {
   assert.equal(summarize(full()).ok, true);
-  const short = summarize(full({ cicytex: 1 }));
+  const short = summarize(full({ pergamino: 1 }));
   assert.equal(short.ok, false);
-  assert.deepEqual(short.shortSites, [{ site: "cicytex", total: 25, min: 26 }]);
+  assert.deepEqual(short.shortSites, [{ site: "pergamino", total: 17, min: 18 }]);
 });
 
 test("classifyUnmatched separa las rutas sin fixture conocidas e inocuas de las demás", () => {

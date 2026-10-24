@@ -1,5 +1,5 @@
 // Uso: BASE_URL=http://127.0.0.1:4173 OUT_DIR=demo-rehearsal-out node scripts/ui/rehearse-demo.mjs
-// Ensayo TECNICO cronometrado del guion docs/design/demo-guion-defensa.md contra el servidor de fixtures.
+// Ensayo TECNICO cronometrado del recorrido docs/design/presentacion-sin-cicytex.md contra el servidor de fixtures.
 // Mide el tiempo de maquina de cada tramo (acciones de UI + espera de que el dato exista); NO mide el tiempo de habla ni
 // sustituye el ensayo humano. Escribe rehearsal.json (tiempos, textos observados y chequeos) en OUT_DIR.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -51,78 +51,6 @@ try {
   const badge = await evaluate(`[...document.querySelectorAll('[class*=mode], [class*=badge]')].map(e=>e.textContent.trim()).filter(Boolean).slice(0,4)`);
   end("1", "#arquitectura + ficha de Laya", { badge, layaSheet: laya.slice(0, 400) });
   await shot(outDir, "1-arquitectura");
-
-  // 2. CICYTEX: selectores
-  begin();
-  await browser.open(`${base}/#defensa-cicytex`);
-  check("2a", await waitFor(`!![...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Abrir emisión congelada')&&!b.disabled)`), "catalogo cargado");
-  const selects = await evaluate(`[...document.querySelectorAll('select, input[type=date]')].map(s=>({tag:s.tagName,label:s.labels?.[0]?.textContent?.trim()??s.getAttribute('aria-label'),value:s.value}))`);
-  check("2b", (await evaluate(`!![...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Día siguiente')`)) === false, "sin sesion no hay «Dia siguiente»");
-  end("2", "#defensa-cicytex: selectores sin sesion", { selects });
-
-  // 3. Abrir emision
-  begin();
-  await clickText("Abrir emisión congelada");
-  check("3a", await waitFor(has("Decisión de la arquitectura")), "decision visible");
-  const decision = await evaluate(String.raw`(document.querySelector('main')?.innerText ?? '').match(/DECISIÓN DE LA ARQUITECTURA[\s\S]*?Día siguiente/i)?.[0] ?? ''`);
-  check("3b", /SIN ALERTA DE HUMEDAD BAJA/.test(decision) && /acuerdo 0\/3 alertan/.test(decision) && /Ensamble 0\.005/.test(decision), "ensamble 0.005, 0/3 alertan, sin alerta");
-  const header = await evaluate(`document.querySelector('h1')?.innerText ?? ''`);
-  end("3", "abrir emision congelada", { decision, header });
-  await shot(outDir, "3-decision");
-
-  // 4. Trazabilidad
-  begin();
-  await clickText("Identidad del paquete y de los modelos");
-  const trace = await text(".cy-trace");
-  check("4a", /Dataset \(SHA-256\)\s*06d662bce07d/.test(trace ?? ""), "SHA-256 del dataset 06d662bc...");
-  check("4b", /Versión del modelo: no disponible/.test(trace ?? "") && /Linaje de recalibración: no disponible/.test(trace ?? ""), "version de modelo y linaje: no disponible");
-  end("4", "panel de trazabilidad", { trace });
-  await shot(outDir, "4-trazabilidad");
-
-  // 5. Dia siguiente
-  begin();
-  const clock = () => evaluate(String.raw`(document.body.innerText.match(/reloj revelado\s*([0-9-]+)/i) || [])[1] || ''`);
-  const c0 = await clock();
-  await clickText("Día siguiente");
-  await waitFor(`(${String.raw`(document.body.innerText.match(/reloj revelado\s*([0-9-]+)/i) || [])[1] || ''`}) !== ${q(c0)}`);
-  const c1 = await clock();
-  const summary = await text("[data-testid=moisture-summary]");
-  check("5a", c0 === "2023-07-06" && c1 === "2023-07-07", `reloj ${c0} -> ${c1}`);
-  end("5", "Dia siguiente", { c0, c1, moistureSummary: summary });
-
-  // 6. Realidad revelada
-  begin();
-  check("6a", await waitFor(has("Realidad revelada")), "«Realidad revelada»");
-  const reveal = await evaluate(String.raw`(document.querySelector('main')?.innerText ?? '').match(/Realidad revelada:[^\n]*|Comparación acumulada revelada[\s\S]*?Solo se usan/g)?.join('\n') ?? ''`);
-  check("6b", /resultado VN/.test(reveal) && /Ensamble\t1\t0\t1\t0\t0/.test(reveal), "VN y comparacion acumulada n=1");
-  end("6", "realidad revelada y comparacion", { reveal });
-  await shot(outDir, "6-realidad-revelada");
-
-  // 7. Feedback
-  begin();
-  check("7a", (await evaluate(`[...document.querySelectorAll('input[name=cicytex-feedback]')].every(r=>!r.checked)`)), "feedback sin preseleccion");
-  await evaluate(`document.querySelectorAll('input[name=cicytex-feedback]')[0].click()`);
-  await clickText("Registrar feedback");
-  const labels = await evaluate(`[...document.querySelectorAll('input[name=cicytex-feedback]')].map(r=>r.parentElement?.textContent?.trim())`);
-  check("7b", await waitFor(has("Feedback registrado")), "feedback confirmado");
-  const fb = await evaluate(`document.body.innerText.match(/Feedback registrado[^\\n]*/)?.[0] ?? ''`);
-  // reinicio -> borrador limpio
-  await clickText("Reiniciar");
-  await waitFor(`!document.body.innerText.includes('Feedback registrado')`, 5000);
-  end("7", "feedback + reinicio", { labels, fb });
-
-  // 7c. Recuperacion de sesion (plan B de la seccion de fallos)
-  begin();
-  await clickText("Abrir emisión congelada");
-  await waitFor(has("Decisión de la arquitectura"));
-  await browser.send("Page.reload");
-  check("R1", await waitFor(has("Decisión de la arquitectura"), 15000), "recarga: sesion restaurada");
-  await control("mode", { mode: "session-404" });
-  await browser.send("Page.reload");
-  check("R2", await waitFor(`[...document.querySelectorAll('[role=alert]')].some(e=>e.textContent.includes('No se pudo recuperar la sesión anterior'))`, 15000), "sesion no recuperable: aviso");
-  await clickText("Iniciar otra emisión");
-  await control("mode", { mode: "normal" });
-  end("R", "plan: recarga y sesion no recuperable");
 
   // 8a. Pergamino
   const producer = async (id, route, name, d0) => {
