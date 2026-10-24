@@ -1,6 +1,6 @@
 // Uso: BASE_URL=http://127.0.0.1:4173 OUT_DIR=ui-journeys-out node scripts/ui/verify-journeys.mjs
 // Verificación en NAVEGADOR REAL (Chrome headless por CDP, Node >= 22, sin dependencias) de seis recorridos:
-// Melchor Romero, Pergamino, CICYTEX, Laboratorio de sensores, el recorrido guiado (#demo-guiada) y la ficha de Laya en #arquitectura.
+// Melchor Romero, Pergamino, la ruta retirada, Laboratorio de sensores, el recorrido guiado (#demo-guiada) y la ficha de Laya en #arquitectura.
 // Requiere el servidor de fixtures (scripts/ui/fixture-server.mjs) sirviendo el build del frontend; ver
 // docs/design/f7-verificacion-navegador.md. No es una auditoría de accesibilidad automatizada ni una prueba de componentes:
 // comprueba lo que declara cada chequeo y nada más. Variables: BASE_URL, OUT_DIR (o argv[2]), CHROME_PATH, CI.
@@ -187,80 +187,13 @@ async function producerSite(cfg) {
   return rec;
 }
 
-// ---------- CICYTEX ----------
-async function cicytexSite() {
-  const rec = createRecorder("cicytex");
-  const openReady = `!![...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Abrir emisión congelada')&&!b.disabled)`;
-  const CLOCK = String.raw`(document.body.innerText.match(/reloj revelado\s*([0-9-]+)/i) || [])[1] || ''`;
-  const clock = () => evaluate(CLOCK);
+// ---------- Ruta retirada ----------
+async function excludedSite() {
+  const rec = createRecorder("ruta-retirada");
   await openFresh("defensa-cicytex");
-  rec.check("C0", "catálogo cargado en navegador real", await waitFor(openReady));
-  rec.check("C1", "sin sesión no hay «Día siguiente» ni feedback", (await buttonState("Día siguiente")) === "absent" && (await buttonState("Registrar feedback")) === "absent");
-  const startStops = await tabAudit(rec, "C2", "teclado al cargar", { outFile: "cicytex-orden-de-foco.json", minStops: 6 });
-  const idxSensor = startStops.findIndex((s) => s.tag === "select");
-  const idxOpen = startStops.findIndex((s) => s.text.startsWith("Abrir emisión congelada"));
-  rec.check("C2c", "los selectores se alcanzan antes que «Abrir»", idxSensor >= 0 && idxOpen > idxSensor, `select@${idxSensor}, abrir@${idxOpen}`);
-
-  await clickText("Abrir emisión congelada");
-  rec.check("C3", "abrir la emisión muestra la decisión de la arquitectura", await waitFor(hasText("Decisión de la arquitectura")));
-  rec.check("C3b", "la realidad futura permanece oculta y no hay feedback", (await evaluate(hasText("La realidad permanece oculta"))) && (await buttonState("Registrar feedback")) === "absent");
-  await clickText("Identidad del paquete y de los modelos");
-  const cyTrace = await evaluate(`document.querySelector('.cy-trace')?.innerText ?? ''`);
-  rec.check("C3c", "trazabilidad: identidad SHA-256 del dataset y «no disponible» para lo que no existe", /Dataset \(SHA-256\)\s*[0-9a-f]{64}/.test(cyTrace) && cyTrace.includes("Versión del modelo: no disponible") && cyTrace.includes("Linaje de recalibración: no disponible"));
-  const hiddenCells = await evaluate(`[...document.querySelectorAll('.cy-panel tbody tr')].filter(tr=>tr.querySelectorAll('td').length===4).every(tr => /Oculto hasta avanzar/.test(tr.innerText) && /Pendiente/.test(tr.innerText))`);
-  rec.check("C3d", "ningún método muestra el observado futuro antes de avanzar", hiddenCells);
-  rec.check("C3e", "acción primaria «Día siguiente» habilitada y secundaria «Reiniciar»", (await buttonState("Día siguiente")) === "enabled" && (await evaluate(`!!document.querySelector('.cy-primary') && !!document.querySelector('.cy-secondary')`)));
-  await shot(outDir, "cicytex-sesion-abierta");
-
-  // Desconexión y recuperación.
-  const before = await clock();
-  await setMode("disconnected");
-  await clickText("Día siguiente");
-  rec.check("C4", "sin backend aparece un mensaje de error (role=alert)", await waitFor(`!!document.querySelector('[role=alert]')`, 8000), (await alerts())[0] ?? "");
-  rec.check("C4b", "tras el error «Día siguiente» vuelve a estar habilitado y el reloj no cambió", (await buttonState("Día siguiente")) === "enabled" && (await clock()) === before);
-  await shot(outDir, "cicytex-sin-conexion");
-  await setMode("normal");
-  await clickText("Día siguiente");
-  const advanced = await waitFor(`(${CLOCK}) !== ${q(before)}`);
-  const after = await clock();
-  rec.check("C5", "al volver el backend el reloj avanza y el error desaparece", advanced && !(await evaluate(`!!document.querySelector('[role=alert]')`)), `reloj ${before} → ${after}`);
-  rec.check("C5b", "tras avanzar se revela el objetivo y se muestra el resultado", await waitFor(hasText("Realidad revelada")));
-  const lastObs = await evaluate(`(document.querySelector('[data-testid=moisture-summary]')?.textContent.match(/\\((\\d{4}-\\d{2}-\\d{2})\\)/)||[])[1]||''`);
-  rec.check("C5c", "el gráfico no dibuja observaciones posteriores al reloj", lastObs !== "" && lastObs <= after, `última ${lastObs}, reloj ${after}`);
-
-  // Feedback sin preselección.
-  rec.check("C6", "el formulario de feedback aparece con la realidad revelada", (await buttonState("Registrar feedback")) !== "absent");
-  rec.check(
-    "C6b",
-    "feedback sin preselección: ninguna opción marcada y registrar deshabilitado",
-    (await evaluate(`[...document.querySelectorAll('input[name=cicytex-feedback]')].every(r=>!r.checked) && document.querySelectorAll('input[name=cicytex-feedback]').length===2`)) && (await buttonState("Registrar feedback")) === "disabled",
-  );
-  await evaluate(`document.querySelectorAll('input[name=cicytex-feedback]')[0].click()`);
-  rec.check("C6c", "elegir una opción habilita «Registrar feedback»", (await buttonState("Registrar feedback")) === "enabled");
-  await shot(outDir, "cicytex-realidad-revelada");
-
-  // Recarga: sesión restaurada.
-  await browser.send("Page.reload");
-  const restored = await waitFor(hasText("Decisión de la arquitectura"), 15000);
-  rec.check("C7", "recarga: la sesión se restaura con el mismo reloj", restored && (await clock()) === after, `reloj ${await clock()}`);
-  rec.check("C7b", "recarga: la ruta se conserva y el borrador de feedback no se restaura", (await evaluate("location.hash")) === "#defensa-cicytex" && (await evaluate(`[...document.querySelectorAll('input[name=cicytex-feedback]')].every(r=>!r.checked)`)));
-  await tabAudit(rec, "C8", "teclado con la sesión abierta", { minStops: 12 });
-
-  // Registrar feedback explícito.
-  await evaluate(`document.querySelectorAll('input[name=cicytex-feedback]')[1].click()`);
-  await clickText("Registrar feedback");
-  rec.check("C9", "el feedback registrado se confirma con el estado elegido", await waitFor(hasText("Feedback registrado: rechazada")));
-
-  // Recarga con el servidor sin la sesión (404).
-  await setMode("session-404");
-  await browser.send("Page.reload");
-  const notice = await waitFor(`[...document.querySelectorAll('[role=alert]')].some(e=>e.textContent.includes('No se pudo recuperar la sesión anterior'))`, 15000);
-  rec.check("C10", "recarga con 404: se explica que no se pudo recuperar la sesión", notice, (await alerts())[0] ?? "");
-  rec.check("C10b", "con 404 no queda una sesión fantasma en pantalla y se ofrece «Iniciar otra emisión»", !(await evaluate(hasText("Decisión de la arquitectura"))) && (await evaluate(`!![...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Iniciar otra emisión')`)));
-  await shot(outDir, "cicytex-sesion-no-recuperable");
-  await clickText("Iniciar otra emisión");
-  rec.check("C10c", "«Iniciar otra emisión» cierra el aviso y deja el foco en «Abrir emisión congelada»", (await evaluate(`document.activeElement?.textContent.trim()`)) === "Abrir emisión congelada" && !(await evaluate(`!![...document.querySelectorAll('[role=alert]')].find(e=>e.textContent.includes('No se pudo recuperar'))`)));
-  await setMode("normal");
+  rec.check("X0", "la URL retirada abre la vista predeterminada", await waitFor(`document.querySelector('h1')?.textContent.includes('Mi cultivo')`));
+  rec.check("X1", "sin texto ni enlaces de CICYTEX", !(await evaluate(`/cicytex|talavera/i.test(document.body.innerText) || !!document.querySelector('a[href*="cicytex"]')`)));
+  rec.check("X2", "sin solicitudes a CICYTEX", !(await evaluate(`performance.getEntriesByType('resource').some(entry => /cicytex/i.test(entry.name))`)));
   return rec;
 }
 
@@ -304,7 +237,6 @@ async function guidedSite() {
   const resultText = () => evaluate(`document.querySelector('.gd-result')?.innerText ?? ''`);
   const detailsText = () => evaluate(`document.querySelector('.gd-details')?.innerText ?? ''`);
   const stepHeading = () => evaluate(`document.querySelector('.gd-step h2')?.textContent.trim()`);
-  const activeIsStepHeading = () => evaluate(`document.activeElement === document.querySelector('.gd-step h2')`);
   const smallTargets = () =>
     evaluate(`[...document.querySelectorAll('.guided-demo button, .guided-demo summary')].filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.height<44;}).map(e=>e.textContent.trim().slice(0,40))`);
   const lowMoistureStated = /(Sí hubo|No hubo) humedad baja\.|no es una observación independiente|No se puede decir/;
@@ -314,20 +246,10 @@ async function guidedSite() {
   };
 
   await openFresh("demo-guiada");
-  rec.check("G0", "carga el recorrido: título, «Paso 1 de 4» y semáforo del primer sitio (CICYTEX)", (await waitFor(TRAFFIC)) && (await evaluate(`document.querySelector('h1')?.textContent.includes('Recorrido guiado')`)) && (await progress()) === "Paso 1 de 4" && /CICYTEX/.test((await stepHeading()) ?? ""));
+  rec.check("G0", "carga el recorrido: título, «Paso 1 de 3» y semáforo del primer sitio (Pergamino)", (await waitFor(TRAFFIC)) && (await evaluate(`document.querySelector('h1')?.textContent.includes('Recorrido guiado')`)) && (await progress()) === "Paso 1 de 3" && /Pergamino/.test((await stepHeading()) ?? ""));
   rec.check("G1", "semáforo «Sin alerta»/«Alerta prevista» y cuántos de 3 modelos coinciden", ["Sin alerta", "Alerta prevista"].includes(await trafficLabel()) && (await evaluate(`/\\d de 3 modelos coinciden con este resultado/.test(document.body.innerText)`)));
   rec.check("G2", "mensajes honestos: recorrido y no evaluación; apoyo a la decisión, no riega", (await evaluate(hasText("Esto es un recorrido, no una evaluación"))) && (await evaluate(hasText("no riega ni decide cuánto regar"))));
   rec.check("G3", "antes de avanzar lo ocurrido permanece oculto y el botón está habilitado", !(await evaluate(`!!document.querySelector('.gd-result')`)) && !(await evaluate(hasText("Humedad observada"))) && (await buttonState("Avanzar un día")) === "enabled");
-  await clickText("Ver detalle técnico");
-  const cyDetail = await detailsText();
-  rec.check("G4", "detalle técnico (CICYTEX): SHA-256 del dataset real y commit, o «no disponible»", /Dataset \(SHA-256\)\s*[0-9a-f]{64}/.test(cyDetail) && /Commit de ejecución\s*([0-9a-f]{7,40}|no disponible)/.test(cyDetail), cyDetail.slice(0, 80).replace(/\s+/g, " "));
-  await shot(outDir, "demo-guiada-cicytex");
-  await clickText("Avanzar un día");
-  const revealed = await waitFor(`!!document.querySelector('.gd-result')`);
-  const cyResult = await resultText();
-  rec.check("G5", "«Avanzar un día» revela el valor observado y si hubo humedad baja; el foco pasa al resultado", revealed && /(Sí hubo|No hubo) humedad baja\./.test(cyResult) && /Humedad observada/.test(cyResult) && (await evaluate(`document.activeElement === document.querySelector('.gd-result')`)) && (await buttonState("Avanzar un día")) === "disabled");
-
-  rec.check("G6", "Siguiente sitio: «Paso 2 de 4», Pergamino, foco en el título del paso", (await goNext()) && (await progress()) === "Paso 2 de 4" && (await stepHeading()) === "Pergamino" && (await activeIsStepHeading()));
   rec.check("G7", "Pergamino: semáforo propio y fuente propia (ERA5-Land, sin atribuir ESA CCI)", (await waitFor(TRAFFIC)) && (await evaluate(`/ERA5-Land/.test(document.querySelector('.gd-source')?.textContent||'') && !/ESA CCI/.test(document.querySelector('.gd-source')?.textContent||'')`)));
   await clickText("Ver detalle técnico");
   await waitFor(`!!document.querySelector('.gd-details .emission-provenance')`, 8000);
@@ -338,11 +260,11 @@ async function guidedSite() {
   const pgResult = await resultText();
   rec.check("G9", "Pergamino: se revela lo observado sin afirmar más de lo que hay", /Humedad observada|Valor registrado|Sin observación/.test(pgResult) && lowMoistureStated.test(pgResult));
 
-  rec.check("G10", "Melchor Romero: «Paso 3 de 4», fuente propia (ESA CCI, sin ERA5)", (await goNext()) && (await progress()) === "Paso 3 de 4" && (await waitFor(TRAFFIC)) && (await evaluate(`/ESA CCI/.test(document.querySelector('.gd-source')?.textContent||'') && !/ERA5/.test(document.querySelector('.gd-source')?.textContent||'')`)));
+  rec.check("G10", "Melchor Romero: «Paso 2 de 3», fuente propia (ESA CCI, sin ERA5)", (await goNext()) && (await progress()) === "Paso 2 de 3" && (await waitFor(TRAFFIC)) && (await evaluate(`/ESA CCI/.test(document.querySelector('.gd-source')?.textContent||'') && !/ERA5/.test(document.querySelector('.gd-source')?.textContent||'')`)));
   await clickText("Avanzar un día");
   rec.check("G11", "Melchor Romero: «Avanzar un día» revela lo observado", (await waitFor(`!!document.querySelector('.gd-result')`)) && lowMoistureStated.test(await resultText()));
 
-  rec.check("G12", "Sensores simulados: «Paso 4 de 4», rotulado SIMULACIÓN, sin sensor físico, sin semáforo todavía", (await goNext()) && (await progress()) === "Paso 4 de 4" && (await evaluate(`document.querySelector('.gd-sim-badge')?.textContent.includes('SIMULACIÓN')`)) && (await evaluate(hasText("sin sensor físico"))) && !(await evaluate(TRAFFIC)) && (await buttonState("Avanzar un día")) === "disabled");
+  rec.check("G12", "Sensores simulados: «Paso 3 de 3», rotulado SIMULACIÓN, sin sensor físico, sin semáforo todavía", (await goNext()) && (await progress()) === "Paso 3 de 3" && (await evaluate(`document.querySelector('.gd-sim-badge')?.textContent.includes('SIMULACIÓN')`)) && (await evaluate(hasText("sin sensor físico"))) && !(await evaluate(TRAFFIC)) && (await buttonState("Avanzar un día")) === "disabled");
   await clickText("Generar datos simulados");
   const labReady = await waitFor(TRAFFIC, 30000);
   rec.check("G13", "escenario A: aparece el semáforo y se declara que no hay comparación entre modelos", labReady && (await evaluate(hasText("La comparación entre modelos no está disponible en el laboratorio"))) && !(await evaluate(`/\\d de 3 modelos/.test(document.body.innerText)`)));
@@ -359,7 +281,7 @@ async function guidedSite() {
 
   // Atrás reinicia el paso: el sitio anterior reaparece con sus propios datos y sin resultado previo.
   await clickText("Sitio anterior");
-  rec.check("G18", "«Sitio anterior» vuelve a Melchor Romero reiniciado (sin resultado previo)", (await waitFor(TRAFFIC)) && (await progress()) === "Paso 3 de 4" && !(await evaluate(`!!document.querySelector('.gd-result')`)));
+  rec.check("G18", "«Sitio anterior» vuelve a Melchor Romero reiniciado (sin resultado previo)", (await waitFor(TRAFFIC)) && (await progress()) === "Paso 2 de 3" && !(await evaluate(`!!document.querySelector('.gd-result')`)));
 
   // Backend desconectado y recuperación.
   await fixture("reset", {});
@@ -395,7 +317,7 @@ async function layaSite() {
 const recorders = [];
 let crashed = null;
 try {
-  for (const run of [() => producerSite(PRODUCER_SITES[0]), () => producerSite(PRODUCER_SITES[1]), cicytexSite, labSite, guidedSite, layaSite]) {
+  for (const run of [() => producerSite(PRODUCER_SITES[0]), () => producerSite(PRODUCER_SITES[1]), excludedSite, labSite, guidedSite, layaSite]) {
     recorders.push(await run());
   }
   const state = await fixture("state");

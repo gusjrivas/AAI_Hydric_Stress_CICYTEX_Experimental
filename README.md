@@ -22,7 +22,7 @@ Integrar varios sitios en una misma interfaz no equivale a una validación multi
 - Ingesta, calidad de datos, modelado predictivo, retroalimentación humana, integración y ejecución de experimentos (tabla de HU más abajo).
 - Interfaz React con API FastAPI: seguimiento histórico por sitio, "Mi cultivo", laboratorio sintético, evidencia, arquitectura y herramientas técnicas.
 - Reproducción histórica causal: las observaciones posteriores a la fecha simulada permanecen ocultas.
-- Recorrido guiado de cuatro sitios en `#demo-guiada`.
+- Recorrido guiado de tres pasos en `#demo-guiada`: Pergamino, Melchor Romero y laboratorio sintético. CICYTEX se conserva como trabajo experimental separado, sin acceso desde la UI.
 - No hay aprendizaje continuo ni telemetría en vivo. La retroalimentación humana de los recorridos de ensamble se registra con fines de demostración y no recalibra ni reentrena el ensamble. Solo el circuito manual de HU5 sobre un predictor individual admite recalibración explícita.
 
 ### Laya
@@ -84,7 +84,7 @@ Además de las HU del backlog de tesis, el repo incluye una interfaz de usuario 
 - `src/experiment_runner/`: ejecución del plan experimental (escenarios de escasez/ruido, aumentación sintética, registro de corridas en MLflow).
 - `scripts/`: puntos de entrada de línea de comandos para correr cada pipeline sobre un dataset real (`run_data_quality_pipeline.py`, `run_end_to_end_pipeline.py`, conectores de ingesta).
 - `backend/`: API FastAPI de la interfaz de usuario (alerting-ui) — fachada delgada que orquesta el pipeline y expone `POST /sensors/{sensor_id}/readings`, `POST /forecast/{sensor_id}/run`, `GET /feedback/{sensor_id}` + confirmar/rechazar por fecha, `POST /recalibrate/{sensor_id}`, y tres endpoints de observabilidad de solo lectura para la demo académica (`GET /quality/{sensor_id}`, `GET /models/{sensor_id}/active`, `GET /lineage/{sensor_id}`).
-- `frontend/`: aplicación React + TypeScript (Vite) que consume la API del productor (`/api/v2`), el pipeline plano y `/replay`. Navegación en seis grupos: **Seguimiento histórico** (CICYTEX, Pergamino y Melchor Romero), **Mi cultivo** (pantalla de entrada, pensada para un productor), **Laboratorio** (datos sintéticos, sin validez de campo), **Evidencia** (por niveles, con el estado de gobernanza siempre visible), **Arquitectura** (catálogo por nodos, sin telemetría en vivo) y **Herramientas técnicas** (recorrido datos → calidad → predicción → feedback → recalibración → linaje). Además existe la ruta propia `#demo-guiada`.
+- `frontend/`: aplicación React + TypeScript (Vite) que consume la API del productor (`/api/v2`), el pipeline plano y `/replay`. Navegación en seis grupos: **Seguimiento histórico** (Pergamino y Melchor Romero), **Mi cultivo** (pantalla de entrada, pensada para un productor), **Laboratorio** (datos sintéticos, sin validez de campo), **Evidencia** (por niveles, con el estado de gobernanza siempre visible), **Arquitectura** (catálogo por nodos, sin telemetría en vivo) y **Herramientas técnicas** (recorrido datos → calidad → predicción → feedback → recalibración → linaje). Además existe la ruta propia `#demo-guiada`.
 - `openspec/specs/`: especificación viva de cada capacidad (requisitos, escenarios, verificación con datos reales, limitaciones conocidas). `openspec/changes/`: historial de decisiones de diseño por *change*.
 - `docs/adr/`: decisiones de arquitectura, desde el stack técnico del PoC (ADR-0001/0002) hasta el stack web, MLflow/MinIO y la dockerización de backend/frontend (ADR-0003 a ADR-0006).
 
@@ -96,7 +96,7 @@ La interfaz es apoyo a la decisión, no automatiza el riego. «Sin alerta previs
 
 - Diseño y criterios: [`docs/design/ui-professional-redesign-plan.md`](docs/design/ui-professional-redesign-plan.md) y [`docs/design/alerting-ui-visual-design.md`](docs/design/alerting-ui-visual-design.md). El prototipo de la etapa de diseño se conserva en `design/prototypes/ui-professional/`.
 - Prueba con un productor: [`docs/design/prueba-con-productor.md`](docs/design/prueba-con-productor.md).
-- Guías vigentes de defensa: [arranque de la demo](docs/design/defense-demo-startup-guide.md), [guion de 3-5 minutos](docs/design/demo-guion-defensa.md) y [paquete de defensa](docs/design/f8-paquete-defensa.md). El recorrido simplificado `#demo-guiada` recorre CICYTEX, Pergamino, Melchor Romero y el laboratorio en cuatro pasos. Los requisitos de cada recorrido están en la guía de arranque.
+- Alcance vigente para la grabación: [presentación sin CICYTEX](docs/design/presentacion-sin-cicytex.md). El recorrido `#demo-guiada` presenta Pergamino, Melchor Romero y laboratorio en tres pasos. La [guía de arranque](docs/design/defense-demo-startup-guide.md) conserva instrucciones de preparación por entorno; sus secciones CICYTEX y los guiones anteriores documentan el alcance histórico.
 - Reinicio de la demo de Pergamino y Melchor Romero con línea base verificada: `./scripts/demo_reset.ps1 -Action Reset -StartFrontend`. Requiere `-Action Init` previo, Docker, la imagen `aai-defense-rehearsal-backend:local` y datos externos al repositorio (ver la guía de arranque).
 - Versiones congeladas: documentos anteriores citaban los tags `memoria-base-2026-09-29` y `memoria-ui-2026-10-03`. Ninguno existe en este clon (`git tag` no devuelve resultados). Para fijar una versión se usa el SHA del commit.
 

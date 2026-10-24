@@ -3,9 +3,9 @@
 export const EXPECTED_MIN_CHECKS = {
   "melchor-romero": 18,
   pergamino: 18,
-  cicytex: 26,
+  "ruta-retirada": 3,
   laboratorio: 12,
-  "demo-guiada": 23,
+  "demo-guiada": 20,
   "arquitectura-laya": 7, // 6 chequeos + 1 INFO (A9)
 };
 

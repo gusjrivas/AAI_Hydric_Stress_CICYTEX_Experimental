@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CicytexStep } from "./CicytexStep";
 import { GuidedDemoPage } from "./GuidedDemoPage";
 import * as cicytexApi from "../defense/cicytexApi";
 import * as historicalApi from "../producer/historicalApi";
@@ -91,49 +92,50 @@ beforeEach(() => {
 });
 
 describe("GuidedDemoPage · estructura del recorrido", () => {
-  it("shows a progress bar «Paso 1 de 4» and the CICYTEX step first, with honest framing", async () => {
+  it("shows a progress bar «Paso 1 de 3» and the Pergamino step first, with honest framing", async () => {
     render(<GuidedDemoPage />);
-    expect(screen.getByText("Paso 1 de 4")).toBeInTheDocument();
+    expect(screen.getByText("Paso 1 de 3")).toBeInTheDocument();
     const bar = screen.getByRole("progressbar", { name: /progreso del recorrido/i });
     expect(bar).toHaveAttribute("value", "1");
-    expect(bar).toHaveAttribute("max", "4");
+    expect(bar).toHaveAttribute("max", "3");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/recorrido guiado/i);
-    expect(screen.getByRole("heading", { level: 2, name: /CICYTEX/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: /Pergamino/ })).toBeInTheDocument();
     const honesty = screen.getByRole("note", { name: /alcance del recorrido/i });
     expect(honesty).toHaveTextContent(/es un recorrido, no una evaluación/i);
     expect(honesty).toHaveTextContent(/apoyo a la decisión/i);
     expect(honesty).toHaveTextContent(/no riega ni decide cuánto regar/i);
-    await screen.findByText(/sin alerta/i);
-    expect(document.body.textContent).not.toMatch(/laya/i);
+    await screen.findByText(/alerta prevista/i);
+    expect(document.body.textContent).not.toMatch(/laya|cicytex|talavera/i);
+    expect(cicytexApi.createCicytexSession).not.toHaveBeenCalled();
+    expect(cicytexApi.getCicytexProvenance).not.toHaveBeenCalled();
   });
 
-  it("walks the four sites in order and moves focus to the new step heading", async () => {
+  it("walks the two sites and laboratory in order and moves focus to the new step heading", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
-    for (const [n, name] of [[2, /Pergamino/], [3, /Melchor Romero/], [4, /sensores simulados/i]] as const) {
+    for (const [n, name] of [[2, /Melchor Romero/], [3, /sensores simulados/i]] as const) {
       await screen.findByText(/^(sin alerta|alerta prevista)$|generar datos/i);
       await user.click(next());
-      expect(screen.getByText(`Paso ${n} de 4`)).toBeInTheDocument();
+      expect(screen.getByText(`Paso ${n} de 3`)).toBeInTheDocument();
       const heading = screen.getByRole("heading", { level: 2, name });
       expect(heading).toHaveFocus();
     }
     expect(screen.queryByRole("button", { name: /^siguiente sitio/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /sitio anterior/i }));
-    expect(screen.getByText("Paso 3 de 4")).toBeInTheDocument();
+    expect(screen.getByText("Paso 2 de 3")).toBeInTheDocument();
   });
 
   it("restarts a step from its initial state when coming back to it (no stale reveal)", async () => {
     const user = userEvent.setup();
-    vi.spyOn(cicytexApi, "advanceCicytexSession").mockResolvedValue(
-      cySession({ can_advance: false }, false, [false, false, false], { observed_soil_moisture: 0.254, observed_label: 0, outcome: "VN" }) as never);
+    vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue(readings("2023-06-14", 0.25));
     render(<GuidedDemoPage />);
-    await screen.findByText("Sin alerta");
+    await screen.findByText("Alerta prevista");
     await user.click(advance());
     await screen.findByRole("region", { name: /qué ocurrió después/i });
     await user.click(next());
-    await screen.findByText("Alerta prevista");
-    await user.click(screen.getByRole("button", { name: /sitio anterior/i }));
     await screen.findByText("Sin alerta");
+    await user.click(screen.getByRole("button", { name: /sitio anterior/i }));
+    await screen.findByText("Alerta prevista");
     expect(screen.queryByRole("region", { name: /qué ocurrió después/i })).not.toBeInTheDocument();
     expect(advance()).toBeEnabled();
   });
@@ -141,17 +143,17 @@ describe("GuidedDemoPage · estructura del recorrido", () => {
 
 describe("CICYTEX", () => {
   it("shows a big traffic light with how many of the 3 models agree, and no probabilities", async () => {
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     expect(await screen.findByText("Sin alerta")).toBeInTheDocument();
     expect(screen.getByText("3 de 3 modelos coinciden con este resultado")).toBeInTheDocument();
     expect(cicytexApi.createCicytexSession).toHaveBeenCalledWith("CP1_S1", "2023-07-06", 1);
-    const panel = screen.getByRole("region", { name: /CICYTEX/ });
+    const panel = screen.getByText("Sin alerta").closest(".gd-decision")!;
     expect(panel.textContent).not.toMatch(/\d%|0[.,]\d{2}/);
   });
 
   it("counts the models that agree with the shown result when the alert is predicted", async () => {
     vi.mocked(cicytexApi.createCicytexSession).mockResolvedValue(cySession({}, true, [true, true, false]) as never);
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     expect(await screen.findByText("Alerta prevista")).toBeInTheDocument();
     expect(screen.getByText("2 de 3 modelos coinciden con este resultado")).toBeInTheDocument();
   });
@@ -162,7 +164,7 @@ describe("CICYTEX", () => {
       cySession({ revealed_through: "2023-07-07", can_advance: false }, false, [false, false, false], {
         observed_soil_moisture: 0.254, observed_label: 0, outcome: "VN",
       }) as never);
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     expect(screen.queryByText(/no hubo humedad baja/i)).not.toBeInTheDocument();
     await user.click(advance());
@@ -177,7 +179,7 @@ describe("CICYTEX", () => {
     const user = userEvent.setup();
     vi.spyOn(cicytexApi, "advanceCicytexSession").mockResolvedValue(
       cySession({ can_advance: false }, false, [false, false, false], { observed_soil_moisture: 0.19, observed_label: 1, outcome: "FN" }) as never);
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     await user.click(advance());
     const result = await screen.findByRole("region", { name: /qué ocurrió después/i });
@@ -189,7 +191,7 @@ describe("CICYTEX", () => {
     const user = userEvent.setup();
     vi.spyOn(cicytexApi, "advanceCicytexSession").mockResolvedValue(
       cySession({ can_advance: false }, false, [false, false, false], { observed_soil_moisture: 0.254, observed_label: 0, outcome: "VN" }) as never);
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     await user.click(advance());
     const result = await screen.findByRole("region", { name: /qué ocurrió después/i });
@@ -200,7 +202,7 @@ describe("CICYTEX", () => {
     const user = userEvent.setup();
     vi.spyOn(cicytexApi, "advanceCicytexSession").mockResolvedValue(
       cySession({ can_advance: false }, false, [false, false, false], { observed_soil_moisture: null, observed_label: null, outcome: "VN" }) as never);
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     await user.click(advance());
     const result = await screen.findByRole("region", { name: /qué ocurrió después/i });
@@ -211,7 +213,7 @@ describe("CICYTEX", () => {
   it("leaves no current traffic light next to the alert when advancing fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(cicytexApi, "advanceCicytexSession").mockRejectedValueOnce(new Error("x"));
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     await user.click(advance());
     await screen.findByRole("alert");
@@ -220,7 +222,7 @@ describe("CICYTEX", () => {
 
   it("collapses technical detail and shows dataset hash and commit only when they exist", async () => {
     const user = userEvent.setup();
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     const details = screen.getByText("Ver detalle técnico").closest("details")!;
     expect(details).not.toHaveAttribute("open");
@@ -233,7 +235,7 @@ describe("CICYTEX", () => {
   it("declares «no disponible» when provenance fails", async () => {
     const user = userEvent.setup();
     vi.mocked(cicytexApi.getCicytexProvenance).mockRejectedValue(new Error("boom"));
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     await user.click(screen.getByText("Ver detalle técnico"));
     const details = screen.getByText("Ver detalle técnico").closest("details")!;
@@ -244,7 +246,7 @@ describe("CICYTEX", () => {
   it("declares «no disponible» for a missing commit but still shows the dataset hash", async () => {
     const user = userEvent.setup();
     vi.mocked(cicytexApi.getCicytexProvenance).mockResolvedValue({ ...CY_PROV, git_commit: "" } as never);
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     await user.click(screen.getByText("Ver detalle técnico"));
     const details = screen.getByText("Ver detalle técnico").closest("details")!;
@@ -255,7 +257,7 @@ describe("CICYTEX", () => {
   it("shows a Spanish role=alert with «Reintentar» when the session cannot be opened", async () => {
     const user = userEvent.setup();
     vi.mocked(cicytexApi.createCicytexSession).mockRejectedValueOnce(new Error("HTTP 500 raw"));
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/no se pudo cargar/i);
     expect(alert.textContent).not.toMatch(/HTTP 500/);
@@ -268,7 +270,7 @@ describe("CICYTEX", () => {
   it("shows an alert with «Reintentar» when advancing fails and keeps the outcome hidden", async () => {
     const user = userEvent.setup();
     vi.spyOn(cicytexApi, "advanceCicytexSession").mockRejectedValueOnce(new Error("x"));
-    render(<GuidedDemoPage />);
+    render(<CicytexStep />);
     await screen.findByText("Sin alerta");
     await user.click(advance());
     const alert = await screen.findByRole("alert");
@@ -281,7 +283,7 @@ describe("Pergamino y Melchor Romero", () => {
   it("shows Pergamino's alert from its own emission and agreement, with its own source", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
-    await toStep(user, 2);
+    await toStep(user, 1);
     expect(await screen.findByText("Alerta prevista")).toBeInTheDocument();
     expect(screen.getByText("2 de 3 modelos coinciden con este resultado")).toBeInTheDocument();
     expect(historicalApi.getHistoricalForecastBatch).toHaveBeenCalledWith("pergamino-ensemble-demo", "2023-06-13");
@@ -293,7 +295,7 @@ describe("Pergamino y Melchor Romero", () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue(readings("2023-06-14", 0.25));
     render(<GuidedDemoPage />);
-    await toStep(user, 2);
+    await toStep(user, 1);
     await screen.findByText("Alerta prevista");
     expect(spy).not.toHaveBeenCalled();
     await user.click(advance());
@@ -308,7 +310,7 @@ describe("Pergamino y Melchor Romero", () => {
     const user = userEvent.setup();
     vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue(readings("2023-06-14", 0.4, { imputed: true }));
     render(<GuidedDemoPage />);
-    await toStep(user, 2);
+    await toStep(user, 1);
     await screen.findByText("Alerta prevista");
     await user.click(advance());
     const result = await screen.findByRole("region", { name: /qué ocurrió después/i });
@@ -320,7 +322,7 @@ describe("Pergamino y Melchor Romero", () => {
     const user = userEvent.setup();
     vi.spyOn(historicalApi, "getHistoricalReadings").mockRejectedValueOnce(new Error("x"));
     render(<GuidedDemoPage />);
-    await toStep(user, 2);
+    await toStep(user, 1);
     await screen.findByText("Alerta prevista");
     await user.click(advance());
     await screen.findByRole("alert");
@@ -331,7 +333,7 @@ describe("Pergamino y Melchor Romero", () => {
     const user = userEvent.setup();
     vi.spyOn(historicalApi, "getHistoricalReadings").mockResolvedValue(readings("2023-06-14", null));
     render(<GuidedDemoPage />);
-    await toStep(user, 2);
+    await toStep(user, 1);
     await screen.findByText("Alerta prevista");
     await user.click(advance());
     expect(await screen.findByText(/sin observación en la fuente/i)).toBeInTheDocument();
@@ -340,7 +342,7 @@ describe("Pergamino y Melchor Romero", () => {
   it("uses Melchor Romero's own dataset and shows the emission provenance in the technical detail", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
-    await toStep(user, 3);
+    await toStep(user, 2);
     expect(await screen.findByText("Sin alerta")).toBeInTheDocument();
     expect(historicalApi.getHistoricalForecastBatch).toHaveBeenCalledWith("melchor-romero-demo", "2024-10-20");
     const source = screen.getByText(/de dónde sale/i).closest("p")!;
@@ -355,10 +357,8 @@ describe("Pergamino y Melchor Romero", () => {
   it("shows a Spanish role=alert with «Reintentar» when the emission cannot be loaded", async () => {
     const user = userEvent.setup();
     const calls = vi.mocked(historicalApi.getHistoricalForecastBatch);
-    render(<GuidedDemoPage />);
-    await screen.findByText("Sin alerta");
     calls.mockRejectedValueOnce(new Error("Failed to fetch"));
-    await user.click(next());
+    render(<GuidedDemoPage />);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/no se pudo cargar/i);
     await user.click(within(alert).getByRole("button", { name: "Reintentar" }));
@@ -385,7 +385,7 @@ describe("Sensores simulados (laboratorio)", () => {
   it("is labelled SIMULACIÓN without a physical sensor and offers scenario A first", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
-    await toStep(user, 4);
+    await toStep(user, 3);
     const panel = screen.getByRole("region", { name: /sensores simulados/i });
     expect(panel).toHaveTextContent(/SIMULACIÓN/);
     expect(panel).toHaveTextContent(/sin sensor físico/i);
@@ -400,7 +400,7 @@ describe("Sensores simulados (laboratorio)", () => {
   it("does not claim a model comparison or a probability in the laboratory", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
-    await toStep(user, 4);
+    await toStep(user, 3);
     await user.click(screen.getByRole("button", { name: /generar datos simulados/i }));
     await screen.findByText("Sin alerta");
     const panel = screen.getByRole("region", { name: /sensores simulados/i });
@@ -412,7 +412,7 @@ describe("Sensores simulados (laboratorio)", () => {
   it("advances to scenario B and calls the anomaly a measurement problem, not low moisture", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
-    await toStep(user, 4);
+    await toStep(user, 3);
     await user.click(screen.getByRole("button", { name: /generar datos simulados/i }));
     await screen.findByText("Sin alerta");
     await waitFor(() => expect(advance()).toBeEnabled());
@@ -436,7 +436,7 @@ describe("Sensores simulados (laboratorio)", () => {
       .mockResolvedValueOnce({ rows: [rowA] } as never)
       .mockResolvedValue({ rows: [rowB, rowA] } as never);
     render(<GuidedDemoPage />);
-    await toStep(user, 4);
+    await toStep(user, 3);
     await user.click(screen.getByRole("button", { name: /generar datos simulados/i }));
     await screen.findByText("Sin alerta");
     await waitFor(() => expect(advance()).toBeEnabled());
@@ -450,7 +450,7 @@ describe("Sensores simulados (laboratorio)", () => {
   it("declares technical identity as not available for synthetic data", async () => {
     const user = userEvent.setup();
     render(<GuidedDemoPage />);
-    await toStep(user, 4);
+    await toStep(user, 3);
     await user.click(screen.getByText("Ver detalle técnico"));
     const details = screen.getByText("Ver detalle técnico").closest("details")!;
     expect(details).toHaveTextContent(/commit.*no disponible/i);
@@ -461,7 +461,7 @@ describe("Sensores simulados (laboratorio)", () => {
     const user = userEvent.setup();
     vi.mocked(sensorLabApi.ingestLabReading).mockRejectedValueOnce(new TypeError("Failed to fetch"));
     render(<GuidedDemoPage />);
-    await toStep(user, 4);
+    await toStep(user, 3);
     await user.click(screen.getByRole("button", { name: /generar datos simulados/i }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/no se pudo/i);

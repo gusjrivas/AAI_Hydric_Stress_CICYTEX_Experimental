@@ -14,7 +14,6 @@ describe("modeForView", () => {
     ["laboratorio-sensores", "laboratorio"],
     ["defensa-pergamino", "replay"],
     ["defensa-melchor-romero", "replay"],
-    ["defensa-cicytex", "replay"],
     ["reproduccion-historica", "replay"],
     ["evidencia-resultados", "diseno"],
     ["evidencia", "diseno"],
@@ -30,7 +29,7 @@ describe("modeForView with simulated sensors", () => {
     expect(modeForView("productor", { simulatedSensor: false })).toBe("operacion");
   });
   it("does not relabel replay or design views", () => {
-    expect(modeForView("defensa-cicytex", { simulatedSensor: true })).toBe("replay");
+    expect(modeForView("defensa-pergamino", { simulatedSensor: true })).toBe("replay");
     expect(modeForView("arquitectura", { simulatedSensor: true })).toBe("diseno");
   });
 });

@@ -19,7 +19,6 @@ const MODE_BY_VIEW: Record<ViewKey, ViewMode> = {
   "laboratorio-sensores": "laboratorio",
   "defensa-pergamino": "replay",
   "defensa-melchor-romero": "replay",
-  "defensa-cicytex": "replay",
   "reproduccion-historica": "replay",
   "evidencia-resultados": "diseno",
   evidencia: "diseno",
